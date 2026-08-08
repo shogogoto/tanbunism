@@ -5,6 +5,7 @@ from uuid import UUID
 from neomodel import adb
 
 from tanbun.feature.domain.types import UUIDy, to_uuid
+from tanbun.feature.parsing.sysnet.sysnode import DUMMY_SENTENCE
 from tanbun.feature.quiz.domain.parts import QuizType
 
 
@@ -30,6 +31,10 @@ async def fetch_unattempted_quiz_ids(
         WHERE NOT EXISTS {
             MATCH (user)-[:ANSWER]->(:Answer)-[:ANSWER_OF]->(quiz)
         }
+          AND NOT EXISTS {
+            MATCH (quiz)-[:QUIZ_TARGET|QUIZ_OPTION|CORRECT]->(dummy: Sentence)
+            WHERE dummy.val = $dummy_sentence
+          }
         RETURN quiz.uid
         ORDER BY quiz.created ASC, quiz.uid ASC
         LIMIT $limit
@@ -41,6 +46,7 @@ async def fetch_unattempted_quiz_ids(
             "user_id": to_uuid(user_id).hex,
             "quiz_type": quiz_type.name,
             "limit": limit,
+            "dummy_sentence": DUMMY_SENTENCE,
         },
     )
     return [to_uuid(row[0]) for row in rows]

@@ -17,6 +17,8 @@ from tanbun.feature.quiz.domain.domain import (
     QuizSource,
     QuizType,
 )
+from tanbun.feature.quiz.eligibility import filter_defined_sentence_ids
+from tanbun.feature.quiz.errors import InsufficientOptionsError
 from tanbun.feature.quiz.repo.restore import restore_quiz_sources
 
 
@@ -125,6 +127,12 @@ async def prepare_quiz_gen(  # noqa: PLR0917
     without_correct_option: bool = False,  # noqa: FBT001, FBT002
 ) -> tuple[list[UUID], list[UUIDy]]:
     """クイズ生成用に単文idのセットを返す."""
+    required_ids = [target_sent_uid, *(correct_sent_uids or [])]
+    defined_ids = await filter_defined_sentence_ids(required_ids)
+    if {to_uuid(uid) for uid in required_ids} != set(defined_ids):
+        msg = "説明のない用語はクイズの対象または正解にできません"
+        raise InsufficientOptionsError(msg)
+
     correct_ids = qt.correct_ids(target_sent_uid, correct_sent_uids)
     n_ds = n_option - len(correct_ids)
     if without_correct_option:

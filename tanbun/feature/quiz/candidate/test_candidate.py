@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from tanbun.conftest import mark_async_test
 from tanbun.feature.entry.resource.usecase import save_text
+from tanbun.feature.parsing.sysnet.sysnode import DUMMY_SENTENCE
 from tanbun.feature.quiz.fixture import fx_u
 from tanbun.feature.tanbun.label import LSentence
 from tanbun.feature.user.label import LUser
@@ -34,6 +35,7 @@ async def test_list_candidates_in_resource():
     """リソース内検索."""
     await u()
     sent = await LSentence.nodes.first(val="aaa")
+    await LSentence(val=DUMMY_SENTENCE, resource_uid=sent.resource_uid).save()
     c = await list_candidates_in_resource([sent.uid])
     assert len(c) == 3  # noqa: PLR2004
     c = await list_candidates_in_resource([sent.uid], only_with_term=True)

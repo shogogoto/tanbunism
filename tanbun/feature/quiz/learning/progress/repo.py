@@ -3,6 +3,7 @@
 from neomodel import adb
 
 from tanbun.feature.domain.types import UUIDy, to_uuid
+from tanbun.feature.parsing.sysnet.sysnode import DUMMY_SENTENCE
 from tanbun.feature.quiz.domain.parts import QuizType
 from tanbun.feature.quiz.learning.progress.domain import (
     QuizAttemptRate,
@@ -21,6 +22,7 @@ async def fetch_coverage(
     q = f"""
         MATCH (sent: Sentence {{resource_uid: $resource_id}})
             {eligible}
+        WHERE sent.val <> $dummy_sentence
         OPTIONAL MATCH (user: User {{uid: $user_id}})
             -[:LEARN]->(quiz: Quiz {{
                 quiz_type: $quiz_type,
@@ -36,6 +38,7 @@ async def fetch_coverage(
             "resource_id": to_uuid(resource_id).hex,
             "user_id": to_uuid(user_id).hex,
             "quiz_type": quiz_type.name,
+            "dummy_sentence": DUMMY_SENTENCE,
         },
     )
     eligible_count, covered_count = rows[0]

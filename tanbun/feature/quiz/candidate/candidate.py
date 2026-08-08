@@ -7,6 +7,8 @@ from neomodel import adb
 from pydantic import Field, TypeAdapter
 
 from tanbun.feature.domain.types import UUIDy, to_uuid
+from tanbun.feature.parsing.sysnet.sysnode import DUMMY_SENTENCE
+from tanbun.feature.quiz.eligibility import filter_defined_sentence_ids
 from tanbun.feature.repo.cypher import Paging
 from tanbun.feature.tanbun.repo import search_tanbun_ids
 from tanbun.feature.tanbun.repo.clause import OrderBy
@@ -39,7 +41,7 @@ async def list_candidates_in_resource(
         exclude_sent_ids = []
 
     rs_uids = await fetch_sent2resource_id(target_sent_ids)
-    return await search_tanbun_ids(
+    candidates = await search_tanbun_ids(
         "",
         paging=ENOUGH_PAGING,
         order_by=None,  # 無駄な並び替え省く
@@ -47,6 +49,7 @@ async def list_candidates_in_resource(
         only_with_term=only_with_term,
         exclude_sent_ids=target_sent_ids + exclude_sent_ids,
     )
+    return await filter_defined_sentence_ids(candidates)
 
 
 type Radius = Annotated[int, Field(gt=0, title="探索半径")]
@@ -72,7 +75,9 @@ async def list_candidates_by_radius(
         // dist=1.. にすることで sent_uidを含めない
         OPTIONAL MATCH p = (sent)-[]-{{1, {r}}}(e:Sentence)
             {q_term}
-        WHERE e.uid IS NOT NULL AND NOT e.uid IN $exclude_uids
+        WHERE e.uid IS NOT NULL
+          AND e.val <> $dummy_sentence
+          AND NOT e.uid IN $exclude_uids
         RETURN DISTINCT e.uid
     """
     uids = [to_uuid(uid).hex for uid in target_sent_ids]
@@ -81,6 +86,7 @@ async def list_candidates_by_radius(
         params={
             "sent_uids": uids,
             "exclude_uids": [to_uuid(uid).hex for uid in exclude_sent_ids],
+            "dummy_sentence": DUMMY_SENTENCE,
         },
     )
     return [row[0] for row in rows]
@@ -124,4 +130,4 @@ async def list_top_scoring_candidates(
         only_with_term=only_with_term,
         exclude_sent_ids=exclude_sent_ids,
     )
-    return list(rows)
+    return await filter_defined_sentence_ids(rows)

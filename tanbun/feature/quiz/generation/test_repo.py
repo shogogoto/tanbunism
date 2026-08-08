@@ -5,9 +5,11 @@ from neomodel import adb
 
 from tanbun.conftest import async_fixture, mark_async_test
 from tanbun.feature.domain.types import UUIDy, to_uuid
+from tanbun.feature.parsing.sysnet.sysnode import DUMMY_SENTENCE
 from tanbun.feature.quiz.candidate.types import CandidateType
 from tanbun.feature.quiz.domain.domain import QuizSource
 from tanbun.feature.quiz.domain.parts import QuizType
+from tanbun.feature.quiz.errors import InsufficientOptionsError
 from tanbun.feature.quiz.fixture import fx_u
 from tanbun.feature.tanbun.label import LSentence
 from tanbun.feature.user.label import LUser
@@ -168,3 +170,22 @@ async def test_check_duplication(u: LUser):
         list(source.sources),
         source.correct_ids,
     )
+
+
+@mark_async_test()
+async def test_undefined_term_is_not_a_quiz_target(u: LUser):
+    """説明待ち用語のダミー文からはクイズを生成しない."""
+    target = await LSentence.nodes.first(val="ccc")
+    dummy = await LSentence(
+        val=DUMMY_SENTENCE,
+        resource_uid=target.resource_uid,
+    ).save()
+
+    with pytest.raises(InsufficientOptionsError, match="説明のない用語"):
+        await generate_quiz(
+            QuizType.TERM2SENT,
+            CandidateType.ALL,
+            dummy.uid,
+            3,
+            u.uid,
+        )

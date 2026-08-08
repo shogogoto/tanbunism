@@ -8,6 +8,7 @@ from more_itertools import flatten
 from neomodel import adb
 
 from tanbun.feature.domain.types import UUIDy, to_uuid
+from tanbun.feature.parsing.sysnet.sysnode import DUMMY_SENTENCE
 from tanbun.feature.quiz.domain.parts import QuizType
 from tanbun.feature.quiz.learning.selection.domain import (
     QuizTargetOrder,
@@ -31,7 +32,8 @@ async def _fetch_coverage_sent_ids(
     q = f"""
         MATCH (sent: Sentence {{resource_uid: $resource_id}})
             {eligible}
-        WHERE {not_}EXISTS {{
+        WHERE sent.val <> $dummy_sentence
+          AND {not_}EXISTS {{
             MATCH (user: User {{uid: $user_id}})
                 -[:LEARN]->(quiz: Quiz {{
                     quiz_type: $quiz_type,
@@ -46,6 +48,7 @@ async def _fetch_coverage_sent_ids(
             "resource_id": to_uuid(resource_id).hex,
             "user_id": to_uuid(user_id).hex,
             "quiz_type": quiz_type.name,
+            "dummy_sentence": DUMMY_SENTENCE,
         },
     )
     return list(flatten(rows))
@@ -91,7 +94,9 @@ async def fetch_uncovered_relation_pairs(
     q = """
         MATCH (target: Sentence {resource_uid: $resource_id})
             -[:__KNOWLEDGE_REL_TYPES__]-(correct: Sentence)
-        WHERE NOT target.uid IN $exclude_sent_ids
+        WHERE target.val <> $dummy_sentence
+          AND correct.val <> $dummy_sentence
+          AND NOT target.uid IN $exclude_sent_ids
           AND NOT EXISTS {
             MATCH (user: User {uid: $user_id})
                 -[:LEARN]->(quiz: Quiz {
@@ -111,6 +116,7 @@ async def fetch_uncovered_relation_pairs(
             "quiz_type": quiz_type.name,
             "exclude_sent_ids": [to_uuid(uid).hex for uid in (exclude_sent_ids or [])],
             "limit": limit,
+            "dummy_sentence": DUMMY_SENTENCE,
         },
     )
     return [(to_uuid(target), to_uuid(correct)) for target, correct in rows]

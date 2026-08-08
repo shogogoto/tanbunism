@@ -3,6 +3,7 @@
 from random import Random
 
 from tanbun.conftest import async_fixture, mark_async_test
+from tanbun.feature.parsing.sysnet.sysnode import DUMMY_SENTENCE
 from tanbun.feature.quiz.candidate.types import CandidateType
 from tanbun.feature.quiz.domain.parts import QuizType
 from tanbun.feature.quiz.generation.repo import generate_quiz
@@ -32,6 +33,12 @@ async def test_fetch_uncovered(u: LUser):
     """クイズ生成後の単文を未coverage対象から除外."""
     rid = await learning_resource_id(u.uid)
     target = await LSentence.nodes.first(val="a")
+    dummy = await LSentence(val=DUMMY_SENTENCE, resource_uid=rid.hex).save()
+    assert dummy.uid not in await fetch_uncovered_sent_ids(
+        rid,
+        u.uid,
+        QuizType.REL2PAIR,
+    )
     assert target.uid in await fetch_uncovered_sent_ids(
         rid,
         u.uid,
