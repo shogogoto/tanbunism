@@ -1,7 +1,7 @@
 """detail repo."""
 
 import operator
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from collections.abc import Iterable
 from functools import reduce
 from uuid import UUID
@@ -17,9 +17,11 @@ from tanbun.feature.parsing.primitive.term import Term
 from tanbun.feature.repo.cypher import q_call_term_names
 from tanbun.feature.tanbun.domain import (
     Additional,
+    LocationWithoutParents,
     Tanbun,
     TanbunChain,
     TanbunChains,
+    TanbunContext,
     TanbunLocation,
 )
 from tanbun.feature.tanbun.label import LQuoterm, LSentence
@@ -28,6 +30,7 @@ from tanbun.feature.tanbun.repo.cypher import (
     build_location_res,
     q_chain,
     q_location,
+    q_quote_locations,
     q_stats,
     q_upper,
 )
@@ -96,15 +99,45 @@ async def fetch_tanbuns_with_detail(
     return d
 
 
+type ContextWithParentIds = tuple[LocationWithoutParents, list[str]]
+
+
+async def _fetch_quote_locations(
+    uids: list[str],
+) -> dict[str, list[ContextWithParentIds]]:
+    rows, _ = await adb.cypher_query(q_quote_locations(), params={"uids": uids})
+    locations: dict[str, list[ContextWithParentIds]] = defaultdict(list)
+    for sentence_uid, quote_uid, location in rows:
+        locations[sentence_uid].append(build_location_res(location, quote_uid))
+    return locations
+
+
+def _resolve_quote_contexts(
+    locations: list[ContextWithParentIds],
+    parent_dk: dict[str, Tanbun],
+) -> list[TanbunContext]:
+    return [
+        TanbunContext(
+            parents=[parent_dk[uid] for uid in parent_uids],
+            user=context.user,
+            folders=context.folders,
+            resource=context.resource,
+            headers=context.headers,
+        )
+        for context, parent_uids in locations
+    ]
+
+
 async def fetch_tanbuns_with_detail_and_location(
     uids: Iterable[UUIDy],
     order_by: OrderBy | None = OrderBy(),
 ) -> dict[str, tuple[Tanbun, TanbunLocation]]:
     """詳細とlocation付きで返す."""
+    uid_strs = [to_uuid(uid).hex for uid in uids]
     q = q_tanbun_detail(with_location=True, order_by=order_by)
     rows, _ = await adb.cypher_query(
         q,
-        params={"uids": [to_uuid(uid).hex for uid in uids]},
+        params={"uids": uid_strs},
     )
 
     def _to_tanbun():
@@ -122,16 +155,26 @@ async def fetch_tanbuns_with_detail_and_location(
         return d, d_loc, d_parents
 
     d, d_loc, d_parents = _to_tanbun()
-    # それぞれの parents を集めて一括 parent detial取得
-    puids = set(flatten(d_parents.values()))
+
+    quote_locations = await _fetch_quote_locations(uid_strs)
+
+    # 定義元と引用先の parents を集めて一括取得
+    quote_parent_uids = flatten(
+        parent_uids
+        for contexts in quote_locations.values()
+        for _, parent_uids in contexts
+    )
+    puids = set(flatten(d_parents.values())) | set(quote_parent_uids)
     parent_dk = await fetch_tanbuns_with_detail(puids)
     retval = {}
     for k, v in d.items():
         parents = [parent_dk[uid] for uid in d_parents[k]]
+        quote_contexts = _resolve_quote_contexts(quote_locations[k], parent_dk)
         retval[k] = (
             v,
             TanbunLocation(
                 parents=parents,
+                quote_contexts=quote_contexts,
                 user=d_loc[k].user,
                 folders=d_loc[k].folders,
                 resource=d_loc[k].resource,

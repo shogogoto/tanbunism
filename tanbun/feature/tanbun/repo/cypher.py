@@ -210,6 +210,19 @@ def q_location(sent_var: str) -> str:
     """
 
 
+def q_quote_locations() -> str:
+    """引用用語が置かれた各場所の位置情報."""
+    return f"""
+        UNWIND $uids AS uid
+        MATCH (sent:Sentence {{uid: uid}})<-[:QUOTERM]-(quote:Quoterm)
+        MATCH (resource:Resource {{uid: quote.resource_uid}})
+        MATCH quote_path = (resource)-[:{STREAM}]->*(quote)
+            , owner_path = (user:User)<-[:OWNED|PARENT]-*(resource)
+        RETURN sent.uid, quote.uid, nodes(owner_path) + quote_path AS location
+        ORDER BY quote.uid
+    """
+
+
 def build_location_res(
     row: Any,
     self_uid: str,

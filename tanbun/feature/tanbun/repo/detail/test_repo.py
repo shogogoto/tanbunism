@@ -269,6 +269,34 @@ async def test_chain_quoterm_rel(u: LUser):
 
 
 @mark_async_test()
+async def test_quote_contexts(u: LUser):
+    """引用用語を置いた複数の親経路を、定義元とは別に返す."""
+    s = """
+        # title
+            A: aaa
+        ## quotes
+            context1
+                `A`
+            context2
+                middle
+                    `A`
+    """
+
+    _sn, _r = await save_text(u.uid, s)
+    target = await LSentence.nodes.get(val="aaa")
+    chain = (await fetch_tanbun_chains([target.uid])).root[0]
+
+    assert chain.location.parents == []
+    assert [
+        [parent.sentence for parent in context.parents]
+        for context in chain.location.quote_contexts
+    ] == unordered([
+        ["context1"],
+        ["context2", "middle"],
+    ])
+
+
+@mark_async_test()
 async def test_fetch_multi_chains(u: LUser):
     """複数のチェーンを取得する."""
     s = """

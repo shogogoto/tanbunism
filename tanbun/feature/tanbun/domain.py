@@ -127,10 +127,16 @@ class LocationWithoutParents(BaseModel):
     #     return f"{self.user.username} {'>'.join([h.val for h in self.headers])}"
 
 
-class TanbunLocation(LocationWithoutParents):
-    """単文の位置情報."""
+class TanbunContext(LocationWithoutParents):
+    """ある場所から単文へ至る文脈."""
 
     parents: list[Tanbun]
+
+
+class TanbunLocation(TanbunContext):
+    """定義元と引用先を含む単文の位置情報."""
+
+    quote_contexts: list[TanbunContext] = Field(default_factory=list)
 
 
 class TanbunAdjacency(BaseModel):
