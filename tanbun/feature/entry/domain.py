@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from hashlib import blake2b
 from typing import Literal
 from uuid import UUID
 
@@ -24,6 +25,12 @@ from .errors import (
     EntryNotFoundError,
     ResourceSaveOptimisticLockError,
 )
+
+
+def resource_text_hash(text: str) -> int:
+    """プロセスを再起動しても変わらない本文ハッシュを返す."""
+    digest = blake2b(text.encode(), digest_size=8).digest()
+    return int.from_bytes(digest, byteorder="big") & ((1 << 63) - 1)
 
 
 class NameSpace(BaseModel):
@@ -171,7 +178,7 @@ class ResourceMeta(BaseModel):
         pubs = [parse2dt(p) for p in meta_parse(s, "@published")]
         meta = cls(
             title=title_parse(s),
-            txt_hash=hash(s),
+            txt_hash=resource_text_hash(s),
             authors=meta_parse(s, "@author"),
             published=None if len(pubs) == 0 else pubs[0],
             urls=[Url(u) for u in meta_parse(s, "@url")],

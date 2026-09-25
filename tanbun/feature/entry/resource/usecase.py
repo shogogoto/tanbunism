@@ -39,6 +39,10 @@ async def save_resource_with_detail(
 ) -> tuple[MResource, ResourceMeta]:
     """テキストからResource内のTanbunネットワークを永続化."""
     meta = ResourceMeta.from_str(txt, path, updated)
+    existing = ns.get_resource_or_none(meta.title)
+    content_changed = existing is None or existing.txt_hash != meta.txt_hash
+    cache_missing = existing is not None and existing.uid.hex not in ns.stats
+    sn = try_parse2net(txt) if content_changed or cache_missing else None
     lb = await save_or_move_resource(meta, ns)
     await _check_duplication(ns.user_id, meta.title)
     r = await LResource.nodes.get(uid=lb.uid)
@@ -54,11 +58,13 @@ async def save_resource_with_detail(
     dbmeta = MResource.freeze_dict(lb.__properties__)
     cache = await r.cached_stats.get_or_none()
     if cache is None:  # 新規作成
-        sn = try_parse2net(txt)
+        if sn is None:
+            sn = try_parse2net(txt)
         await sn2db(sn, lb.uid, do_print)
         await save_resource_stats_cache(dbmeta.uid, sn)
-    if cache is not None and meta.txt_hash != dbmeta.txt_hash:  # 差分更新
-        sn = try_parse2net(txt)
+    if cache is not None and content_changed:  # 差分更新
+        if sn is None:
+            sn = try_parse2net(txt)
         await update_resource_diff(lb.uid, sn)
         await save_resource_stats_cache(dbmeta.uid, sn)
 

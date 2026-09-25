@@ -6,16 +6,24 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 from tanbun.feature.quiz.domain.parts import QuizType
+from tanbun.feature.quiz.limits import (
+    MAX_OPTIONS_PER_QUIZ,
+    MAX_QUIZZES_PER_REQUEST,
+    MAX_RESOURCES_PER_STUDY_PLAN,
+)
 
 
 class StudyPlanDraft(BaseModel, frozen=True):
     """StudyPlan作成時の設定."""
 
     name: str = Field(min_length=1)
-    resource_ids: list[UUID] = Field(min_length=1)
+    resource_ids: list[UUID] = Field(
+        min_length=1,
+        max_length=MAX_RESOURCES_PER_STUDY_PLAN,
+    )
     quiz_types: list[QuizType] = Field(min_length=1)
-    n_quiz: int = Field(ge=0)
-    n_option: int = Field(ge=1)
+    n_quiz: int = Field(ge=0, le=MAX_QUIZZES_PER_REQUEST)
+    n_option: int = Field(ge=1, le=MAX_OPTIONS_PER_QUIZ)
 
     @field_validator("resource_ids", "quiz_types")
     @classmethod

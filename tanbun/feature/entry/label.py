@@ -69,6 +69,7 @@ class LResource(LEntry):
         fulltext_index=FulltextIndex(),
     )  # userの中でユニーク
     name = AliasProperty("title")
+    resource_key = StringProperty(unique_index=True)
     authors = ArrayProperty(StringProperty())
     published = DateProperty()
     urls = ArrayProperty(StringProperty())

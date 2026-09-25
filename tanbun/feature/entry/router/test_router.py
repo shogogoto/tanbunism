@@ -12,9 +12,14 @@ from httpx import AsyncClient
 from tanbun.api import api
 from tanbun.conftest import mark_async_test
 from tanbun.feature.entry.domain import ResourceInfo
-from tanbun.feature.entry.namespace import create_folder, create_resource
+from tanbun.feature.entry.namespace import (
+    create_folder,
+    create_resource,
+    fetch_namespace,
+)
 from tanbun.feature.entry.namespace.sync import Anchor
 from tanbun.feature.entry.namespace.test_namespace import files  # noqa: F401
+from tanbun.feature.entry.resource.limits import DEFAULT_RESOURCE_UPLOAD_LIMITS
 from tanbun.feature.entry.resource.usecase import save_text
 from tanbun.feature.entry.router.fixture import fixture_txt
 from tanbun.feature.user.label import LUser
@@ -99,6 +104,20 @@ async def test_fetch_resource_detail(files: tuple[Anchor, list[Path]]):  # noqa:
 
 
 @mark_async_test()
+async def test_reject_too_many_resources_in_one_request(ac: AsyncClient) -> None:
+    """同期アップロードの件数上限をAPI入口で適用する."""
+    headers = await async_auth_header()
+    request_files = [
+        ("files", (f"{index}.txt", b"# title", "text/plain"))
+        for index in range(DEFAULT_RESOURCE_UPLOAD_LIMITS.max_files + 1)
+    ]
+
+    response = await ac.post("/resource", headers=headers, files=request_files)
+
+    assert response.status_code == status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+
+
+@mark_async_test()
 async def test_restore_regression() -> None:
     """whenで 端がないとinfを返そうとしてエラーになる."""
     client, h = auth_header()
@@ -176,6 +195,9 @@ async def test_post_resource_locking_new(ac: AsyncClient, tmp_path: Path):
     )
 
     assert status.HTTP_409_CONFLICT in [r.status_code for r in results]
+    user = await LUser.nodes.get(email="one@gmail.com")
+    ns = await fetch_namespace(user.uid)
+    assert [resource.name for resource in ns.resources] == ["# title1"]
 
 
 @mark_async_test()

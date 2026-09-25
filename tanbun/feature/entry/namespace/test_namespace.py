@@ -8,7 +8,7 @@ from textwrap import dedent
 import pytest
 
 from tanbun.conftest import async_fixture, mark_async_test
-from tanbun.feature.entry.domain import NameSpace, ResourceMeta
+from tanbun.feature.entry.domain import NameSpace, ResourceMeta, resource_text_hash
 from tanbun.feature.entry.errors import DuplicatedTitleError
 from tanbun.feature.entry.label import LResource
 from tanbun.feature.entry.namespace import (
@@ -160,13 +160,17 @@ async def test_save_update_exists_hash(tmp_path: Path) -> None:
             z -> c
         """,
     )
-    assert ns.get("sub1", "sub11", "# title1").txt_hash != hash(tgt.read_text())
+    assert ns.get("sub1", "sub11", "# title1").txt_hash != resource_text_hash(
+        tgt.read_text(),
+    )
     paths[0] = tgt
     meta = anchor.to_metas(paths)
     for m in meta.root:
         await save_resource(m, ns)
     ns = await fetch_namespace(u.uid)
-    assert ns.get("sub1", "sub11", "# title1").txt_hash == hash(tgt.read_text())
+    assert ns.get("sub1", "sub11", "# title1").txt_hash == resource_text_hash(
+        tgt.read_text(),
+    )
 
 
 @mark_async_test()

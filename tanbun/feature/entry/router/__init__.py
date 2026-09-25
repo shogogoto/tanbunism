@@ -9,7 +9,6 @@ from uuid import UUID
 
 import chardet  # 文字エンコーディング検出用
 from fastapi import APIRouter, Body, UploadFile
-from neomodel.async_.core import AsyncDatabase
 
 from tanbun.feature.domain.datetime import TZ
 from tanbun.feature.entry.domain import NameSpace, ResourceDetail, ResourceSearchResult
@@ -21,6 +20,13 @@ from tanbun.feature.entry.namespace import (
     fetch_info_by_resource_uid,
     fetch_namespace,
     sync_namespace,
+)
+from tanbun.feature.entry.resource.limits import (
+    DEFAULT_RESOURCE_UPLOAD_LIMITS,
+    validate_batch_size,
+    validate_file_count,
+    validate_file_size,
+    validate_resource_text,
 )
 from tanbun.feature.entry.resource.repo.delete import delete_resource
 from tanbun.feature.entry.resource.repo.owner import check_entry_owner
@@ -62,6 +68,7 @@ async def post_text(
     user: ActiveUser,
 ) -> dict[str, str]:
     """テキストからsysnetを読み取って永続化."""
+    validate_resource_text(txt)
     ns = await fetch_namespace(user.id)
     m, _ = await save_resource_with_detail(ns, txt, path)
     return {"resource_id": m.uid.hex}
@@ -73,23 +80,33 @@ async def post_files(
     user: ActiveUser,
 ) -> None:
     """ファイルからsysnetを読み取って永続化."""
+    validate_file_count(len(files))
 
-    async def read_content(file: UploadFile) -> str:
+    async def read_content(file: UploadFile) -> tuple[str, int]:
         """ファイルの内容を適切なエンコーディングで読み込む."""
-        content = await file.read()
+        content = await file.read(
+            DEFAULT_RESOURCE_UPLOAD_LIMITS.max_file_bytes + 1,
+        )
+        validate_file_size(len(content))
         encoding = chardet.detect(content)["encoding"] or "utf-8"
-        return content.decode(encoding)
+        return content.decode(encoding), len(content)
 
-    for f in files:
-        txt = await read_content(f)
+    resources: list[tuple[UploadFile, str]] = []
+    total_size = 0
+    for file in files:
+        text, size = await read_content(file)
+        total_size += size
+        validate_batch_size(total_size)
+        resources.append((file, text))
+
+    for file, text in resources:
         ns = await fetch_namespace(user.id)
-        async with AsyncDatabase().transaction:
-            await save_resource_with_detail(
-                ns,
-                txt,
-                path=f.filename.split("/") if f.filename else None,
-                updated=datetime.now(tz=TZ),
-            )
+        await save_resource_with_detail(
+            ns,
+            text,
+            path=file.filename.split("/") if file.filename else None,
+            updated=datetime.now(tz=TZ),
+        )
 
 
 @router.get("/resource/{resource_id}")

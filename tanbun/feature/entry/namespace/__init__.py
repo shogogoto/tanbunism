@@ -12,6 +12,7 @@ import neo4j
 import networkx as nx
 from more_itertools import collapse
 from neomodel.async_.core import AsyncDatabase
+from neomodel.exceptions import ConstraintValidationFailed, UniqueProperty
 from pydantic import RootModel
 from pydantic_core import Url
 
@@ -22,6 +23,7 @@ from tanbun.feature.entry.errors import (
     DuplicatedTitleError,
     EntryAlreadyExistsError,
     FolderDeleteError,
+    ResourceSaveOptimisticLockError,
     SaveResourceError,
 )
 from tanbun.feature.entry.label import LFolder, LResource, LResourceStatsCache
@@ -104,13 +106,31 @@ async def fill_parents(ns: NameSpace, *names: str) -> LFolder | None:
             raise ValueError
 
 
+async def _save_unique_resource(
+    resource: LResource,
+    ns: NameSpace,
+    title: str,
+) -> LResource:
+    """ユーザー内の同名Resource作成をDB制約でも防ぐ."""
+    resource.resource_key = f"{ns.user_id.hex}:{title}"
+    try:
+        return await resource.save()
+    except (ConstraintValidationFailed, UniqueProperty) as error:
+        msg = f"'{title}'は既に登録済みです"
+        raise ResourceSaveOptimisticLockError(msg) from error
+
+
 async def save_resource(m: ResourceMeta, ns: NameSpace) -> LResource | None:
     """新規作成 or 更新して返す."""
     path = ns.get_path(*m.names)
     tail = next((p for p in reversed(path) if p is not None), None)
     match tail:
         case None | MFolder():  # 新規作成 or フォルダが途中まで既存
-            lb = await LResource(**m.model_dump()).save()
+            lb = await _save_unique_resource(
+                LResource(**m.model_dump()),
+                ns,
+                m.title,
+            )
             parent = await fill_parents(ns, *m.names[:-1])
             if parent is None:  # user直下
                 u = await LUser.nodes.get(uid=ns.user_id.hex)
@@ -127,7 +147,7 @@ async def save_resource(m: ResourceMeta, ns: NameSpace) -> LResource | None:
             for k, v in m.model_dump().items():
                 setattr(lb, k, v)
             lb.updated = datetime.now()  # noqa: DTZ005
-            return await lb.save()
+            return await _save_unique_resource(lb, ns, m.title)
         case _:
             raise ValueError
 
@@ -145,9 +165,9 @@ async def save_or_move_resource(
     ns.remove_resource(m.title)
 
     d = old.model_dump()
+    d.update(m.model_dump())
     d["uid"] = d["uid"].hex  # ハイフンありに変換されると単文との結びつきがなくなる
-    d["updated"] = m.updated
-    upd = await LResource(**d).save()  # reflesh
+    upd = await _save_unique_resource(LResource(**d), ns, m.title)  # reflesh
     owner = await upd.owner.get_or_none()
     parent = await upd.parent.get_or_none()
     if owner is None and parent is None:

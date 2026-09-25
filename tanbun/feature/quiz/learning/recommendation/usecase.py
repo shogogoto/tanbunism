@@ -103,6 +103,8 @@ async def recommend_quizzes(  # noqa: PLR0917
     counts = _allocate_counts(n_quiz, len(resources))
     pools = []
     for resource_id, count in zip(resources, counts, strict=True):
+        if count == 0:
+            continue
         quizzes = await _prepare_resource_quizzes(
             resource_id,
             user_id,

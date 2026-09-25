@@ -1,5 +1,10 @@
 """複数リソースを横断するクイズ推薦のテスト."""
 
+from unittest.mock import AsyncMock
+from uuid import uuid4
+
+import pytest
+
 from tanbun.conftest import async_fixture, mark_async_test
 from tanbun.feature.quiz.candidate.types import CandidateType
 from tanbun.feature.quiz.domain.parts import QuizType
@@ -8,6 +13,9 @@ from tanbun.feature.quiz.learning.fixture import (
     fx_learning,
     generate_test_quizzes,
     learning_resource_id,
+)
+from tanbun.feature.quiz.learning.recommendation import (
+    usecase as recommendation_usecase,
 )
 from tanbun.feature.quiz.learning.recommendation.domain import (
     QuizRecommendationReason,
@@ -18,6 +26,33 @@ from tanbun.feature.quiz.learning.recommendation.usecase import (
 from tanbun.feature.user.label import LUser
 
 u = async_fixture()(fx_learning)
+
+
+@mark_async_test()
+async def test_skip_resources_allocated_zero_quizzes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """割当が0件のResourceにはDBアクセスや生成処理を行わない."""
+    prepare = AsyncMock(return_value=[])
+    monkeypatch.setattr(
+        recommendation_usecase,
+        "_prepare_resource_quizzes",
+        prepare,
+    )
+    first = uuid4()
+    second = uuid4()
+
+    await recommend_quizzes(
+        [first, second],
+        uuid4(),
+        QuizType.TERM2SENT,
+        CandidateType.ALL,
+        n_quiz=1,
+        n_option=3,
+    )
+
+    prepare.assert_awaited_once()
+    assert prepare.await_args.args[0] == first
 
 
 @mark_async_test()

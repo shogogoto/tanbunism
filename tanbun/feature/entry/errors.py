@@ -37,3 +37,9 @@ class ResourceSaveOptimisticLockError(DomainError):
     """リソース更新時の競合."""
 
     status_code = status.HTTP_409_CONFLICT
+
+
+class ResourceUploadLimitError(DomainError):
+    """同期的に保存できるResourceの負荷上限を超過."""
+
+    status_code = status.HTTP_413_REQUEST_ENTITY_TOO_LARGE

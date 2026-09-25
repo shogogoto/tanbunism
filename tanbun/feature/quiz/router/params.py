@@ -6,16 +6,17 @@ from pydantic import BaseModel, Field, model_validator
 
 from tanbun.feature.quiz.candidate.types import CandidateType
 from tanbun.feature.quiz.domain.parts import QuizType
+from tanbun.feature.quiz.limits import MAX_OPTIONS_PER_QUIZ, MAX_QUIZZES_PER_REQUEST
 
 
 class BatchCreateQuizParam(BaseModel, frozen=True):
     """リソース単位で一括クイズ作成."""
 
     resource_uid: str
-    n_quiz: int
+    n_quiz: int = Field(ge=0, le=MAX_QUIZZES_PER_REQUEST)
     quiz_type: QuizType
     cand_type: CandidateType
-    n_option: int = 4
+    n_option: int = Field(default=4, ge=1, le=MAX_OPTIONS_PER_QUIZ)
     allow_multiple_anwser: bool = False
     allow_no_correct_option: bool = False
 
@@ -26,7 +27,7 @@ class CreateQuizParam(BaseModel, frozen=True):
     target_sent_uid: str
     quiz_type: QuizType
     cand_type: CandidateType
-    n_option: int = 4
+    n_option: int = Field(default=4, ge=1, le=MAX_OPTIONS_PER_QUIZ)
     correct_sent_uids: list[str] = Field(default_factory=list)
     allow_multiple_anwser: bool = False
     allow_no_correct_option: bool = False
