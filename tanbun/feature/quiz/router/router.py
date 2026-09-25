@@ -11,7 +11,7 @@ from tanbun.feature.entry.resource.repo.owner import check_entry_owner
 from tanbun.feature.quiz.answering.usecase import answer_quiz_as_chain
 from tanbun.feature.quiz.chain.domain import QuizChain
 from tanbun.feature.quiz.chain.router import quiz_chain_router
-from tanbun.feature.quiz.domain.answer import Answers
+from tanbun.feature.quiz.domain.answer import AnswerHistoryResult, Answers
 from tanbun.feature.quiz.domain.collections import ReadableQuizResult
 from tanbun.feature.quiz.domain.domain import ReadableQuiz
 from tanbun.feature.quiz.domain.parts import QuizType
@@ -20,6 +20,7 @@ from tanbun.feature.quiz.learning.progress.domain import ResourceLearningStatus
 from tanbun.feature.quiz.learning.progress.usecase import fetch_learning_status
 from tanbun.feature.quiz.learning.study_plan.router import study_plan_router
 from tanbun.feature.quiz.listing.repo import (
+    list_answer_history,
     list_answers,
     list_learning_quizzes,
     list_quiz_by_user_ids,
@@ -173,6 +174,26 @@ async def list_answer(
 ) -> Answers:
     """認証ユーザー自身の回答一覧."""
     return await list_answers([quiz_id], user_uid=user.uid)
+
+
+@_r.get("/answers")
+async def list_answer_history_api(
+    user: ActiveUser,
+    *,
+    is_correct: bool | None = None,
+    quiz_type: QuizType | None = None,
+    resource_id: UUID | None = None,
+    page: Annotated[int, Query(gt=0)] = 1,
+    size: Annotated[int, Query(gt=0, le=100)] = 20,
+) -> AnswerHistoryResult:
+    """認証ユーザー自身の回答履歴を新しい順に取得."""
+    return await list_answer_history(
+        user.uid,
+        Paging(page=page, size=size),
+        is_correct=is_correct,
+        quiz_type=quiz_type,
+        resource_id=resource_id,
+    )
 
 
 @_r.get("/learning-progress/{resource_id}")

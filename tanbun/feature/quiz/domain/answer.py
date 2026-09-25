@@ -6,6 +6,7 @@ from pydantic import BaseModel, RootModel
 
 from tanbun.feature.domain.datetime import Neo4jDateTime
 from tanbun.feature.quiz.domain.domain import ReadableQuiz
+from tanbun.feature.quiz.domain.parts import QuizType
 
 
 class Answer(BaseModel, frozen=True):
@@ -28,3 +29,19 @@ class QuizAnswers(BaseModel, frozen=True):
 
     rq: ReadableQuiz
     answers: list[Answer]
+
+
+class AnswerHistoryItem(BaseModel, frozen=True):
+    """回答履歴一覧の1件."""
+
+    answer: Answer
+    quiz_type: QuizType
+    resource_id: UUID
+    quiz: ReadableQuiz
+
+
+class AnswerHistoryResult(BaseModel, frozen=True):
+    """ページングされた回答履歴."""
+
+    data: list[AnswerHistoryItem]
+    total: int

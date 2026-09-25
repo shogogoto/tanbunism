@@ -11,7 +11,12 @@ from datetime import datetime
 from neomodel import adb
 
 from tanbun.feature.domain.types import UUIDy, to_uuid
-from tanbun.feature.quiz.domain.answer import Answer, Answers
+from tanbun.feature.quiz.domain.answer import (
+    Answer,
+    AnswerHistoryItem,
+    AnswerHistoryResult,
+    Answers,
+)
 from tanbun.feature.quiz.domain.collections import (
     ReadableQuizResult,
     ReadableQuizzes,
@@ -273,3 +278,71 @@ async def list_answers(
         )
         ls.append(ans)
     return Answers(root=ls)
+
+
+async def list_answer_history(
+    user_uid: UUIDy,
+    paging: Paging = Paging(),
+    *,
+    is_correct: bool | None = None,
+    quiz_type: QuizType | None = None,
+    resource_id: UUIDy | None = None,
+) -> AnswerHistoryResult:
+    """認証ユーザーの回答を新しい順に一覧取得."""
+    q = f"""
+        MATCH (user: User {{uid: $user_uid}})-[:ANSWER]->(answer: Answer)
+            -[:ANSWER_OF]->(quiz: Quiz)-[:QUIZ_TARGET]->(target: Sentence)
+        WHERE ($is_correct IS NULL OR answer.is_correct = $is_correct)
+          AND ($quiz_type IS NULL OR quiz.quiz_type = $quiz_type)
+          AND ($resource_id IS NULL OR target.resource_uid = $resource_id)
+        OPTIONAL MATCH (answer)-[:SELECT]->(selected: Sentence)
+        WITH
+            answer,
+            quiz,
+            target.resource_uid AS resource_id,
+            COLLECT(DISTINCT selected.uid) AS selected_ids
+        ORDER BY answer.created DESC, answer.uid ASC
+        WITH COLLECT({{
+            answer_uid: answer.uid,
+            quiz_id: quiz.uid,
+            quiz_type: quiz.quiz_type,
+            resource_id: resource_id,
+            selected: selected_ids,
+            is_correct: answer.is_correct,
+            created: answer.created
+        }}) AS records
+        {paging.return_stmt("records")}
+    """
+    rows, _ = await adb.cypher_query(
+        q,
+        params={
+            "user_uid": to_uuid(user_uid).hex,
+            "is_correct": is_correct,
+            "quiz_type": quiz_type.name if quiz_type else None,
+            "resource_id": to_uuid(resource_id).hex if resource_id else None,
+            **paging.params,
+        },
+    )
+    total, records = rows[0]
+    quiz_ids = list(dict.fromkeys(record["quiz_id"] for record in records))
+    sources = await restore_quiz_sources(quiz_ids)
+    source_by_id = {source.quiz_id.hex: source for source in sources}
+    return AnswerHistoryResult(
+        total=total,
+        data=[
+            AnswerHistoryItem(
+                answer=Answer(
+                    answer_uid=record["answer_uid"],
+                    quiz_uid=record["quiz_id"],
+                    selected=record["selected"],
+                    who=to_uuid(user_uid),
+                    is_correct=record["is_correct"],
+                    created=record["created"],
+                ),
+                quiz_type=record["quiz_type"],
+                resource_id=record["resource_id"],
+                quiz=source_by_id[record["quiz_id"]].to_readable(),
+            )
+            for record in records
+        ],
+    )
