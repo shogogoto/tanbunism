@@ -67,6 +67,12 @@ async def get_namaspace(
     return await fetch_namespace(user.id)
 
 
+@router.get("/user/{user_id}/namespace")
+async def get_public_namespace(user_id: UUID) -> NameSpace:
+    """公開ユーザーのEntryとResourceを取得."""
+    return await fetch_namespace(user_id)
+
+
 @router.post("/resource-text")
 async def post_text(
     txt: Annotated[str, Body(embed=True)],

@@ -112,6 +112,10 @@ async def test_fetch_resource_detail(files: tuple[Anchor, list[Path]]):  # noqa:
     assert "authors" in detail["children"][0]
     assert uid.replace("-", "") in detail["stats"]
 
+    res = client.get(f"/user/{user.uid}/namespace")
+    assert res.is_success
+    assert res.json()["user_id"].replace("-", "") == user.uid
+
 
 @mark_async_test()
 async def test_reject_too_many_resources_in_one_request(ac: AsyncClient) -> None:
