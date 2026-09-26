@@ -31,8 +31,10 @@ if TYPE_CHECKING:
     from tanbun.feature.parsing.tree2net.directed_edge import DirectedEdgeCollection
 
 
-@cache
-def parse2net(txt: str, do_print: bool = False) -> SysNet:  # noqa: FBT001 FBT002
+def parse2net_uncached(
+    txt: str,
+    do_print: bool = False,  # noqa: FBT001 FBT002
+) -> SysNet:
     """文からsysnetへ."""
     t = parse2tree(txt, TSysArg())
     if do_print:
@@ -43,6 +45,12 @@ def parse2net(txt: str, do_print: bool = False) -> SysNet:  # noqa: FBT001 FBT00
     g = _build_graph(t, si.col)
     g.add_node(si.root)
     return SysNet(root=si.root, g=nx.freeze(g))
+
+
+@cache
+def parse2net(txt: str, do_print: bool = False) -> SysNet:  # noqa: FBT001 FBT002
+    """テキストをsysnetへ変換する(キャッシュ付き)."""
+    return parse2net_uncached(txt, do_print)
 
 
 def _build_graph(tree: Tree, col: DirectedEdgeCollection) -> nx.MultiDiGraph:
