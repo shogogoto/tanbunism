@@ -13,7 +13,7 @@ from tanbun.feature.user.label import LowerEmailProperty, LUser
 async def async_client() -> AsyncGenerator[AsyncClient]:  # noqa: D103
     s = Settings()
     async with AsyncClient(
-        transport=ASGITransport(app=api),
+        transport=ASGITransport(app=api, raise_app_exceptions=False),
         base_url=s.KNOWDE_URL,
     ) as client:
         yield client

@@ -339,7 +339,7 @@ async def list_answer_history(
                     is_correct=record["is_correct"],
                     created=record["created"],
                 ),
-                quiz_type=record["quiz_type"],
+                quiz_type=QuizType[record["quiz_type"]],
                 resource_id=record["resource_id"],
                 quiz=source_by_id[record["quiz_id"]].to_readable(),
             )

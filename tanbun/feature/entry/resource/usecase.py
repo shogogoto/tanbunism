@@ -1,7 +1,9 @@
 """usecase."""
 
+import asyncio
 from datetime import datetime
 from uuid import UUID
+from weakref import WeakValueDictionary
 
 from tanbun.feature.domain.errors import NotFoundError
 from tanbun.feature.domain.types import UUIDy, to_uuid
@@ -21,6 +23,20 @@ from tanbun.feature.parsing.sysnet import SysNet
 
 from .stats.repo import save_resource_stats_cache
 
+_resource_save_locks: WeakValueDictionary[str, asyncio.Lock] = (
+    WeakValueDictionary()
+)
+
+
+def _resource_save_lock(user_id: UUID, title: str) -> asyncio.Lock:
+    """同一ユーザー・タイトルの保存に使うプロセス内ロック."""
+    key = f"{user_id.hex}:{title}"
+    lock = _resource_save_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _resource_save_locks[key] = lock
+    return lock
+
 
 async def _check_duplication(user_id: UUID, title: str):
     rs = await fetch_resources_by_user(user_id)
@@ -39,6 +55,28 @@ async def save_resource_with_detail(
 ) -> tuple[MResource, ResourceMeta]:
     """テキストからResource内のTanbunネットワークを永続化."""
     meta = ResourceMeta.from_str(txt, path, updated)
+    lock = _resource_save_lock(ns.user_id, meta.title)
+    if lock.locked():
+        msg = f"'{meta.title}'は同時に保存されています"
+        raise ResourceSaveOptimisticLockError(msg)
+    async with lock:
+        return await _save_resource_with_detail(
+            ns,
+            txt,
+            meta,
+            updated,
+            do_print,
+        )
+
+
+async def _save_resource_with_detail(
+    ns: NameSpace,
+    txt: str,
+    meta: ResourceMeta,
+    updated: datetime | None,
+    do_print: bool,  # noqa: FBT001
+) -> tuple[MResource, ResourceMeta]:
+    """競合確認後にResourceを永続化する."""
     existing = ns.get_resource_or_none(meta.title)
     content_changed = existing is None or existing.txt_hash != meta.txt_hash
     cache_missing = existing is not None and existing.uid.hex not in ns.stats
