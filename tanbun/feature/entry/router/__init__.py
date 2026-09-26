@@ -11,12 +11,18 @@ import chardet  # 文字エンコーディング検出用
 from fastapi import APIRouter, Body, UploadFile
 
 from tanbun.feature.domain.datetime import TZ
-from tanbun.feature.entry.domain import NameSpace, ResourceDetail, ResourceSearchResult
+from tanbun.feature.entry.domain import (
+    EntryDetail,
+    NameSpace,
+    ResourceDetail,
+    ResourceSearchResult,
+)
 from tanbun.feature.entry.errors import NotOwnerError
 from tanbun.feature.entry.label import LResource
 from tanbun.feature.entry.namespace import (
     ResourceMetas,
     delete_folder,
+    fetch_entry_detail,
     fetch_info_by_resource_uid,
     fetch_namespace,
     sync_namespace,
@@ -115,6 +121,12 @@ async def get_resource_detail(resource_id: str) -> ResourceDetail:
     g, uids, terms = await restore_graph(resource_id)
     info = await fetch_info_by_resource_uid(resource_id)
     return ResourceDetail(g=g, resource_info=info, uids=uids, terms=terms)
+
+
+@router.get("/entry/{entry_id}")
+async def get_entry_detail(entry_id: UUID) -> EntryDetail:
+    """Entryの親階層と直下のEntryを取得."""
+    return await fetch_entry_detail(entry_id)
 
 
 # resourceの削除とfolderの削除を統合したい

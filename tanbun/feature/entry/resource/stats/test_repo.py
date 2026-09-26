@@ -56,6 +56,7 @@ async def test_fetch_resource_info_by_resource_uid() -> None:
     assert info.user.id.hex == u.uid
     assert info.resource.uid == r.uid
     assert info.resource.path == ("sub1",)
+    assert [folder.name for folder in info.folders] == ["sub1"]
     assert info.resource_stats is not None
 
     assert await fetch_resource_stats_cache(r.uid)

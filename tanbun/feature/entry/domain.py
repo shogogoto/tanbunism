@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from pydantic_core import Url
 
 from tanbun.feature.domain.graph.schema import NXGraph
-from tanbun.feature.entry.mapper import Entry, MResource
+from tanbun.feature.entry.mapper import Entry, MFolder, MResource
 from tanbun.feature.entry.resource.stats.domain import ResourceStats
 from tanbun.feature.parsing.meta_parse import meta_parse, title_parse
 from tanbun.feature.parsing.primitive.term import Term
@@ -194,8 +194,19 @@ class ResourceInfo(BaseModel):
     """リソースの所有者や統計を含む情報."""
 
     user: UserReadPublic
+    folders: list[MFolder] = Field(default_factory=list)
     resource: MResource
     resource_stats: ResourceStats
+
+
+class EntryDetail(BaseModel):
+    """Entryと、その直下を表示するための情報."""
+
+    user: UserReadPublic
+    ancestors: list[MFolder] = Field(default_factory=list)
+    entry: MFolder
+    children: list[MFolder | MResource] = Field(default_factory=list)
+    stats: dict[str, ResourceStats] = Field(default_factory=dict)
 
 
 class ResourceDetail(BaseModel):

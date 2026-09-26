@@ -101,6 +101,16 @@ async def test_fetch_resource_detail(files: tuple[Anchor, list[Path]]):  # noqa:
     info = ResourceInfo.model_validate(res.json()["resource_info"])
     assert info.user.id.hex == user.uid
     assert info.resource.uid.hex == uid
+    assert [folder.name for folder in info.folders] == ["a", "b"]
+
+    res = client.get(f"/entry/{info.folders[-1].uid}")
+    assert res.is_success
+    detail = res.json()
+    assert [entry["name"] for entry in detail["ancestors"]] == ["a"]
+    assert detail["entry"]["name"] == "b"
+    assert [entry["uid"].replace("-", "") for entry in detail["children"]] == [uid]
+    assert "authors" in detail["children"][0]
+    assert uid.replace("-", "") in detail["stats"]
 
 
 @mark_async_test()

@@ -18,7 +18,12 @@ from pydantic_core import Url
 
 from tanbun.feature.domain.errors import NotFoundError
 from tanbun.feature.domain.types import UUIDy, to_uuid
-from tanbun.feature.entry.domain import NameSpace, ResourceInfo, ResourceMeta
+from tanbun.feature.entry.domain import (
+    EntryDetail,
+    NameSpace,
+    ResourceInfo,
+    ResourceMeta,
+)
 from tanbun.feature.entry.errors import (
     DuplicatedTitleError,
     EntryAlreadyExistsError,
@@ -288,12 +293,49 @@ async def resource_infos_by_resource_uids(
         r = MResource.freeze_dict(path.end_node)
         d[r.uid] = ResourceInfo(
             user=UserReadPublic.model_validate(path.start_node),
+            folders=[MFolder.model_validate(folder) for folder in path.nodes[1:-1]],
             resource=r.model_copy(
                 update={"path": tuple(e for e in resource_path if e is not None)},
             ),
             resource_stats=stats,
         )
     return d
+
+
+async def fetch_entry_detail(entry_uid: UUIDy) -> EntryDetail:
+    """Entryの所有者、親階層、直下Entryを返す."""
+    q = """
+        MATCH p = (user:User)<-[:OWNED|PARENT]-*(entry:Folder {uid: $uid})
+        OPTIONAL MATCH (entry)<-[:PARENT]-(child:Entry)
+        OPTIONAL MATCH (child)-[:STATS]->(stat:ResourceStatsCache)
+        RETURN p, child, stat
+        ORDER BY child.name
+    """
+    uid = to_uuid(entry_uid)
+    rows, _ = await AsyncDatabase().cypher_query(
+        q,
+        params={"uid": uid.hex},
+        resolve_objects=True,
+    )
+    if not rows:
+        msg = f"entry not found: {uid}"
+        raise NotFoundError(msg)
+
+    path: neo4j.graph.Path = rows[0][0]
+    folders = [node.frozen for node in path.nodes[1:]]
+    children = [row[1].frozen for row in rows if row[1] is not None]
+    stats = {
+        row[1].uid: ResourceStats.model_validate(row[2].__properties__)
+        for row in rows
+        if row[1] is not None and row[2] is not None
+    }
+    return EntryDetail(
+        user=UserReadPublic.model_validate(path.start_node.__properties__),
+        ancestors=folders[:-1],
+        entry=folders[-1],
+        children=children,
+        stats=stats,
+    )
 
 
 async def fetch_info_by_resource_uid(resource_uid: UUIDy) -> ResourceInfo:
