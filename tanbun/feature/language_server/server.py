@@ -3,17 +3,30 @@
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
+from time import perf_counter
 
 from lsprotocol import types
 from pygls.lsp.server import LanguageServer
 from pygls.workspace import PositionCodec, ServerTextPosition, ServerTextRange
 
-from tanbun.feature.language_server.completion import complete_terms
-from tanbun.feature.language_server.diagnostics import (
+from tanbun.feature.language_service import (
+    DefinitionLocation,
+    ReferenceKind,
+    SourceDocument,
+    complete_terms,
+    find_definition,
+    find_definitions,
+    find_references,
+    group_references,
+)
+from tanbun.feature.language_service.analysis import (
     DocumentAnalysis,
     analyze,
 )
-from tanbun.feature.parsing.issue import ParseIssue, ParseIssueSeverity
+from tanbun.feature.parsing.issue import ParseIssue, ParseIssueSeverity, SourceRange
+
+from .workspace import local_documents
 
 SERVER_NAME = "tanbun-language-server"
 SERVER_VERSION = "0.1.0"
@@ -91,6 +104,8 @@ def create_server() -> LanguageServer:
         _publish_diagnostics(ls, params.text_document.uri, [])
 
     _register_completion(server)
+    _register_definition(server)
+    _register_references(server)
     _register_status(server)
     return server
 
@@ -132,6 +147,116 @@ def _register_completion(server: LanguageServer) -> None:
                 for symbol in result.symbols
             ],
         )
+
+
+def _register_definition(server: LanguageServer) -> None:
+    """文書内用語のdefinition handlerを登録する."""
+
+    @server.feature(types.TEXT_DOCUMENT_DEFINITION)
+    def definition(
+        ls: LanguageServer,
+        params: types.DefinitionParams,
+    ) -> types.Location | list[types.Location] | None:
+        started = perf_counter()
+        document = ls.workspace.get_text_document(params.text_document.uri)
+        offset = document.offset_at_position(params.position)
+        current = SourceDocument(
+            uri=params.text_document.uri,
+            text=document.source,
+        )
+        local_range = find_definition(current.text, offset)
+        if local_range is not None:
+            locations = (DefinitionLocation(current.uri, local_range),)
+            workspace_documents = ()
+        else:
+            workspace_documents = local_documents(
+                ls,
+                current_uri=params.text_document.uri,
+            )
+            locations = find_definitions(current, offset, workspace_documents)
+        duration_ms = _elapsed_ms(started)
+        if not locations:
+            _report_message(
+                ls,
+                f"Tanbun LSP: 定義が見つかりません ({duration_ms:.1f} ms)",
+                visible=True,
+            )
+            return None
+        documents = {item.uri: item.text for item in workspace_documents}
+        documents[current.uri] = current.text
+        results = _to_lsp_locations(ls, locations, documents)
+        _report_message(
+            ls,
+            f"Tanbun LSP: 定義を{len(results)}件検索 ({duration_ms:.1f} ms)",
+            visible=True,
+        )
+        return results[0] if len(results) == 1 else results
+
+
+def _register_references(server: LanguageServer) -> None:
+    """文書内・workspace内のreferences handlerを登録する."""
+
+    @server.feature(types.TEXT_DOCUMENT_REFERENCES)
+    def references(
+        ls: LanguageServer,
+        params: types.ReferenceParams,
+    ) -> list[types.Location]:
+        started = perf_counter()
+        document = ls.workspace.get_text_document(params.text_document.uri)
+        current = SourceDocument(params.text_document.uri, document.source)
+        workspace_documents = local_documents(
+            ls,
+            current_uri=params.text_document.uri,
+        )
+        locations = find_references(
+            current,
+            document.offset_at_position(params.position),
+            workspace_documents,
+            include_declaration=params.context.include_declaration,
+        )
+        groups = group_references(locations)
+        locations = tuple(location for group in groups for location in group.locations)
+        documents = {item.uri: item.text for item in workspace_documents}
+        documents[current.uri] = current.text
+        results = _to_lsp_locations(ls, locations, documents)
+        counts = Counter(location.kind for location in locations)
+        details = [
+            f"埋め込み{counts[ReferenceKind.EMBEDDED_TERM]}件",
+            f"引用用語{counts[ReferenceKind.QUOTERM]}件",
+        ]
+        if counts[ReferenceKind.DEFINITION]:
+            details.append(f"定義{counts[ReferenceKind.DEFINITION]}件")
+        _report_message(
+            ls,
+            (
+                f"Tanbun LSP: 参照を{len(results)}件検索 "
+                f"({', '.join(details)} · {_elapsed_ms(started):.1f} ms)"
+            ),
+            visible=True,
+        )
+        return results
+
+
+def _to_lsp_locations(
+    server: LanguageServer,
+    locations,
+    documents: dict[str, str],
+) -> list[types.Location]:
+    return [
+        types.Location(
+            uri=location.uri,
+            range=_to_client_range(
+                documents[location.uri],
+                location.source_range,
+                server.workspace.position_codec,
+            ),
+        )
+        for location in locations
+    ]
+
+
+def _elapsed_ms(started: float) -> float:
+    return (perf_counter() - started) * 1000
 
 
 def _register_status(server: LanguageServer) -> None:
@@ -228,8 +353,25 @@ def _to_lsp_diagnostic(
     diagnostic: ParseIssue,
     position_codec: PositionCodec,
 ) -> types.Diagnostic:
-    source_range = diagnostic.source_range
-    client_range = position_codec.range_to_client_units(
+    return types.Diagnostic(
+        range=_to_client_range(text, diagnostic.source_range, position_codec),
+        message=diagnostic.display_message(),
+        severity=(
+            types.DiagnosticSeverity.Warning
+            if diagnostic.severity is ParseIssueSeverity.WARNING
+            else types.DiagnosticSeverity.Error
+        ),
+        source="tanbun",
+    )
+
+
+def _to_client_range(
+    text: str,
+    source_range: SourceRange,
+    position_codec: PositionCodec,
+) -> types.Range:
+    """Python文字位置をクライアントと合意した単位へ変換する."""
+    return position_codec.range_to_client_units(
         text.splitlines(keepends=True),
         ServerTextRange(
             start=ServerTextPosition(
@@ -241,16 +383,6 @@ def _to_lsp_diagnostic(
                 character=source_range.end_character,
             ),
         ),
-    )
-    return types.Diagnostic(
-        range=client_range,
-        message=diagnostic.display_message(),
-        severity=(
-            types.DiagnosticSeverity.Warning
-            if diagnostic.severity is ParseIssueSeverity.WARNING
-            else types.DiagnosticSeverity.Error
-        ),
-        source="tanbun",
     )
 
 

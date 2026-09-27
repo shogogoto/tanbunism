@@ -1,6 +1,6 @@
 """用語補完のテスト."""
 
-from tanbun.feature.language_server.completion import (
+from tanbun.feature.language_service import (
     complete_terms,
     extract_term_symbols,
 )
@@ -26,6 +26,13 @@ def test_extracts_names_aliases_and_composed_term_lookup_key() -> None:
     assert next(symbol.detail for symbol in symbols if symbol.label == "A") == (
         "alias → alpha, alpha alt"
     )
+
+
+def test_extracts_fullwidth_colon_definition() -> None:
+    """全角コロンを使った定義も索引へ含める."""
+    symbols = extract_term_symbols("# title\n  身体化\uff1a 体に覚えさせる\n")
+
+    assert [symbol.label for symbol in symbols] == ["身体化"]
 
 
 def test_completes_term_mark_and_adds_closing_brace() -> None:

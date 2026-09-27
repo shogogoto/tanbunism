@@ -6,12 +6,21 @@ import pytest
 from lsprotocol import types
 from pygls.workspace import PositionCodec
 
-from tanbun.feature.language_server.diagnostics import analyze, diagnose
 from tanbun.feature.language_server.server import (
     _report_analysis,
     _to_lsp_diagnostic,
+    create_server,
 )
+from tanbun.feature.language_service import analyze, diagnose
 from tanbun.feature.parsing.issue import SourceRange
+
+
+def test_server_advertises_definition_support() -> None:
+    """clientにdefinitionとreferences capabilityを公開する."""
+    server = create_server()
+
+    assert types.TEXT_DOCUMENT_DEFINITION in server.protocol.fm.features
+    assert types.TEXT_DOCUMENT_REFERENCES in server.protocol.fm.features
 
 
 def test_valid_document_has_no_diagnostics() -> None:

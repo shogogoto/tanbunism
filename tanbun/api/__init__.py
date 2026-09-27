@@ -18,6 +18,7 @@ from tanbun.config.env import Settings
 from tanbun.feature.achievement.router.router import user_achievement_router
 from tanbun.feature.entry.router import entry_router
 from tanbun.feature.gamification import gamification_router
+from tanbun.feature.language_service.router import language_router
 from tanbun.feature.quiz.router.router import quiz_router
 from tanbun.feature.tanbun.router import tanbun_router
 from tanbun.feature.user import PREFIX_USER
@@ -63,6 +64,7 @@ api.include_router(
 )
 api.include_router(entry_router())
 api.include_router(gamification_router())
+api.include_router(language_router())
 api.include_router(tanbun_router(), prefix="/tanbun", tags=["tanbun"])
 api.include_router(quiz_router())
 

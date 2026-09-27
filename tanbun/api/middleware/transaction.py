@@ -11,6 +11,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from tanbun.config.env import Settings
 
+STATELESS_PATH_PREFIXES = ("/health", "/language")
+
 
 class Neo4jTransactionMiddleware(BaseHTTPMiddleware):
     """API失敗時にロールバック."""
@@ -41,6 +43,8 @@ class Neo4jTransactionMiddleware(BaseHTTPMiddleware):
     @classmethod
     def _should_skip(cls, path: str) -> bool:
         s = Settings()
+        if path.startswith(STATELESS_PATH_PREFIXES):
+            return True
         return any(
             path.startswith(exclude_path)
             for exclude_path in s.neo4j_transaction_exclude_paths
