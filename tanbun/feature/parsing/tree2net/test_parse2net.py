@@ -56,6 +56,34 @@ def test_multiline() -> None:
     assert "aaabbb" in t.g
 
 
+def test_double_braces_are_literal_characters() -> None:
+    """Python風の {{ / }} を用語参照ではなく文字として扱う."""
+    source = """
+        # title
+            記述
+                形態素はカッコ{{}} で囲む
+    """
+
+    network = parse2net(source)
+
+    assert "形態素はカッコ{} で囲む" in network.sentences
+
+
+def test_escaped_braces_can_surround_a_term_reference() -> None:
+    """{{{term}}} は、参照記法を文字の波括弧で囲む."""
+    source = """
+        # title
+            形態素: 言語の最小単位
+            {{{形態素}}}で囲む
+    """
+
+    network = parse2net(source)
+
+    sentence = "{{形態素}}で囲む"
+    assert sentence in network.sentences
+    assert network.get_resolved(sentence) == {"言語の最小単位": {}}
+
+
 def test_add_block() -> None:
     """blockを正しく配置."""
     s = """

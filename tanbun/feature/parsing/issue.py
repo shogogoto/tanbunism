@@ -6,10 +6,14 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 
+from edtf import EDTFParseException
 from lark import UnexpectedCharacters, UnexpectedEOF, UnexpectedInput
 
+from tanbun.feature.parsing.primitive.mark.errors import MarkContainsMarkError
 from tanbun.feature.parsing.primitive.quoterm.errors import QuotermNotFoundError
+from tanbun.feature.parsing.primitive.term.errors import TermConflictError
 from tanbun.feature.parsing.tree2net.errors import OrphanRelationError
+from tanbun.feature.parsing.tree2net.lineparse import parse_line
 from tanbun.feature.parsing.tree_parse.errors import (
     AttachDetailError,
     HeadingMismatchError,
@@ -20,7 +24,9 @@ from tanbun.feature.parsing.tree_parse.errors import (
 )
 
 KN_SYNTAX_ERROR_ARG_COUNT = 3
+MIN_DUPLICATE_DEFINITIONS = 2
 FULLWIDTH_COLON = "\uff1a"
+FULLWIDTH_SPACE = "\u3000"
 
 
 class ParseIssueSeverity(StrEnum):
@@ -93,14 +99,90 @@ def lint_parse_style(text: str) -> tuple[ParseIssue, ...]:
     return tuple(issues)
 
 
-def _locate_error(text: str, exc: Exception) -> SourceRange:
+def _locate_error(  # noqa: C901, PLR0911 - dispatches by exception type
+    text: str,
+    exc: Exception,
+) -> SourceRange:
+    if isinstance(exc, UndedentError):
+        whitespace_range = _locate_non_ascii_indent(text, str(exc))
+        if whitespace_range is not None:
+            return whitespace_range
     if isinstance(exc, OrphanRelationError):
         return _locate_orphan_relation(text, exc.target)
     if isinstance(exc, QuotermNotFoundError):
         quoterm_range = _locate_quoterm(text, str(exc))
         if quoterm_range is not None:
             return quoterm_range
+    if isinstance(exc, EDTFParseException):
+        time_range = _locate_invalid_time(text, exc)
+        if time_range is not None:
+            return time_range
+    if isinstance(exc, TermConflictError):
+        definition_ranges = _locate_term_definitions(text, exc)
+        if definition_ranges:
+            return definition_ranges[-1]
+    if isinstance(exc, MarkContainsMarkError):
+        mark_range = _locate_nested_mark(text, exc)
+        if mark_range is not None:
+            return mark_range
     return _locate_generic_error(text, exc)
+
+
+def _locate_non_ascii_indent(text: str, message: str) -> SourceRange | None:
+    """インデントエラー以前で最後に現れる全角スペースを探す."""
+    reported = re.search(r"line (\d+)", message)
+    last_line = int(reported.group(1)) - 1 if reported is not None else None
+    found = None
+    for line_number, line in enumerate(text.splitlines()):
+        if last_line is not None and line_number > last_line:
+            break
+        match = re.match(rf"^[ \t]*({FULLWIDTH_SPACE})", line)
+        if match is not None:
+            start, end = match.span(1)
+            found = SourceRange(line_number, start, end)
+    return found
+
+
+def _locate_value(text: str, value: str) -> SourceRange | None:
+    """例外が保持する入力値そのものをソース上で探す."""
+    offset = text.find(value)
+    if offset < 0:
+        return None
+    line, character = _offset_to_position(text, offset)
+    return SourceRange(
+        line=line,
+        start_character=character,
+        end_character=character + len(value),
+    )
+
+
+def _locate_invalid_time(
+    text: str,
+    original: EDTFParseException,
+) -> SourceRange | None:
+    """内部で正規化された日時エラーを元のwhen行へ戻す."""
+    exact = _locate_value(text, original.input_string)
+    if exact is not None:
+        return exact
+
+    from tanbun.feature.parsing.primitive.time import parse_when  # noqa: PLC0415
+
+    pattern = re.compile(r"^\s*(?:when\.|@published)\s+(.+?)\s*$")
+    for line_number, line in enumerate(text.splitlines()):
+        match = pattern.match(line)
+        if match is None:
+            continue
+        value = match.group(1)
+        try:
+            parse_when(value)
+        except EDTFParseException as candidate:
+            if candidate.input_string != original.input_string:
+                continue
+            start, end = match.span(1)
+            return SourceRange(line_number, start, end)
+        except Exception:  # noqa: BLE001, S112 - 別種の日時エラーは無関係
+            continue
+    return None
 
 
 def _locate_generic_error(text: str, exc: Exception) -> SourceRange:
@@ -140,7 +222,7 @@ def _locate_generic_error(text: str, exc: Exception) -> SourceRange:
             )
         )
 
-    quoted = re.match(r"'([^']+)'", message)
+    quoted = re.search(r"'([^']+)'", message)
     if quoted:
         value = quoted.group(1)
         marked = f"{{{value}}}"
@@ -170,7 +252,7 @@ def _explain_error(
     return "invalid-document", str(exc), None
 
 
-def _explain_known_error(  # noqa: PLR0911 - each known error has its own guidance
+def _explain_known_error(  # noqa: C901, PLR0911 - known errors have own guidance
     text: str,
     exc: Exception,
     source_range: SourceRange,
@@ -201,11 +283,7 @@ def _explain_known_error(  # noqa: PLR0911 - each known error has its own guidan
             "本文を付加情報と同じ階層へ移動",
         )
     if isinstance(exc, UndedentError):
-        return (
-            "invalid-indent",
-            "インデントの深さが前後の行と一致していません。",
-            "前後の行に合わせて行頭のスペース数を変更",
-        )
+        return _explain_undent(text, source_range)
     if isinstance(exc, OrphanRelationError):
         return (
             "orphan-relation",
@@ -219,7 +297,59 @@ def _explain_known_error(  # noqa: PLR0911 - each known error has its own guidan
             f"引用用語「{name}」が定義されていません。",
             f"「{name}: ...」と定義するか、既存の用語名へ変更",
         )
+    if isinstance(exc, TermConflictError):
+        names = _term_names_from_conflict(exc)
+        name = "、".join(names)
+        definitions = _locate_term_definitions(text, exc)
+        first_location = ""
+        if len(definitions) >= MIN_DUPLICATE_DEFINITIONS:
+            first_location = f" 最初の定義は{definitions[0].line + 1}行目です。"
+        return (
+            "duplicate-term",
+            f"用語「{name}」が複数回定義されています。{first_location}".rstrip(),
+            "どちらかの定義を削除するか、1つの定義に統合",
+        )
+    if isinstance(exc, MarkContainsMarkError):
+        return (
+            "nested-term-reference",
+            "用語参照の波括弧「{ }」は入れ子にできません。",
+            "記号として書く場合は「{{」「}}」のように2つ重ねる",
+        )
+    if isinstance(exc, EDTFParseException):
+        line = _line_at(text, source_range.line)
+        source_value = line[source_range.start_character : source_range.end_character]
+        value = source_value or exc.input_string
+        suggestion = "対応している日時または「開始 ~ 終了」形式の期間へ変更"
+        normalized = exc.input_string
+        if re.fullmatch(r"\d{3}X-\d{4}", normalized):
+            start = normalized[:3] + "0"
+            end = normalized[-4:]
+            suggestion = f"期間を表すなら「{start} ~ {end}」へ変更"
+        return (
+            "invalid-time-expression",
+            f"日時・期間「{value}」を解釈できません。",
+            suggestion,
+        )
     return None
+
+
+def _explain_undent(
+    text: str,
+    source_range: SourceRange,
+) -> tuple[str, str, str]:
+    line = _line_at(text, source_range.line)
+    marked = line[source_range.start_character : source_range.end_character]
+    if marked == FULLWIDTH_SPACE:
+        return (
+            "non-ascii-indent",
+            "行頭のインデントに全角スペースが混ざっています。",
+            "全角スペースを半角スペースへ置き換え、周囲と深さを揃える",
+        )
+    return (
+        "invalid-indent",
+        "インデントの深さが前後の行と一致していません。",
+        "前後の行に合わせて行頭のスペース数を変更",
+    )
 
 
 def _explain_unexpected_input(
@@ -371,6 +501,70 @@ def _locate_quoterm(text: str, message: str) -> SourceRange | None:
 def _first_quoted_value(message: str) -> str:
     match = re.search(r"'([^']+)'", message)
     return match.group(1) if match is not None else message
+
+
+def _term_names_from_conflict(exc: TermConflictError) -> tuple[str, ...]:
+    """構造化された用語名を優先し、旧形式の例外にも対応する."""
+    if exc.names:
+        return exc.names
+    return (_first_quoted_value(str(exc)),)
+
+
+def _locate_term_definitions(
+    text: str,
+    exc: TermConflictError,
+) -> list[SourceRange]:
+    """同名用語の定義行だけを探す.
+
+    ``{name}`` の参照は重複定義の原因ではないため候補から除く。
+    """
+    conflict_names = _term_names_from_conflict(exc)
+    primary_name = conflict_names[0]
+    found = []
+    for line_index, line in enumerate(text.splitlines()):
+        try:
+            _, names, _ = parse_line(line)
+        except ValueError:
+            continue
+        if not set(conflict_names).issubset(names):
+            continue
+        separator_index = _definition_separator_index(line)
+        if separator_index is None:
+            continue
+        definition = line[:separator_index]
+        name_start = definition.find(primary_name)
+        if name_start < 0:
+            continue
+        found.append(
+            SourceRange(
+                line=line_index,
+                start_character=name_start,
+                end_character=name_start + len(primary_name),
+            ),
+        )
+    return found
+
+
+def _locate_nested_mark(
+    text: str,
+    exc: MarkContainsMarkError,
+) -> SourceRange | None:
+    """入れ子になった波括弧を、解析対象の行へ戻す."""
+    if exc.source is None:
+        return None
+    source_offset = text.rfind(exc.source)
+    if source_offset < 0:
+        return None
+    nested = re.search(r"\{\{|\}\}", exc.source)
+    relative_start = nested.start() if nested is not None else 0
+    relative_end = nested.end() if nested is not None else len(exc.source)
+    start = source_offset + relative_start
+    end = source_offset + relative_end
+    line, character = _offset_to_position(text, start)
+    end_line, end_character = _offset_to_position(text, end)
+    if end_line != line:
+        end_character = max(character + 1, _line_length(text, line))
+    return SourceRange(line, character, end_character)
 
 
 def _definition_separator_index(line: str) -> int | None:

@@ -62,6 +62,26 @@ def test_invalid_interval() -> None:
         Series.create(["1831 ~ 79"])
 
 
+@pytest.mark.parametrize(
+    ("string", "start_year", "end_year"),
+    [
+        ("187X ~ 1900", 1870, 1900),
+        ("-100000 ~ -35000", -100000, -35000),
+        ("BC100000 ~ BC35000", -100000, -35000),
+    ],
+)
+def test_parse_extended_year_interval(
+    string: str,
+    start_year: int,
+    end_year: int,
+) -> None:
+    """不確定年代や5桁以上の紀元前年を期間の端点にできる."""
+    when = parse_when(string)
+
+    assert when.lower_strict().tm_year == start_year
+    assert when.upper_strict().tm_year == end_year
+
+
 def test_series() -> None:
     """時系列のソート."""
     dup1 = Duplicable(n="2004")

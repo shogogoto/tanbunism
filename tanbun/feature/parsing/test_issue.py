@@ -3,8 +3,15 @@
 import pytest
 
 from tanbun.feature.domain.errors import DomainError
+from tanbun.feature.parsing.check.domain import inspect_document
 from tanbun.feature.parsing.domain import try_parse2net
-from tanbun.feature.parsing.issue import exception_to_parse_issue, lint_parse_style
+from tanbun.feature.parsing.issue import (
+    SourceRange,
+    exception_to_parse_issue,
+    lint_parse_style,
+)
+from tanbun.feature.parsing.primitive.mark.errors import MarkContainsMarkError
+from tanbun.feature.parsing.primitive.term.errors import TermConflictError
 from tanbun.feature.parsing.tree_parse.errors import UndedentError
 
 
@@ -48,6 +55,24 @@ def test_invalid_indent_has_plain_language_explanation() -> None:
     assert "Invalid indent" not in issue.display_message()
 
 
+def test_invalid_indent_points_to_fullwidth_space_root_cause() -> None:
+    """後続行で発覚したindentエラーを先行する全角スペースへ戻す."""
+    text = "# title\n  \u3000first\n      child\n    sibling\n"
+
+    issue = exception_to_parse_issue(
+        text,
+        UndedentError("Invalid indent was detected at line 4."),
+    )
+
+    assert issue.code == "non-ascii-indent"
+    assert issue.source_range == SourceRange(
+        line=1,
+        start_character=2,
+        end_character=3,
+    )
+    assert "全角スペース" in issue.message
+
+
 def test_fullwidth_definition_separator_is_a_warning() -> None:
     """受理する全角コロンには半角への統一を案内する."""
     [issue] = lint_parse_style("# title\n  身体化\uff1a 説明\n")
@@ -64,3 +89,108 @@ def test_fullwidth_colon_in_metadata_is_not_a_warning() -> None:
     text = "# 時刻\uff1a正午\n  @url https\uff1a//example.com\n  when. 10\uff1a30\n"
 
     assert lint_parse_style(text) == ()
+
+
+def test_invalid_time_points_to_value_with_plain_language_fix() -> None:
+    """EDTF内部エラーでなく不正な日時の位置と修正例を示す."""
+    text = "# title\n  event\n    when. 187Q ~ 1900\n"
+
+    issue = inspect_document(text).issue
+
+    assert issue is not None
+    assert issue.code == "invalid-time-expression"
+    assert issue.message == "日時・期間「187Q」を解釈できません。"
+    assert issue.suggestion == "対応している日時または「開始 ~ 終了」形式の期間へ変更"
+    assert issue.source_range == SourceRange(
+        line=2,
+        start_character=len("    when. "),
+        end_character=len("    when. 187Q"),
+    )
+
+
+def test_duplicate_term_points_to_later_definition() -> None:
+    """用語名の前に説明がある例外でも重複した側を指す."""
+    text = "# title\n  ヌーメン: first\n  ヌーメン: second\n"
+
+    issue = exception_to_parse_issue(
+        text,
+        TermConflictError("用語'ヌーメン'が重複しています"),
+    )
+
+    assert issue.source_range == SourceRange(
+        line=2,
+        start_character=2,
+        end_character=6,
+    )
+    assert issue.code == "duplicate-term"
+    assert "最初の定義は2行目" in issue.message
+
+
+def test_duplicate_term_does_not_point_to_later_reference() -> None:
+    """重複定義の診断を、後方の{} 参照に出さない."""
+    text = (
+        "# title\n"
+        "  構造言語学: first\n"
+        "  {構造言語学}のやり方\n"
+        "  構造言語学: second\n"
+        "    <-> {構造言語学}では扱えない\n"
+    )
+
+    issue = exception_to_parse_issue(
+        text,
+        TermConflictError("用語'構造言語学'が重複しています"),
+    )
+
+    assert issue.source_range == SourceRange(
+        line=3,
+        start_character=2,
+        end_character=7,
+    )
+    assert "最初の定義は2行目" in issue.message
+
+
+def test_duplicate_term_with_multiple_names_points_to_definition() -> None:
+    """複数名を持つ用語でも、2個目の定義を指す."""
+    text = (
+        "# title\n"
+        "  音声学, phonetics:\n"
+        "  {音声学}に言及\n"
+        "  音声学, phonetics: 音声が作られる生理学\n"
+    )
+
+    issue = exception_to_parse_issue(
+        text,
+        TermConflictError(
+            "用語'音声学(phonetics)'が重複しています",
+            names=("音声学", "phonetics"),
+        ),
+    )
+
+    assert issue.source_range == SourceRange(
+        line=3,
+        start_character=2,
+        end_character=5,
+    )
+    assert issue.message == (
+        "用語「音声学、phonetics」が複数回定義されています。 最初の定義は2行目です。"
+    )
+
+
+def test_nested_mark_points_to_source_instead_of_document_start() -> None:
+    """文字として書かれた入れ子波括弧の位置と修正法を示す."""
+    source = "形態素はカッコ{{}} で囲む"
+    text = f"# title\n  section\n    {source}\n"
+
+    issue = exception_to_parse_issue(
+        text,
+        MarkContainsMarkError("internal parser error", source=source),
+    )
+
+    assert issue.code == "nested-term-reference"
+    assert issue.source_range == SourceRange(
+        line=2,
+        start_character=len("    形態素はカッコ"),
+        end_character=len("    形態素はカッコ{{"),
+    )
+    assert "入れ子にできません" in issue.message
+    assert "2つ重ねる" in (issue.suggestion or "")

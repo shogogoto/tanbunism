@@ -111,11 +111,9 @@ def _parse_between(s1: str, s2: str) -> EDTFObject:
     f2 = str2edtf(s2)
     e1 = parse_extime(f1)
     e2 = parse_extime(f2)
-    if isinstance(e1, edtf.Interval):
-        f1 = str(e1).split("/")[0]
-    if isinstance(e2, edtf.Interval):
-        f2 = str(e2).split("/")[-1]
-    return parse_extime(f"{f1}/{f2}")
+    lower = e1.lower if isinstance(e1, edtf.Interval) else e1
+    upper = e2.upper if isinstance(e2, edtf.Interval) else e2
+    return edtf.Interval(lower, upper)
 
 
 class Series(BaseModel, arbitrary_types_allowed=True):

@@ -12,6 +12,11 @@ class TermMergeError(TermError):
 class TermConflictError(TermError):
     """用語の衝突."""
 
+    def __init__(self, message: str, *, names: tuple[str, ...] = ()) -> None:
+        """表示文と、診断位置の特定に使う用語名を保持する."""
+        super().__init__(message)
+        self.names = names
+
 
 class AliasContainsMarkError(TermError):
     """別名にマークを含んだらダメ."""

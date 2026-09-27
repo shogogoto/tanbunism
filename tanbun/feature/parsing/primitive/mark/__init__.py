@@ -14,6 +14,37 @@ from .errors import (
     PlaceHolderMappingError,
 )
 
+ESCAPED_OPEN_BRACE = "\ue000\ue001"
+ESCAPED_CLOSE_BRACE = "\ue002\ue003"
+
+
+def protect_escaped_braces(text: str) -> str:
+    """Python風の二重波括弧を、用語参照と区別して保護する."""
+    protected_open = re.sub(
+        r"\{+",
+        lambda match: (
+            ESCAPED_OPEN_BRACE * (len(match.group()) // 2)
+            + ("{" if len(match.group()) % 2 else "")
+        ),
+        text,
+    )
+    return re.sub(
+        r"\}+",
+        lambda match: (
+            ("}" if len(match.group()) % 2 else "")
+            + ESCAPED_CLOSE_BRACE * (len(match.group()) // 2)
+        ),
+        protected_open,
+    )
+
+
+def restore_escaped_braces(text: str) -> str:
+    """保護した二重波括弧を、1文字の波括弧へ戻す."""
+    return text.replace(ESCAPED_OPEN_BRACE, "{").replace(
+        ESCAPED_CLOSE_BRACE,
+        "}",
+    )
+
 
 class Marker(BaseModel, frozen=True):
     """マークロジック."""
@@ -49,7 +80,7 @@ class Marker(BaseModel, frozen=True):
                 f"マーク'{self.m_open} {self.m_close}'内に'{self.m_open}"
                 f"'または'{self.m_close}'が含まれています: {s}"
             )
-            raise MarkContainsMarkError(msg)
+            raise MarkContainsMarkError(msg, source=s)
         if n_orig == 0:
             msg = (
                 f"'{s}'のマーク'{self.m_open} {self.m_close}'内に"

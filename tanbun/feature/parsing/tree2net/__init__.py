@@ -8,8 +8,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import networkx as nx
+from lark import Token
 
+from tanbun.feature.domain.types import Duplicable
+from tanbun.feature.parsing.primitive.mark import (
+    protect_escaped_braces,
+    restore_escaped_braces,
+)
 from tanbun.feature.parsing.primitive.quoterm.domain import add_quoterm_edge
+from tanbun.feature.parsing.primitive.template import Template
+from tanbun.feature.parsing.primitive.term import Term
 from tanbun.feature.parsing.primitive.term.markresolver import MarkResolver
 from tanbun.feature.parsing.sysnet import SysNet
 from tanbun.feature.parsing.sysnet.sysfn import (
@@ -36,7 +44,7 @@ def parse2net_uncached(
     do_print: bool = False,  # noqa: FBT001 FBT002
 ) -> SysNet:
     """文からsysnetへ."""
-    t = parse2tree(txt, TSysArg())
+    t = parse2tree(protect_escaped_braces(txt), TSysArg())
     if do_print:
         print(t.pretty())  # noqa: T201
         print(t)  # noqa: T201
@@ -44,7 +52,9 @@ def parse2net_uncached(
     si.visit(t)
     g = _build_graph(t, si.col)
     g.add_node(si.root)
-    return SysNet(root=si.root, g=nx.freeze(g))
+    restored_graph = _restore_escaped_braces_in_graph(g)
+    restored_root = _restore_node(si.root)
+    return SysNet(root=restored_root, g=nx.freeze(restored_graph))
 
 
 @cache
@@ -70,6 +80,46 @@ def _extract_leaves(tree: Tree) -> tuple[nx.MultiDiGraph, MarkResolver]:
     [md.add_edge(g) for md in mdefs]
     [d.add_edge(g) for d in stddefs]
     return g, MarkResolver.create(mt)
+
+
+def _restore_escaped_braces_in_graph(
+    graph: nx.MultiDiGraph,
+) -> nx.MultiDiGraph:
+    """参照解決後に、ノード内のエスケープされた波括弧を戻す."""
+    mapping = {
+        node: restored
+        for node in graph.nodes
+        if (restored := _restore_node(node)) != node
+    }
+    return nx.relabel_nodes(graph, mapping, copy=True)
+
+
+def _restore_node(node):
+    """グラフノードの型を保ったまま、波括弧だけを復元する."""
+    if isinstance(node, Token):
+        restored = restore_escaped_braces(str(node))
+        return node if restored == str(node) else Token(node.type, restored)
+    if isinstance(node, str):
+        return restore_escaped_braces(node)
+    if isinstance(node, Term):
+        return Term(
+            names=tuple(restore_escaped_braces(name) for name in node.names),
+            alias=(
+                restore_escaped_braces(node.alias) if node.alias is not None else None
+            ),
+        )
+    if isinstance(node, Template):
+        return node.model_copy(
+            update={
+                "name": restore_escaped_braces(node.name),
+                "args": tuple(restore_escaped_braces(arg) for arg in node.args),
+                "form": restore_escaped_braces(node.form),
+            },
+        )
+    if isinstance(node, Duplicable) and isinstance(node.n, str):
+        restored = restore_escaped_braces(node.n)
+        return node if restored == node.n else node.model_copy(update={"n": restored})
+    return node
 
 
 type ParseHandler = Callable[[Path, Exception], None]
