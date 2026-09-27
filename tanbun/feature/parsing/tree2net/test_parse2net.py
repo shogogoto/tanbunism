@@ -23,6 +23,24 @@ def test_duplicable() -> None:
     assert sn.root == title_parse(s)
 
 
+def test_same_location_can_be_reused() -> None:
+    """同じ場所を複数の単文へ結び付けられる."""
+    source = """
+        # title
+            サルトル: 哲学者
+                where. フランス
+            ルソー: 思想家
+                where. フランス
+    """
+
+    network = parse2net(source)
+
+    assert set(EdgeType.WHERE.pred(network.g, "フランス")) == {
+        "哲学者",
+        "思想家",
+    }
+
+
 def test_add_resolved_edge() -> None:
     """parse2net版."""
     s = r"""

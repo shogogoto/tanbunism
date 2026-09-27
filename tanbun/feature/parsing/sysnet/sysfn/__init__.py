@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Hashable, Iterable
 from typing import TYPE_CHECKING
 
@@ -61,13 +62,24 @@ def to_sentence(vs: Iterable[Hashable]) -> list[str | Duplicable]:
     return [s for s in stc if not isinstance(s, WhenNode)]
 
 
-def check_duplicated_sentence(vs: Iterable[Hashable]) -> None:
-    """文の重複チェック."""
+def check_duplicated_sentence(
+    vs: Iterable[Hashable],
+    *,
+    reusable: Iterable[Hashable] = (),
+) -> None:
+    """文の重複チェック.
+
+    場所のように同一ノードを複数箇所から参照する値は ``reusable`` で除外する。
+    """
     s_chk = sentence_dup_checker()
+    reusable_counts = Counter(reusable)
     for s in to_sentence(vs):
         if isinstance(s, (DummySentence, Duplicable)):
             continue
         if isinstance(s, Token) and s.type == "QUOTERM":
+            continue
+        if reusable_counts[s] > 0:
+            reusable_counts[s] -= 1
             continue
         s_chk(s)
 

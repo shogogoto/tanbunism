@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import networkx as nx
 from lark import Token
 
+from tanbun.feature.domain.graph.edge_type import EdgeType
 from tanbun.feature.domain.types import Duplicable
 from tanbun.feature.parsing.primitive.mark import (
     protect_escaped_braces,
@@ -21,6 +22,7 @@ from tanbun.feature.parsing.primitive.term import Term
 from tanbun.feature.parsing.primitive.term.markresolver import MarkResolver
 from tanbun.feature.parsing.sysnet import SysNet
 from tanbun.feature.parsing.sysnet.sysfn import (
+    arg2sentence,
     check_duplicated_sentence,
     to_def,
 )
@@ -64,17 +66,23 @@ def parse2net(txt: str, do_print: bool = False) -> SysNet:  # noqa: FBT001 FBT00
 
 
 def _build_graph(tree: Tree, col: DirectedEdgeCollection) -> nx.MultiDiGraph:
-    g, resolver = _extract_leaves(tree)
+    g, resolver = _extract_leaves(tree, col)
     col.set_edges(g)
     add_resolved_edges(g, resolver)
     add_quoterm_edge(g, resolver.lookup.get)
     return g
 
 
-def _extract_leaves(tree: Tree) -> tuple[nx.MultiDiGraph, MarkResolver]:
+def _extract_leaves(
+    tree: Tree,
+    col: DirectedEdgeCollection,
+) -> tuple[nx.MultiDiGraph, MarkResolver]:
     """transformedなASTを処理."""
     leaves = get_leaves(tree)
-    check_duplicated_sentence(leaves)
+    reusable_locations = [
+        arg2sentence(edge.nodes[-1]) for edge in col.values if edge.t is EdgeType.WHERE
+    ]
+    check_duplicated_sentence(leaves, reusable=reusable_locations)
     mdefs, stddefs, mt = MergedDef.create_and_parted(to_def(leaves))
     g = nx.MultiDiGraph()  # 同じノード間で複数エッジを表現できるように
     [md.add_edge(g) for md in mdefs]

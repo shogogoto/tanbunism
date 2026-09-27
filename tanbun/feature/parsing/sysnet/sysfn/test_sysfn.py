@@ -25,6 +25,23 @@ def test_duplicate_sentence() -> None:
         check_duplicated_sentence(["aaa", "aaa"])
 
 
+def test_reusable_sentence_is_not_a_duplicate() -> None:
+    """共有ノードとして指定した回数分は重複を許可する."""
+    check_duplicated_sentence(
+        ["フランス", "フランス"],
+        reusable=["フランス", "フランス"],
+    )
+
+
+def test_reusable_sentence_does_not_hide_other_duplicates() -> None:
+    """共有参照を超えた通常文の重複は引き続き検出する."""
+    with pytest.raises(SentenceConflictError):
+        check_duplicated_sentence(
+            ["フランス", "フランス", "フランス", "フランス"],
+            reusable=["フランス", "フランス"],
+        )
+
+
 def test_resolved() -> None:
     """用語解決."""
     root = "sys"
