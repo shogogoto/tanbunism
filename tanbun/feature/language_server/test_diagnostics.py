@@ -1,5 +1,9 @@
 """Language Serverの診断テスト."""
 
+import pytest
+from lsprotocol import types
+from pygls.workspace import PositionCodec
+
 from tanbun.feature.language_server.diagnostics import SourceRange, diagnose
 from tanbun.feature.language_server.server import _to_lsp_diagnostic
 
@@ -34,13 +38,25 @@ def test_reports_uncontained_mark_at_mark_position() -> None:
     )
 
 
-def test_lsp_position_uses_utf16_code_units() -> None:
-    """LSPで要求されるUTF-16位置へ変換する."""
+@pytest.mark.parametrize(
+    ("encoding", "expected_character"),
+    [
+        (types.PositionEncodingKind.Utf8, len("    💡 ".encode())),
+        (types.PositionEncodingKind.Utf16, len("    💡 ".encode("utf-16-le")) // 2),
+    ],
+)
+def test_lsp_position_uses_negotiated_code_units(
+    encoding: types.PositionEncodingKind,
+    expected_character: int,
+) -> None:
+    """クライアントと合意した文字エンコードの位置へ変換する."""
     text = "# title\n    💡 {missing}\n"
     [diagnostic] = diagnose(text)
 
-    converted = _to_lsp_diagnostic(text, diagnostic)
-
-    assert converted.range.start.character == (
-        diagnostic.source_range.start_character + 1
+    converted = _to_lsp_diagnostic(
+        text,
+        diagnostic,
+        PositionCodec(encoding),
     )
+
+    assert converted.range.start.character == expected_character

@@ -14,7 +14,7 @@ Language Server Protocolの標準入出力通信なので、通常は直接実�
 ## Neovim
 
 ```lua
-vim.filetype.add({ extension = { kn = "tanbun" } })
+vim.filetype.add({ extension = { tb = "tanbun", kn = "tanbun" } })
 
 vim.api.nvim_create_autocmd("FileType", {
   pattern = "tanbun",
@@ -28,4 +28,6 @@ vim.api.nvim_create_autocmd("FileType", {
 })
 ```
 
-現時点ではdiagnosticsのみを提供する。補完、定義移動、Quick Fix、アップロードは後続機能とする。
+現時点ではdiagnosticsと文書内用語のcompletionを提供する。
+`{...}`の用語埋め込みとbacktickのquotermで、用語名・同義名・aliasを補完できる。
+定義移動、Quick Fix、アップロードは後続機能とする。

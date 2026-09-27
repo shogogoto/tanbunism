@@ -6,7 +6,9 @@ import asyncio
 
 from lsprotocol import types
 from pygls.lsp.server import LanguageServer
+from pygls.workspace import PositionCodec, ServerTextPosition, ServerTextRange
 
+from tanbun.feature.language_server.completion import complete_terms
 from tanbun.feature.language_server.diagnostics import TanbunDiagnostic, diagnose
 
 SERVER_NAME = "tanbun-language-server"
@@ -70,7 +72,47 @@ def create_server() -> LanguageServer:
         cancel_pending(params.text_document.uri)
         _publish_diagnostics(ls, params.text_document.uri, [])
 
+    _register_completion(server)
     return server
+
+
+def _register_completion(server: LanguageServer) -> None:
+    """文書内用語のcompletion handlerを登録する."""
+
+    @server.feature(
+        types.TEXT_DOCUMENT_COMPLETION,
+        types.CompletionOptions(trigger_characters=["{", "`"]),
+    )
+    def completion(
+        ls: LanguageServer,
+        params: types.CompletionParams,
+    ) -> types.CompletionList | None:
+        document = ls.workspace.get_text_document(params.text_document.uri)
+        offset = document.offset_at_position(params.position)
+        result = complete_terms(document.source, offset)
+        if result is None:
+            return None
+
+        edit_range = types.Range(
+            start=document.client_position_at_offset(result.start_offset),
+            end=document.client_position_at_offset(result.end_offset),
+        )
+        return types.CompletionList(
+            is_incomplete=False,
+            items=[
+                types.CompletionItem(
+                    label=symbol.label,
+                    kind=types.CompletionItemKind.Reference,
+                    detail=symbol.detail,
+                    filter_text=symbol.label,
+                    text_edit=types.TextEdit(
+                        range=edit_range,
+                        new_text=f"{symbol.label}{result.closing}",
+                    ),
+                )
+                for symbol in result.symbols
+            ],
+        )
 
 
 def _publish(
@@ -82,7 +124,10 @@ def _publish(
     _publish_diagnostics(
         server,
         uri,
-        [_to_lsp_diagnostic(text, item) for item in diagnose(text)],
+        [
+            _to_lsp_diagnostic(text, item, server.workspace.position_codec)
+            for item in diagnose(text)
+        ],
         version,
     )
 
@@ -102,39 +147,32 @@ def _publish_diagnostics(
     )
 
 
-def _to_lsp_diagnostic(text: str, diagnostic: TanbunDiagnostic) -> types.Diagnostic:
+def _to_lsp_diagnostic(
+    text: str,
+    diagnostic: TanbunDiagnostic,
+    position_codec: PositionCodec,
+) -> types.Diagnostic:
     source_range = diagnostic.source_range
-    return types.Diagnostic(
-        range=types.Range(
-            start=types.Position(
+    client_range = position_codec.range_to_client_units(
+        text.splitlines(keepends=True),
+        ServerTextRange(
+            start=ServerTextPosition(
                 line=source_range.line,
-                character=_utf16_character(
-                    text,
-                    source_range.line,
-                    source_range.start_character,
-                ),
+                character=source_range.start_character,
             ),
-            end=types.Position(
+            end=ServerTextPosition(
                 line=source_range.line,
-                character=_utf16_character(
-                    text,
-                    source_range.line,
-                    source_range.end_character,
-                ),
+                character=source_range.end_character,
             ),
         ),
+    )
+    return types.Diagnostic(
+        range=client_range,
         message=diagnostic.message,
         severity=types.DiagnosticSeverity.Error,
         code=diagnostic.code,
         source="tanbun",
     )
-
-
-def _utf16_character(text: str, line: int, character: int) -> int:
-    lines = text.splitlines()
-    line_text = lines[line] if line < len(lines) else ""
-    prefix = line_text[:character]
-    return len(prefix.encode("utf-16-le")) // 2
 
 
 language_server = create_server()
