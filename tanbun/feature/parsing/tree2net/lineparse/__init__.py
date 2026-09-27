@@ -6,7 +6,7 @@ from textwrap import dedent
 from typing import Final
 
 ALIAS_SEP: Final = "|"
-DEF_SEP: Final = ":"
+DEF_SEPS: Final = (":", "\uff1a")
 NAME_SEP: Final = ","
 
 
@@ -23,7 +23,13 @@ def parse_line(line: str) -> tuple[str | None, list[str], str | None]:
         alias, define = txt.split(ALIAS_SEP, maxsplit=1)
         alias = alias.strip()
         sentence = define
-    if DEF_SEP in define:
-        names, sentence = define.split(DEF_SEP, 1)
+    separators = [
+        (define.index(separator), separator)
+        for separator in DEF_SEPS
+        if separator in define
+    ]
+    if separators:
+        index, separator = min(separators)
+        names, sentence = define[:index], define[index + len(separator) :]
         names = [n.strip() for n in names.split(NAME_SEP)]
     return alias, names, sentence.strip() if sentence else None

@@ -105,6 +105,22 @@ def test_undefined_quoterm_points_to_backtick_reference() -> None:
     assert "明証性: ..." in (diagnostic.suggestion or "")
 
 
+def test_fullwidth_definition_colon_is_warning() -> None:
+    """全角コロンを受理しつつWarningとして半角への統一を案内する."""
+    text = "# title\n  身体化\uff1a 体に覚えさせる\n"
+
+    [diagnostic] = diagnose(text)
+    converted = _to_lsp_diagnostic(
+        text,
+        diagnostic,
+        PositionCodec(types.PositionEncodingKind.Utf8),
+    )
+
+    assert diagnostic.code == "noncanonical-definition-separator"
+    assert converted.severity is types.DiagnosticSeverity.Warning
+    assert "半角コロン" in diagnostic.display_message()
+
+
 def test_reports_uncontained_mark_at_mark_position() -> None:
     """未定義用語を参照した場所を返す."""
     text = "# title\n    sentence {missing}\n"

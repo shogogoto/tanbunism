@@ -13,7 +13,7 @@ from tanbun.feature.language_server.diagnostics import (
     DocumentAnalysis,
     analyze,
 )
-from tanbun.feature.parsing.issue import ParseIssue
+from tanbun.feature.parsing.issue import ParseIssue, ParseIssueSeverity
 
 SERVER_NAME = "tanbun-language-server"
 SERVER_VERSION = "0.1.0"
@@ -181,8 +181,14 @@ def _report_analysis(
         values.append(f"{statistics.node_count}ノード")
     if statistics.relation_count is not None:
         values.append(f"{statistics.relation_count}関係")
-    if analysis.diagnostics:
-        values.append(f"{len(analysis.diagnostics)}エラー")
+    error_count = sum(
+        item.severity is ParseIssueSeverity.ERROR for item in analysis.diagnostics
+    )
+    warning_count = len(analysis.diagnostics) - error_count
+    if error_count:
+        values.append(f"{error_count}エラー")
+    if warning_count:
+        values.append(f"{warning_count}警告")
     message = f"Tanbun LSP: 準備完了 ({' · '.join(values)})"
     _report_message(server, message, visible=visible)
 
@@ -239,7 +245,11 @@ def _to_lsp_diagnostic(
     return types.Diagnostic(
         range=client_range,
         message=diagnostic.display_message(),
-        severity=types.DiagnosticSeverity.Error,
+        severity=(
+            types.DiagnosticSeverity.Warning
+            if diagnostic.severity is ParseIssueSeverity.WARNING
+            else types.DiagnosticSeverity.Error
+        ),
         source="tanbun",
     )
 

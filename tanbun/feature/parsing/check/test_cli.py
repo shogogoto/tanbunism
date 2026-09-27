@@ -109,3 +109,22 @@ def test_check_custom_extension() -> None:
     assert "invalid.md" in result.output
     assert "ignored.kn" not in result.output
     assert "1ファイルを検査" in result.output
+
+
+def test_warning_is_verbose_and_does_not_fail_check() -> None:
+    """警告は-vで表示するが終了コードを失敗にしない."""
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        Path("warning.kn").write_text(
+            "# title\n  身体化\uff1a 説明\n",
+            encoding="utf-8",
+        )
+
+        concise = runner.invoke(check_cmd, ["warning.kn"])
+        verbose = runner.invoke(check_cmd, ["warning.kn", "-v"])
+
+    assert concise.exit_code == 0
+    assert concise.output == "1ファイルを検査: 1正常, 0エラー, 1警告\n"
+    assert verbose.exit_code == 0
+    assert "warning.kn:2:6: 警告: 定義区切り" in verbose.output
+    assert "半角コロン" in verbose.output

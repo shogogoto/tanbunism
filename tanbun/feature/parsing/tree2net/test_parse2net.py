@@ -181,6 +181,22 @@ def test_replace_quoterm() -> None:
     assert sn.access("aaa", EdgeType.BELOW.succ) == unordered(["aAA", "ccc", "eee"])
 
 
+def test_fullwidth_colon_defines_quoterm() -> None:
+    """日本語の全角コロンでも用語を定義し引用できる."""
+    s = """
+        # h1
+          parent
+            -> 身体化\uff1a 体に覚えさせる
+          exam
+            <- `身体化`
+    """
+
+    sn = parse2net(s)
+
+    assert "体に覚えさせる" in sn.g
+    assert list(EdgeType.TO.pred(sn.g, "体に覚えさせる")) == ["parent"]
+
+
 def test_template() -> None:
     """テンプレート."""
     s = r"""

@@ -40,7 +40,7 @@ def analyze(text: str) -> DocumentAnalysis:
     inspection = inspect_document(text)
     if inspection.issue is not None:
         return DocumentAnalysis(
-            diagnostics=(inspection.issue,),
+            diagnostics=(*inspection.warnings, inspection.issue),
             statistics=ParseStatistics(
                 duration_ms=_elapsed_ms(started),
                 line_count=len(text.splitlines()),
@@ -52,7 +52,7 @@ def analyze(text: str) -> DocumentAnalysis:
     assert inspection.network is not None
     network = inspection.network
     return DocumentAnalysis(
-        diagnostics=(),
+        diagnostics=inspection.warnings,
         statistics=ParseStatistics(
             duration_ms=_elapsed_ms(started),
             line_count=len(text.splitlines()),

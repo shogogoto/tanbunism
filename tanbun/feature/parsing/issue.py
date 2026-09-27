@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from enum import StrEnum
 
 from lark import UnexpectedCharacters, UnexpectedEOF, UnexpectedInput
 
@@ -19,6 +20,14 @@ from tanbun.feature.parsing.tree_parse.errors import (
 )
 
 KN_SYNTAX_ERROR_ARG_COUNT = 3
+FULLWIDTH_COLON = "\uff1a"
+
+
+class ParseIssueSeverity(StrEnum):
+    """パース問題の重大度."""
+
+    ERROR = "error"
+    WARNING = "warning"
 
 
 @dataclass(frozen=True)
@@ -38,6 +47,7 @@ class ParseIssue:
     message: str
     source_range: SourceRange
     suggestion: str | None = None
+    severity: ParseIssueSeverity = ParseIssueSeverity.ERROR
 
     def display_message(self) -> str:
         """人が読む表示用メッセージを返す."""
@@ -58,6 +68,29 @@ def exception_to_parse_issue(text: str, exc: Exception) -> ParseIssue:
         suggestion=suggestion,
         source_range=source_range,
     )
+
+
+def lint_parse_style(text: str) -> tuple[ParseIssue, ...]:
+    """パースは可能だが正規形ではない記法を検出する."""
+    issues = []
+    for line_index, line in enumerate(text.splitlines()):
+        separator_index = _definition_separator_index(line)
+        if separator_index is None or line[separator_index] != FULLWIDTH_COLON:
+            continue
+        issues.append(
+            ParseIssue(
+                code="noncanonical-definition-separator",
+                message="定義区切りに全角コロンが使われています。",
+                suggestion="半角コロン「:」へ変更",
+                source_range=SourceRange(
+                    line=line_index,
+                    start_character=separator_index,
+                    end_character=separator_index + 1,
+                ),
+                severity=ParseIssueSeverity.WARNING,
+            ),
+        )
+    return tuple(issues)
 
 
 def _locate_error(text: str, exc: Exception) -> SourceRange:
@@ -338,3 +371,16 @@ def _locate_quoterm(text: str, message: str) -> SourceRange | None:
 def _first_quoted_value(message: str) -> str:
     match = re.search(r"'([^']+)'", message)
     return match.group(1) if match is not None else message
+
+
+def _definition_separator_index(line: str) -> int | None:
+    stripped = line.lstrip()
+    ignored_prefixes = ("#", "!", "@", "when.", "`", "+++")
+    if not stripped or stripped.startswith(ignored_prefixes):
+        return None
+    indexes = [
+        index
+        for separator in (":", FULLWIDTH_COLON)
+        if (index := line.find(separator)) >= 0
+    ]
+    return min(indexes) if indexes else None

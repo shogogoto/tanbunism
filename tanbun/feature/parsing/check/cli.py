@@ -8,7 +8,7 @@ from pathlib import Path
 import click
 
 from tanbun.feature.parsing.check.domain import inspect_document
-from tanbun.feature.parsing.issue import ParseIssue
+from tanbun.feature.parsing.issue import ParseIssue, ParseIssueSeverity
 
 DEFAULT_EXTENSIONS = ("tb", "kn")
 
@@ -42,6 +42,7 @@ def check_cmd(
     """PATHのTanbun文書をDBへ接続せず検査する."""
     files = list(_iter_files(path, extensions))
     error_count = 0
+    warning_count = 0
 
     for source_path in files:
         try:
@@ -55,17 +56,21 @@ def check_cmd(
                 click.echo(display_path, err=True)
             continue
 
+        display_path = _display_path(source_path, path)
         inspection = inspect_document(text)
+        warning_count += len(inspection.warnings)
+        if verbose:
+            for warning in inspection.warnings:
+                _echo_issue(display_path, text, warning)
         if inspection.issue is None:
             continue
         error_count += 1
-        display_path = _display_path(source_path, path)
         if verbose:
             _echo_issue(display_path, text, inspection.issue)
         else:
             click.echo(display_path, err=True)
 
-    _echo_summary(len(files), error_count)
+    _echo_summary(len(files), error_count, warning_count)
     if error_count:
         raise click.exceptions.Exit(1)
 
@@ -101,9 +106,11 @@ def _echo_issue(path: Path, text: str, issue: ParseIssue) -> None:
     source_range = issue.source_range
     line_number = source_range.line + 1
     column_number = source_range.start_character + 1
+    color = "yellow" if issue.severity is ParseIssueSeverity.WARNING else "red"
+    label = "警告: " if issue.severity is ParseIssueSeverity.WARNING else ""
     click.secho(
-        f"{path}:{line_number}:{column_number}: {issue.message}",
-        fg="red",
+        f"{path}:{line_number}:{column_number}: {label}{issue.message}",
+        fg=color,
         err=True,
     )
 
@@ -122,7 +129,7 @@ def _echo_issue(path: Path, text: str, issue: ParseIssue) -> None:
         click.secho(
             f"{' ' * number_width} | "
             f"{' ' * source_range.start_character}{'^' * marker_length}",
-            fg="red",
+            fg=color,
             err=True,
         )
     if issue.suggestion is not None:
@@ -135,9 +142,15 @@ def _echo_read_error(path: Path, exc: Exception) -> None:
     click.echo(err=True)
 
 
-def _echo_summary(file_count: int, error_count: int) -> None:
+def _echo_summary(
+    file_count: int,
+    error_count: int,
+    warning_count: int,
+) -> None:
     valid_count = file_count - error_count
     message = f"{file_count}ファイルを検査: {valid_count}正常, {error_count}エラー"
+    if warning_count:
+        message = f"{message}, {warning_count}警告"
     click.secho(
         message,
         fg="red" if error_count else "green",
