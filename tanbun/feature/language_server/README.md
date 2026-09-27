@@ -30,4 +30,5 @@ vim.api.nvim_create_autocmd("FileType", {
 
 現時点ではdiagnosticsと文書内用語のcompletionを提供する。
 `{...}`の用語埋め込みとbacktickのquotermで、用語名・同義名・aliasを補完できる。
+起動時と文書のopen・save時に、解析状態、所要時間、行数、用語数、ノード数、関係数をクライアントへ通知する。
 定義移動、Quick Fix、アップロードは後続機能とする。

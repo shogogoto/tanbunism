@@ -13,6 +13,7 @@ from tanbun.feature.parsing.primitive.heading import exclude_heading, include_he
 from tanbun.feature.parsing.tree2net.directed_edge import (
     DirectedEdgeCollection,
 )
+from tanbun.feature.parsing.tree2net.errors import OrphanRelationError
 
 if TYPE_CHECKING:
     from lark.tree import Branch
@@ -36,6 +37,9 @@ class SysNetInterpreter(Interpreter):
 
     def _add_indent(self, children: list[Branch], parent: KNode) -> None:
         """インデントを登録."""
+        orphan = next((child for child in children if isinstance(child, tuple)), None)
+        if orphan is not None:
+            raise OrphanRelationError(orphan[0])
         if len(children) > 0:
             self.col.append(EdgeType.SIBLING, Direction.FORWARD, *children)
         for c in children:

@@ -1,11 +1,17 @@
 """Language Serverの診断テスト."""
 
+from unittest.mock import MagicMock
+
 import pytest
 from lsprotocol import types
 from pygls.workspace import PositionCodec
 
-from tanbun.feature.language_server.diagnostics import SourceRange, diagnose
-from tanbun.feature.language_server.server import _to_lsp_diagnostic
+from tanbun.feature.language_server.diagnostics import analyze, diagnose
+from tanbun.feature.language_server.server import (
+    _report_analysis,
+    _to_lsp_diagnostic,
+)
+from tanbun.feature.parsing.issue import SourceRange
 
 
 def test_valid_document_has_no_diagnostics() -> None:
@@ -13,15 +19,67 @@ def test_valid_document_has_no_diagnostics() -> None:
     assert diagnose("# title\n    sentence\n") == []
 
 
-def test_reports_syntax_error_position_and_expected_tokens() -> None:
-    """構文エラーの位置と期待トークンを返す."""
+def test_analysis_reports_parse_time_and_graph_statistics() -> None:
+    """正常な文書の解析時間とグラフ規模を返す."""
+    text = "# title\n    term: sentence\n"
+    analysis = analyze(text)
+
+    statistics = analysis.statistics
+    assert statistics.duration_ms >= 0
+    assert statistics.line_count == len(text.splitlines())
+    assert statistics.term_count == 1
+    assert statistics.node_count is not None
+    assert statistics.relation_count is not None
+
+
+def test_analysis_keeps_available_statistics_on_error() -> None:
+    """解析失敗時も所要時間と行数を返す."""
+    analysis = analyze("invalid\n")
+
+    assert analysis.diagnostics
+    assert analysis.statistics.duration_ms >= 0
+    assert analysis.statistics.line_count == 1
+    assert analysis.statistics.node_count is None
+
+
+def test_reports_syntax_error_in_plain_language() -> None:
+    """構文エラーを内部トークンではなく人向けに説明する."""
     [diagnostic] = diagnose("title invalid\n")
 
-    assert diagnostic.code == "UnexpectedToken"
+    assert diagnostic.code == "missing-title"
     assert diagnostic.source_range.line == 0
     assert diagnostic.source_range.start_character == 0
-    assert "Expected:" in diagnostic.message
-    assert "H1" in diagnostic.message
+    assert diagnostic.message == "文書は「# タイトル」から始めてください。"
+
+
+def test_reports_unindented_body_with_fix_and_full_line_range() -> None:
+    """見出し直下のインデント不足を修正例付きで説明する."""
+    text = "# title\n\n## section\n経験説: そう知ってるからそう知覚する\n"
+
+    [diagnostic] = diagnose(text)
+
+    assert diagnostic.message == "本文が見出しと同じ深さにあります。"
+    assert diagnostic.suggestion == (
+        "行頭にスペースを追加 (例: 「  経験説: そう知ってるからそう知覚する」)"
+    )
+    assert diagnostic.source_range == SourceRange(
+        line=3,
+        start_character=0,
+        end_character=len("経験説: そう知ってるからそう知覚する"),
+    )
+
+
+def test_reports_skipped_heading_level_with_fix() -> None:
+    """飛び越した見出しをLarkのトークン名なしで説明する."""
+    text = "# title\n### skipped\n"
+
+    [diagnostic] = diagnose(text)
+
+    assert diagnostic.code == "heading-level-mismatch"
+    assert diagnostic.message == "見出しレベルが飛んでいます。"
+    assert diagnostic.suggestion == "「## skipped」へ変更"
+    assert "UnexpectedToken" not in diagnostic.display_message()
+    assert "H2" not in diagnostic.display_message()
 
 
 def test_reports_uncontained_mark_at_mark_position() -> None:
@@ -30,7 +88,7 @@ def test_reports_uncontained_mark_at_mark_position() -> None:
 
     [diagnostic] = diagnose(text)
 
-    assert diagnostic.code == "MarkUncontainedError"
+    assert diagnostic.code == "invalid-document"
     assert diagnostic.source_range == SourceRange(
         line=1,
         start_character=len("    sentence "),
@@ -60,3 +118,20 @@ def test_lsp_position_uses_negotiated_code_units(
     )
 
     assert converted.range.start.character == expected_character
+    assert converted.code is None
+
+
+def test_reports_visible_ready_message_with_statistics() -> None:
+    """準備完了時に解析統計を表示とログの両方へ送る."""
+    server = MagicMock()
+    analysis = analyze("# title\n    term: sentence\n")
+
+    _report_analysis(server, analysis, visible=True)
+
+    log_params = server.window_log_message.call_args.args[0]
+    show_params = server.window_show_message.call_args.args[0]
+    assert "準備完了" in log_params.message
+    assert "ms" in log_params.message
+    assert "2行" in log_params.message
+    assert "1用語" in log_params.message
+    assert show_params.message == log_params.message

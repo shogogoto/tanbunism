@@ -48,6 +48,27 @@ Python 3.11+
 ```sh
 tb --help #helpの表示
 ```
+
+読書メモをDBへ送らずに検査する:
+
+```sh
+# 1ファイル
+tb check notes/book.kn
+
+# ディレクトリ内の.tbと.knを再帰検査
+tb check notes
+
+# エラー位置、該当行、原因、修正案も表示
+tb check -v notes
+
+# Markdownを対象にする
+tb check notes --extension md
+```
+
+検査に失敗したファイルがある場合は終了コード`1`を返す。パーサーは処理を
+続けられないため、1回の検査では各ファイルの最初のエラーを検出する。通常は
+エラーがあるファイルのパスだけを列挙し、`-v`で詳細を表示する。
+
 例: プレーンテキストを読み取り
 ```sh
 cat xxx.txt |tb read

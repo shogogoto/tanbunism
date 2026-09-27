@@ -6,6 +6,7 @@ import click
 
 from tanbun.feature.entry.cli import anchor_cmd, sync_cmd
 from tanbun.feature.language_server.cli import lsp_cmd
+from tanbun.feature.parsing.check import check_cmd
 from tanbun.feature.user.cli import user_cli
 
 from .options.completion import complete_option
@@ -40,6 +41,7 @@ cli.add_command(user_cli)
 cli.add_command(anchor_cmd)
 cli.add_command(sync_cmd)
 cli.add_command(lsp_cmd)
+cli.add_command(check_cmd)
 
 if __name__ == "__main__":
     cli()

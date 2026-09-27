@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from cProfile import Profile
 
 from tanbun.feature.domain.errors import DomainError
+from tanbun.feature.parsing.issue import exception_to_parse_issue
 from tanbun.feature.parsing.sysnet import SysNet
 from tanbun.feature.parsing.tree2net import parse2net
 
@@ -15,7 +16,8 @@ def try_parse2net(s: str) -> SysNet:
     try:
         return parse2net(s)
     except Exception as e:
-        raise DomainError(msg=f"[{e.__class__.__name__}] {e!s}") from e
+        issue = exception_to_parse_issue(s, e)
+        raise DomainError(msg=issue.display_message()) from e
 
 
 @contextmanager

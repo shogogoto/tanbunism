@@ -9,7 +9,11 @@ from pygls.lsp.server import LanguageServer
 from pygls.workspace import PositionCodec, ServerTextPosition, ServerTextRange
 
 from tanbun.feature.language_server.completion import complete_terms
-from tanbun.feature.language_server.diagnostics import TanbunDiagnostic, diagnose
+from tanbun.feature.language_server.diagnostics import (
+    DocumentAnalysis,
+    analyze,
+)
+from tanbun.feature.parsing.issue import ParseIssue
 
 SERVER_NAME = "tanbun-language-server"
 SERVER_VERSION = "0.1.0"
@@ -30,7 +34,8 @@ def create_server() -> LanguageServer:
         try:
             await asyncio.sleep(DIAGNOSTIC_DELAY_SECONDS)
             document = server.workspace.get_text_document(uri)
-            _publish(server, uri, document.source, version)
+            analysis = _publish(server, uri, document.source, version)
+            _report_analysis(server, analysis, visible=False)
         finally:
             if pending.get(uri) is asyncio.current_task():
                 pending.pop(uri, None)
@@ -41,7 +46,13 @@ def create_server() -> LanguageServer:
         params: types.DidOpenTextDocumentParams,
     ) -> None:
         cancel_pending(params.text_document.uri)
-        _publish(ls, params.text_document.uri, params.text_document.text)
+        _report_message(ls, "Tanbun LSP: 文書を解析中…", visible=True)
+        analysis = _publish(
+            ls,
+            params.text_document.uri,
+            params.text_document.text,
+        )
+        _report_analysis(ls, analysis, visible=True)
 
     @server.feature(types.TEXT_DOCUMENT_DID_CHANGE)
     def did_change(
@@ -62,7 +73,14 @@ def create_server() -> LanguageServer:
         uri = params.text_document.uri
         cancel_pending(uri)
         document = ls.workspace.get_text_document(uri)
-        _publish(ls, uri, document.source, getattr(document, "version", None))
+        _report_message(ls, "Tanbun LSP: 保存した文書を解析中…", visible=True)
+        analysis = _publish(
+            ls,
+            uri,
+            document.source,
+            getattr(document, "version", None),
+        )
+        _report_analysis(ls, analysis, visible=True)
 
     @server.feature(types.TEXT_DOCUMENT_DID_CLOSE)
     def did_close(
@@ -73,6 +91,7 @@ def create_server() -> LanguageServer:
         _publish_diagnostics(ls, params.text_document.uri, [])
 
     _register_completion(server)
+    _register_status(server)
     return server
 
 
@@ -115,21 +134,72 @@ def _register_completion(server: LanguageServer) -> None:
         )
 
 
+def _register_status(server: LanguageServer) -> None:
+    """クライアントにLSPの起動を知らせる."""
+
+    @server.feature(types.INITIALIZED)
+    def initialized(
+        ls: LanguageServer,
+        _params: types.InitializedParams,
+    ) -> None:
+        _report_message(ls, "Tanbun LSP: 起動しました", visible=True)
+
+
 def _publish(
     server: LanguageServer,
     uri: str,
     text: str,
     version: int | None = None,
-) -> None:
+) -> DocumentAnalysis:
+    analysis = analyze(text)
     _publish_diagnostics(
         server,
         uri,
         [
             _to_lsp_diagnostic(text, item, server.workspace.position_codec)
-            for item in diagnose(text)
+            for item in analysis.diagnostics
         ],
         version,
     )
+    return analysis
+
+
+def _report_analysis(
+    server: LanguageServer,
+    analysis: DocumentAnalysis,
+    *,
+    visible: bool,
+) -> None:
+    statistics = analysis.statistics
+    values = [
+        f"{statistics.duration_ms:.0f} ms",
+        f"{statistics.line_count}行",
+    ]
+    if statistics.term_count is not None:
+        values.append(f"{statistics.term_count}用語")
+    if statistics.node_count is not None:
+        values.append(f"{statistics.node_count}ノード")
+    if statistics.relation_count is not None:
+        values.append(f"{statistics.relation_count}関係")
+    if analysis.diagnostics:
+        values.append(f"{len(analysis.diagnostics)}エラー")
+    message = f"Tanbun LSP: 準備完了 ({' · '.join(values)})"
+    _report_message(server, message, visible=visible)
+
+
+def _report_message(
+    server: LanguageServer,
+    message: str,
+    *,
+    visible: bool,
+) -> None:
+    server.window_log_message(
+        types.LogMessageParams(type=types.MessageType.Info, message=message),
+    )
+    if visible:
+        server.window_show_message(
+            types.ShowMessageParams(type=types.MessageType.Info, message=message),
+        )
 
 
 def _publish_diagnostics(
@@ -149,7 +219,7 @@ def _publish_diagnostics(
 
 def _to_lsp_diagnostic(
     text: str,
-    diagnostic: TanbunDiagnostic,
+    diagnostic: ParseIssue,
     position_codec: PositionCodec,
 ) -> types.Diagnostic:
     source_range = diagnostic.source_range
@@ -168,9 +238,8 @@ def _to_lsp_diagnostic(
     )
     return types.Diagnostic(
         range=client_range,
-        message=diagnostic.message,
+        message=diagnostic.display_message(),
         severity=types.DiagnosticSeverity.Error,
-        code=diagnostic.code,
         source="tanbun",
     )
 
