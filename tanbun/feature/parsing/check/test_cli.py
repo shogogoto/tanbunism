@@ -74,6 +74,25 @@ def test_check_verbose_explains_relation_without_source_sentence() -> None:
     assert "validation errors for DirectedEdge" not in result.output
 
 
+def test_check_verbose_lists_all_unresolved_references() -> None:
+    """未定義参照は最初の1件で止まらず、一度に一覧表示する."""
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        Path("unresolved.kn").write_text(
+            "# title\n  {不足A} first\n  {不足B}\n  {不足A} second\n",
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(check_cmd, ["unresolved.kn", "-v"])
+
+    assert result.exit_code == 1
+    assert "unresolved.kn:2:3: 用語「不足A」" in result.output
+    assert "unresolved.kn:3:3: 用語「不足B」" in result.output
+    assert "unresolved.kn:4:3: 用語「不足A」" in result.output
+    assert "2箇所で参照" in result.output
+    assert "1ファイルを検査: 0正常, 1エラー" in result.output
+
+
 def test_check_directory_recursively_and_filter_extensions() -> None:
     """ディレクトリでは指定拡張子だけを再帰検査する."""
     runner = CliRunner()

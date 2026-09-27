@@ -136,7 +136,7 @@ def test_reports_uncontained_mark_at_mark_position() -> None:
 
     [diagnostic] = diagnose(text)
 
-    assert diagnostic.code == "invalid-document"
+    assert diagnostic.code == "undefined-term"
     assert diagnostic.source_range == SourceRange(
         line=1,
         start_character=len("    sentence "),

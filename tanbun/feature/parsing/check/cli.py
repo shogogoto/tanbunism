@@ -62,11 +62,12 @@ def check_cmd(
         if verbose:
             for warning in inspection.warnings:
                 _echo_issue(display_path, text, warning)
-        if inspection.issue is None:
+        if not inspection.errors:
             continue
         error_count += 1
         if verbose:
-            _echo_issue(display_path, text, inspection.issue)
+            for issue in inspection.errors:
+                _echo_issue(display_path, text, issue)
         else:
             click.echo(display_path, err=True)
 

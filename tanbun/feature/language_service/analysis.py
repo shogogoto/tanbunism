@@ -38,9 +38,9 @@ def analyze(text: str) -> DocumentAnalysis:
     """文書全体を解析し、診断と統計値を返す."""
     started = perf_counter()
     inspection = inspect_document(text)
-    if inspection.issue is not None:
+    if inspection.errors:
         return DocumentAnalysis(
-            diagnostics=(*inspection.warnings, inspection.issue),
+            diagnostics=(*inspection.warnings, *inspection.errors),
             statistics=ParseStatistics(
                 duration_ms=_elapsed_ms(started),
                 line_count=len(text.splitlines()),

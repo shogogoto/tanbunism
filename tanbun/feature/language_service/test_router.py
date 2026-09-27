@@ -33,6 +33,21 @@ def test_analysis_exposes_common_diagnostics(client: TestClient) -> None:
     assert result["statistics"]["line_count"] == 1
 
 
+def test_analysis_exposes_all_unresolved_references(client: TestClient) -> None:
+    """Web簡易エディタにも未定義参照を全件返す."""
+    text = "# title\n  {不足A}\n  `不足B`\n"
+
+    response = client.post("/language/analysis", json={"text": text})
+
+    assert response.status_code == status.HTTP_200_OK
+    diagnostics = response.json()["diagnostics"]
+    assert [item["code"] for item in diagnostics] == [
+        "undefined-term",
+        "undefined-quoterm",
+    ]
+    assert [item["source_range"]["line"] for item in diagnostics] == [1, 2]
+
+
 def test_definition_exposes_same_document_location(client: TestClient) -> None:
     """Webにも文書内の定義位置を返す."""
     text = "# title\n  身体化: 説明\n  {身体化}\n"

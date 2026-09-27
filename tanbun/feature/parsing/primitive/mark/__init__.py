@@ -20,22 +20,27 @@ ESCAPED_CLOSE_BRACE = "\ue002\ue003"
 
 def protect_escaped_braces(text: str) -> str:
     """Python風の二重波括弧を、用語参照と区別して保護する."""
-    protected_open = re.sub(
-        r"\{+",
-        lambda match: (
-            ESCAPED_OPEN_BRACE * (len(match.group()) // 2)
-            + ("{" if len(match.group()) % 2 else "")
-        ),
-        text,
-    )
-    return re.sub(
-        r"\}+",
-        lambda match: (
-            ("}" if len(match.group()) % 2 else "")
-            + ESCAPED_CLOSE_BRACE * (len(match.group()) // 2)
-        ),
-        protected_open,
-    )
+    protected = []
+    inside_reference = False
+    index = 0
+    while index < len(text):
+        pair = text[index : index + 2]
+        char = text[index]
+        if not inside_reference and pair == "{{":
+            protected.append(ESCAPED_OPEN_BRACE)
+            index += 2
+            continue
+        if not inside_reference and pair == "}}":
+            protected.append(ESCAPED_CLOSE_BRACE)
+            index += 2
+            continue
+        protected.append(char)
+        if not inside_reference and char == "{":
+            inside_reference = True
+        elif inside_reference and char == "}":
+            inside_reference = False
+        index += 1
+    return "".join(protected)
 
 
 def restore_escaped_braces(text: str) -> str:

@@ -84,6 +84,21 @@ def test_escaped_braces_can_surround_a_term_reference() -> None:
     assert network.get_resolved(sentence) == {"言語の最小単位": {}}
 
 
+def test_extra_closing_brace_keeps_legacy_parser_behavior() -> None:
+    """参照直後の余分な } を、エスケープ開始と誤認しない."""
+    source = """
+        # title
+            密着軸: 顧客をよく知っている
+            営業は{密着軸}}
+    """
+
+    network = parse2net(source)
+
+    sentence = "営業は{密着軸}}"
+    assert sentence in network.sentences
+    assert network.get_resolved(sentence) == {"顧客をよく知っている": {}}
+
+
 def test_add_block() -> None:
     """blockを正しく配置."""
     s = """
