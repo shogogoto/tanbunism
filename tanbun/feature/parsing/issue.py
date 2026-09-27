@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from lark import UnexpectedCharacters, UnexpectedEOF, UnexpectedInput
 
+from tanbun.feature.parsing.primitive.quoterm.errors import QuotermNotFoundError
 from tanbun.feature.parsing.tree2net.errors import OrphanRelationError
 from tanbun.feature.parsing.tree_parse.errors import (
     AttachDetailError,
@@ -62,7 +63,15 @@ def exception_to_parse_issue(text: str, exc: Exception) -> ParseIssue:
 def _locate_error(text: str, exc: Exception) -> SourceRange:
     if isinstance(exc, OrphanRelationError):
         return _locate_orphan_relation(text, exc.target)
+    if isinstance(exc, QuotermNotFoundError):
+        quoterm_range = _locate_quoterm(text, str(exc))
+        if quoterm_range is not None:
+            return quoterm_range
+    return _locate_generic_error(text, exc)
 
+
+def _locate_generic_error(text: str, exc: Exception) -> SourceRange:
+    """例外の一般的な位置情報やメッセージからソース範囲を得る."""
     line = getattr(exc, "line", None)
     column = getattr(exc, "column", None)
     if isinstance(line, int) and isinstance(column, int):
@@ -169,6 +178,13 @@ def _explain_known_error(  # noqa: PLR0911 - each known error has its own guidan
             "orphan-relation",
             "関係行に接続元の単文がありません。",
             "直前の単文の配下になるよう、この行をさらにインデント",
+        )
+    if isinstance(exc, QuotermNotFoundError):
+        name = _first_quoted_value(str(exc))
+        return (
+            "undefined-quoterm",
+            f"引用用語「{name}」が定義されていません。",
+            f"「{name}: ...」と定義するか、既存の用語名へ変更",
         )
     return None
 
@@ -303,3 +319,22 @@ def _locate_orphan_relation(text: str, target: str) -> SourceRange:
                 end_character=len(line),
             )
     return SourceRange(line=0, start_character=0, end_character=1)
+
+
+def _locate_quoterm(text: str, message: str) -> SourceRange | None:
+    name = _first_quoted_value(message)
+    needle = f"`{name}`"
+    offset = text.rfind(needle)
+    if offset < 0:
+        return None
+    line, character = _offset_to_position(text, offset + 1)
+    return SourceRange(
+        line=line,
+        start_character=character,
+        end_character=character + len(name),
+    )
+
+
+def _first_quoted_value(message: str) -> str:
+    match = re.search(r"'([^']+)'", message)
+    return match.group(1) if match is not None else message

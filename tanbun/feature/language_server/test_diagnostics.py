@@ -82,6 +82,29 @@ def test_reports_skipped_heading_level_with_fix() -> None:
     assert "H2" not in diagnostic.display_message()
 
 
+def test_undefined_quoterm_points_to_backtick_reference() -> None:
+    """同じ名前を含む後続用語でなく未定義のbacktickを指す."""
+    text = (
+        "# title\n"
+        "  論理的明証性: 論理による明証性\n"
+        "  前提\n"
+        "    <- `明証性`\n"
+        "  事実の明証性: 観察による明証性\n"
+        "  感覚意識の明証性: 心に関する{事実の明証性}\n"
+    )
+
+    [diagnostic] = diagnose(text)
+
+    assert diagnostic.code == "undefined-quoterm"
+    assert diagnostic.message == "引用用語「明証性」が定義されていません。"
+    assert diagnostic.source_range == SourceRange(
+        line=3,
+        start_character=len("    <- `"),
+        end_character=len("    <- `明証性"),
+    )
+    assert "明証性: ..." in (diagnostic.suggestion or "")
+
+
 def test_reports_uncontained_mark_at_mark_position() -> None:
     """未定義用語を参照した場所を返す."""
     text = "# title\n    sentence {missing}\n"
