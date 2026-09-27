@@ -21,6 +21,11 @@ class TermConflictError(TermError):
 class AliasContainsMarkError(TermError):
     """別名にマークを含んだらダメ."""
 
+    def __init__(self, message: str, *, alias: str = "") -> None:
+        """表示文と、診断位置の特定に使うaliasを保持する."""
+        super().__init__(message)
+        self.alias = alias
+
 
 class TermResolveError(TermError):
     """用語解決に失敗."""

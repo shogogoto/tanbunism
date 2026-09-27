@@ -63,7 +63,7 @@ class Term(BaseModel, frozen=True):
         """Validate duplication."""
         if v is not None and BRACE_MARKER.contains(v):
             msg = "aliasにMARK文字が含まれています"
-            raise AliasContainsMarkError(msg)
+            raise AliasContainsMarkError(msg, alias=v)
         return v
 
     @classmethod

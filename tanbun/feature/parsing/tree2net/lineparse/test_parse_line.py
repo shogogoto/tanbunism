@@ -20,6 +20,15 @@ from . import parse_line
         ("P |a1, a2: bbb", "P", ["a1", "a2"], "bbb"),
         ("bbb", None, [], "bbb"),
         ("P |bbb", "P", [], "bbb"),
+        ("A| bbb", "A", [], "bbb"),
+        ("P(X|E) = P(X and E)/P(E)", None, [], "P(X|E) = P(X and E)/P(E)"),
+        (
+            "probability P(X|E) in prose",
+            None,
+            [],
+            "probability P(X|E) in prose",
+        ),
+        ("McDonald's (shop | house)", None, [], "McDonald's (shop | house)"),
     ],
 )
 def test_parse_oneline(

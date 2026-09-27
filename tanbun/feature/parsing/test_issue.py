@@ -144,6 +144,22 @@ def test_duplicate_term_points_to_later_definition() -> None:
     assert "最初の定義は2行目" in issue.message
 
 
+def test_alias_with_term_reference_points_to_alias() -> None:
+    """aliasに波括弧がある場合は文書先頭でなくaliasを指す."""
+    text = "# title\n  bad{alias} | sentence\n"
+
+    issue = inspect_document(text).issue
+
+    assert issue is not None
+    assert issue.code == "invalid-alias"
+    assert issue.source_range == SourceRange(
+        line=1,
+        start_character=2,
+        end_character=len("  bad{alias}"),
+    )
+    assert "bad{alias}" in issue.message
+
+
 def test_duplicate_term_does_not_point_to_later_reference() -> None:
     """重複定義の診断を、後方の{} 参照に出さない."""
     text = (

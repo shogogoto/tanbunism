@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from textwrap import dedent
 from typing import Final
 
 ALIAS_SEP: Final = "|"
+ALIAS_PATTERN: Final = re.compile(
+    rf"^(?P<alias>\S+)(?:\s+{re.escape(ALIAS_SEP)}\s*|"
+    rf"\s*{re.escape(ALIAS_SEP)}\s+)(?P<define>.*)$",
+)
 DEF_SEPS: Final = (":", "\uff1a")
 NAME_SEP: Final = ","
 
@@ -19,9 +24,10 @@ def parse_line(line: str) -> tuple[str | None, list[str], str | None]:
     names = []
     define = txt
     sentence = txt
-    if ALIAS_SEP in txt:
-        alias, define = txt.split(ALIAS_SEP, maxsplit=1)
-        alias = alias.strip()
+    alias_match = ALIAS_PATTERN.match(txt)
+    if alias_match is not None:
+        alias = alias_match.group("alias")
+        define = alias_match.group("define")
         sentence = define
     separators = [
         (define.index(separator), separator)

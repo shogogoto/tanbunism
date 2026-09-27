@@ -11,7 +11,10 @@ from lark import UnexpectedCharacters, UnexpectedEOF, UnexpectedInput
 
 from tanbun.feature.parsing.primitive.mark.errors import MarkContainsMarkError
 from tanbun.feature.parsing.primitive.quoterm.errors import QuotermNotFoundError
-from tanbun.feature.parsing.primitive.term.errors import TermConflictError
+from tanbun.feature.parsing.primitive.term.errors import (
+    AliasContainsMarkError,
+    TermConflictError,
+)
 from tanbun.feature.parsing.primitive.time.errors import ParseWhenError
 from tanbun.feature.parsing.tree2net.errors import OrphanRelationError
 from tanbun.feature.parsing.tree2net.lineparse import parse_line
@@ -101,7 +104,7 @@ def lint_parse_style(text: str) -> tuple[ParseIssue, ...]:
     return tuple(issues)
 
 
-def _locate_error(  # noqa: C901, PLR0911 - dispatches by exception type
+def _locate_error(  # noqa: C901, PLR0911, PLR0912 - one branch per error
     text: str,
     exc: Exception,
 ) -> SourceRange:
@@ -127,6 +130,10 @@ def _locate_error(  # noqa: C901, PLR0911 - dispatches by exception type
         mark_range = _locate_nested_mark(text, exc)
         if mark_range is not None:
             return mark_range
+    if isinstance(exc, AliasContainsMarkError) and exc.alias:
+        alias_range = _locate_value(text, exc.alias)
+        if alias_range is not None:
+            return alias_range
     return _locate_generic_error(text, exc)
 
 
@@ -329,6 +336,12 @@ def _explain_known_error(  # noqa: C901, PLR0911, PLR0912 - one branch per error
             "nested-term-reference",
             "用語参照の波括弧「{ }」は入れ子にできません。",
             "記号として書く場合は「{{」「}}」のように2つ重ねる",
+        )
+    if isinstance(exc, AliasContainsMarkError):
+        return (
+            "invalid-alias",
+            f"alias「{exc.alias}」に用語参照の波括弧は使用できません。",
+            "aliasから「{」「}」を削除するか、波括弧を本文側へ移動",
         )
     if isinstance(exc, (EDTFParseException, ParseWhenError)):
         line = _line_at(text, source_range.line)
