@@ -108,6 +108,24 @@ def test_invalid_time_points_to_value_with_plain_language_fix() -> None:
     )
 
 
+def test_time_season_error_points_to_when_value() -> None:
+    """独自日時エラーも文書先頭でなく原因となったwhen値を指す."""
+    text = "# title\n  event\n    when. 1970 EARLY\n"
+
+    issue = inspect_document(text).issue
+
+    assert issue is not None
+    assert issue.code == "invalid-time-expression"
+    assert issue.message == "日時・期間「1970 EARLY」を解釈できません。"
+    assert "世紀表記にだけ使用できます" in (issue.suggestion or "")
+    assert "1970 ~ 1973" in (issue.suggestion or "")
+    assert issue.source_range == SourceRange(
+        line=2,
+        start_character=len("    when. "),
+        end_character=len("    when. 1970 EARLY"),
+    )
+
+
 def test_duplicate_term_points_to_later_definition() -> None:
     """用語名の前に説明がある例外でも重複した側を指す."""
     text = "# title\n  ヌーメン: first\n  ヌーメン: second\n"

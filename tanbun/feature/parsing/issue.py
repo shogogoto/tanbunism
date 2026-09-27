@@ -12,6 +12,7 @@ from lark import UnexpectedCharacters, UnexpectedEOF, UnexpectedInput
 from tanbun.feature.parsing.primitive.mark.errors import MarkContainsMarkError
 from tanbun.feature.parsing.primitive.quoterm.errors import QuotermNotFoundError
 from tanbun.feature.parsing.primitive.term.errors import TermConflictError
+from tanbun.feature.parsing.primitive.time.errors import ParseWhenError
 from tanbun.feature.parsing.tree2net.errors import OrphanRelationError
 from tanbun.feature.parsing.tree2net.lineparse import parse_line
 from tanbun.feature.parsing.tree_parse.errors import (
@@ -24,6 +25,7 @@ from tanbun.feature.parsing.tree_parse.errors import (
 )
 
 KN_SYNTAX_ERROR_ARG_COUNT = 3
+PARSE_WHEN_ERROR_ARG_COUNT = 2
 MIN_DUPLICATE_DEFINITIONS = 2
 FULLWIDTH_COLON = "\uff1a"
 FULLWIDTH_SPACE = "\u3000"
@@ -113,7 +115,7 @@ def _locate_error(  # noqa: C901, PLR0911 - dispatches by exception type
         quoterm_range = _locate_quoterm(text, str(exc))
         if quoterm_range is not None:
             return quoterm_range
-    if isinstance(exc, EDTFParseException):
+    if isinstance(exc, (EDTFParseException, ParseWhenError)):
         time_range = _locate_invalid_time(text, exc)
         if time_range is not None:
             return time_range
@@ -158,10 +160,11 @@ def _locate_value(text: str, value: str) -> SourceRange | None:
 
 def _locate_invalid_time(
     text: str,
-    original: EDTFParseException,
+    original: EDTFParseException | ParseWhenError,
 ) -> SourceRange | None:
     """内部で正規化された日時エラーを元のwhen行へ戻す."""
-    exact = _locate_value(text, original.input_string)
+    original_value = _invalid_time_value(original)
+    exact = _locate_value(text, original_value) if original_value else None
     if exact is not None:
         return exact
 
@@ -175,13 +178,25 @@ def _locate_invalid_time(
         value = match.group(1)
         try:
             parse_when(value)
-        except EDTFParseException as candidate:
-            if candidate.input_string != original.input_string:
+        except (EDTFParseException, ParseWhenError) as candidate:
+            if type(candidate) is not type(original):
+                continue
+            candidate_value = _invalid_time_value(candidate)
+            if original_value and candidate_value != original_value:
                 continue
             start, end = match.span(1)
             return SourceRange(line_number, start, end)
         except Exception:  # noqa: BLE001, S112 - 別種の日時エラーは無関係
             continue
+    return None
+
+
+def _invalid_time_value(exc: EDTFParseException | ParseWhenError) -> str | None:
+    """日時例外が保持する、利用者が入力した値を返す."""
+    if isinstance(exc, EDTFParseException):
+        return exc.input_string
+    if len(exc.args) >= PARSE_WHEN_ERROR_ARG_COUNT and isinstance(exc.args[1], str):
+        return exc.args[1]
     return None
 
 
@@ -252,7 +267,7 @@ def _explain_error(
     return "invalid-document", str(exc), None
 
 
-def _explain_known_error(  # noqa: C901, PLR0911 - known errors have own guidance
+def _explain_known_error(  # noqa: C901, PLR0911, PLR0912 - one branch per error
     text: str,
     exc: Exception,
     source_range: SourceRange,
@@ -315,16 +330,22 @@ def _explain_known_error(  # noqa: C901, PLR0911 - known errors have own guidanc
             "用語参照の波括弧「{ }」は入れ子にできません。",
             "記号として書く場合は「{{」「}}」のように2つ重ねる",
         )
-    if isinstance(exc, EDTFParseException):
+    if isinstance(exc, (EDTFParseException, ParseWhenError)):
         line = _line_at(text, source_range.line)
         source_value = line[source_range.start_character : source_range.end_character]
-        value = source_value or exc.input_string
+        normalized = _invalid_time_value(exc) or source_value
+        value = source_value or normalized
         suggestion = "対応している日時または「開始 ~ 終了」形式の期間へ変更"
-        normalized = exc.input_string
         if re.fullmatch(r"\d{3}X-\d{4}", normalized):
             start = normalized[:3] + "0"
             end = normalized[-4:]
             suggestion = f"期間を表すなら「{start} ~ {end}」へ変更"
+        if re.fullmatch(r"-?\d+\s+(?:EARLY|MID|LATE)", normalized):
+            suggestion = (
+                "EARLY / MID / LATE は「19C EARLY」のような世紀表記にだけ"
+                "使用できます。年代を表す場合は「1970 ~ 1973」のような"
+                "具体的な期間へ変更"
+            )
         return (
             "invalid-time-expression",
             f"日時・期間「{value}」を解釈できません。",
