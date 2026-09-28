@@ -22,6 +22,32 @@ def test_calculate_learning_progress() -> None:
         "quiz_answer": 100,
         "correct_bonus": 30,
     }
+    assert [detail.model_dump(mode="json") for detail in progress.xp_details] == [
+        {
+            "source": "knowledge",
+            "activity_count": 100,
+            "xp_per_activity": 1,
+            "earned_xp": 100,
+        },
+        {
+            "source": "quiz_creation",
+            "activity_count": 10,
+            "xp_per_activity": 1,
+            "earned_xp": 10,
+        },
+        {
+            "source": "quiz_answer",
+            "activity_count": 20,
+            "xp_per_activity": 5,
+            "earned_xp": 100,
+        },
+        {
+            "source": "correct_bonus",
+            "activity_count": 15,
+            "xp_per_activity": 2,
+            "earned_xp": 30,
+        },
+    ]
     assert progress.total_xp == 240  # noqa: PLR2004
     assert progress.level == 3  # noqa: PLR2004
     assert progress.current_level_xp == 40  # noqa: PLR2004
