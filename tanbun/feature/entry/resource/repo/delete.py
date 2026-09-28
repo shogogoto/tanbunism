@@ -3,6 +3,7 @@
 from neomodel.async_.core import AsyncDatabase
 
 from tanbun.feature.domain.types import UUIDy, to_uuid
+from tanbun.feature.entry.resource.repo.retirement import retire_referenced_sentences
 
 
 async def delete_resource_unders(resource_uid: UUIDy):
@@ -36,5 +37,6 @@ async def delete_resource_tops(resource_uid: UUIDy):
 
 async def delete_resource(resource_uid: UUIDy) -> None:
     """リソースを削除."""
+    await retire_referenced_sentences(resource_uid)
     await delete_resource_unders(resource_uid)
     await delete_resource_tops(resource_uid)

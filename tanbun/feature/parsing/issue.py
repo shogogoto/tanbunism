@@ -16,8 +16,10 @@ from tanbun.feature.parsing.primitive.term.errors import (
     TermConflictError,
 )
 from tanbun.feature.parsing.primitive.time.errors import ParseWhenError
+from tanbun.feature.parsing.sysnet.errors import SentenceConflictError
 from tanbun.feature.parsing.tree2net.errors import OrphanRelationError
 from tanbun.feature.parsing.tree2net.lineparse import parse_line
+from tanbun.feature.parsing.tree2net.transformer import parse_sysarg
 from tanbun.feature.parsing.tree_parse.errors import (
     AttachDetailError,
     HeadingMismatchError,
@@ -134,6 +136,10 @@ def _locate_error(  # noqa: C901, PLR0911, PLR0912 - one branch per error
         alias_range = _locate_value(text, exc.alias)
         if alias_range is not None:
             return alias_range
+    if isinstance(exc, SentenceConflictError) and exc.sentence:
+        sentence_ranges = _locate_sentence_occurrences(text, exc.sentence)
+        if sentence_ranges:
+            return sentence_ranges[-1]
     return _locate_generic_error(text, exc)
 
 
@@ -310,7 +316,7 @@ def _explain_known_error(  # noqa: C901, PLR0911, PLR0912 - one branch per error
         return (
             "orphan-relation",
             "関係行に接続元の単文がありません。",
-            "直前の単文の配下になるよう、この行をさらにインデント",
+            "独立した単文なら行頭の関係記号を削除。直前の単文との関係なら、その配下へさらにインデント",
         )
     if isinstance(exc, QuotermNotFoundError):
         name = _first_quoted_value(str(exc))
@@ -342,6 +348,16 @@ def _explain_known_error(  # noqa: C901, PLR0911, PLR0912 - one branch per error
             "invalid-alias",
             f"alias「{exc.alias}」に用語参照の波括弧は使用できません。",
             "aliasから「{」「}」を削除するか、波括弧を本文側へ移動",
+        )
+    if isinstance(exc, SentenceConflictError):
+        occurrences = _locate_sentence_occurrences(text, exc.sentence)
+        first_location = ""
+        if len(occurrences) >= MIN_DUPLICATE_DEFINITIONS:
+            first_location = f" 最初の単文は{occurrences[0].line + 1}行目です。"
+        return (
+            "duplicate-sentence",
+            f"同じ単文「{exc.sentence}」が複数回あります。{first_location}".rstrip(),
+            "片方を削除するか、異なる内容だと分かるように書き分ける",
         )
     if isinstance(exc, (EDTFParseException, ParseWhenError)):
         line = _line_at(text, source_range.line)
@@ -508,13 +524,29 @@ def _locate_orphan_relation(text: str, target: str) -> SourceRange:
     relation_prefixes = ("<->", "->", "<-", "ex.", "xe.", "ref.", "~=", "by.", "where.")
     for line_index, line in enumerate(text.splitlines()):
         stripped = line.lstrip()
-        if target in line and stripped.startswith(relation_prefixes):
-            start = len(line) - len(stripped)
-            return SourceRange(
-                line=line_index,
-                start_character=start,
-                end_character=len(line),
-            )
+        prefix = next(
+            (
+                candidate
+                for candidate in relation_prefixes
+                if stripped.startswith(candidate)
+            ),
+            None,
+        )
+        if prefix is None:
+            continue
+        source = stripped[len(prefix) :].strip()
+        try:
+            parsed_target = str(parse_sysarg(source))
+        except (ValueError, TypeError):
+            continue
+        if parsed_target != target:
+            continue
+        start = len(line) - len(stripped)
+        return SourceRange(
+            line=line_index,
+            start_character=start,
+            end_character=len(line),
+        )
     return SourceRange(line=0, start_character=0, end_character=1)
 
 
@@ -576,6 +608,24 @@ def _locate_term_definitions(
                 end_character=name_start + len(primary_name),
             ),
         )
+    return found
+
+
+def _locate_sentence_occurrences(text: str, sentence: str) -> list[SourceRange]:
+    """同じ単文として解析される行だけを探す."""
+    found = []
+    for line_index, line in enumerate(text.splitlines()):
+        stripped = line.strip()
+        try:
+            _, _, parsed_sentence = parse_line(stripped)
+        except ValueError:
+            continue
+        if parsed_sentence != sentence:
+            continue
+        start = line.rfind(sentence)
+        if start < 0:
+            continue
+        found.append(SourceRange(line_index, start, start + len(sentence)))
     return found
 
 

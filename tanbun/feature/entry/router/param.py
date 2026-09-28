@@ -1,14 +1,53 @@
 """API params."""
 
+from typing import Self
+
 from fastapi import Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from tanbun.feature.entry.domain import (
     ResourceOrderKey,
     StatsOrderKey,
     UserOrderKey,
 )
+from tanbun.feature.entry.resource.repo.diff_update.errors import IdentityKind
 from tanbun.feature.repo.cypher import Paging
+
+
+class IdentityResolutionBody(BaseModel, frozen=True):
+    """1件の同一性競合に対するユーザーの選択."""
+
+    kind: IdentityKind = "sentence"
+    original: str
+    replacement: str | None
+
+
+class ResourceTextBody(BaseModel, frozen=True):
+    """テキストResourceの保存と任意の競合解決."""
+
+    txt: str
+    path: list[str]
+    identity_resolutions: list[IdentityResolutionBody] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_unique_originals(self) -> Self:
+        """同じ旧文に複数の選択を送る曖昧なリクエストを拒否する."""
+        keys = [
+            (resolution.kind, resolution.original)
+            for resolution in self.identity_resolutions
+        ]
+        if len(keys) != len(set(keys)):
+            msg = "同じ旧値の解決指定が重複しています"
+            raise ValueError(msg)
+        return self
+
+    def resolution_map(self, kind: IdentityKind) -> dict[str, str | None]:
+        """指定種別だけをdomain用の辞書へ変換する."""
+        return {
+            resolution.original: resolution.replacement
+            for resolution in self.identity_resolutions
+            if resolution.kind == kind
+        }
 
 
 class ResourceSearchBody(BaseModel, frozen=True):

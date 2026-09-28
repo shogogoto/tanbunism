@@ -35,10 +35,11 @@ async def _fetch_coverage_sent_ids(
         WHERE sent.val <> $dummy_sentence
           AND {not_}EXISTS {{
             MATCH (user: User {{uid: $user_id}})
-                -[:LEARN]->(quiz: Quiz {{
-                    quiz_type: $quiz_type,
-                    is_link_broken: false
-                }})-[:QUIZ_TARGET]->(sent)
+                -[:LEARN]->(quiz: Quiz {{quiz_type: $quiz_type}})
+                -[:QUIZ_TARGET]->(sent)
+            WHERE NOT EXISTS {{
+                MATCH (quiz)-[:BROKEN_BY]->()
+            }}
         }}
         RETURN DISTINCT sent.uid
     """
@@ -99,10 +100,11 @@ async def fetch_uncovered_relation_pairs(
           AND NOT target.uid IN $exclude_sent_ids
           AND NOT EXISTS {
             MATCH (user: User {uid: $user_id})
-                -[:LEARN]->(quiz: Quiz {
-                    quiz_type: $quiz_type,
-                    is_link_broken: false
-                })-[:QUIZ_TARGET]->(target)
+                -[:LEARN]->(quiz: Quiz {quiz_type: $quiz_type})
+                -[:QUIZ_TARGET]->(target)
+            WHERE NOT EXISTS {
+                MATCH (quiz)-[:BROKEN_BY]->()
+            }
           }
         RETURN DISTINCT target.uid, correct.uid
         ORDER BY target.uid ASC, correct.uid ASC
@@ -172,10 +174,11 @@ async def fetch_sort_by_accuracy(
         UNWIND $uids AS uid
         MATCH (sent: Sentence {{uid: uid}})
         OPTIONAL MATCH (user: User {{uid: $user_id}})
-            -[:LEARN]->(quiz: Quiz {{
-                quiz_type: $quiz_type,
-                is_link_broken: false
-            }})-[:QUIZ_TARGET]->(sent)
+            -[:LEARN]->(quiz: Quiz {{quiz_type: $quiz_type}})
+            -[:QUIZ_TARGET]->(sent)
+        WHERE quiz IS NULL OR NOT EXISTS {{
+            MATCH (quiz)-[:BROKEN_BY]->()
+        }}
         OPTIONAL MATCH (user)-[:ANSWER]->(answer: Answer)
             -[:ANSWER_OF]->(quiz)
         WITH

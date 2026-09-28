@@ -122,16 +122,6 @@ def merge_edge_q(
     return rel2q((u2, v2, t), varnames)
 
 
-def delete_sentency_qs(ss: Iterable[Sentency], varnames: dict[KNode, str]) -> list[str]:
-    """単文の削除."""
-    qs = []
-    for s in ss:
-        var = varnames[s]
-        q = f"DETACH DELETE ({var})"
-        qs.append(q)
-    return qs
-
-
 def build_varnames(  # noqa: PLR0917
     old: SysNet,
     upd: SysNet,

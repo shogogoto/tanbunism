@@ -18,6 +18,7 @@ from .domain import (
 def build_sentency_updiff(
     old_sn: SysNet,
     upd_sn: SysNet,
+    resolutions: dict[str, str | None] | None = None,
 ) -> tuple[set[Sentency], set[Sentency], dict[Sentency, Sentency]]:
     """単文更新差分を作る."""
 
@@ -26,6 +27,7 @@ def build_sentency_updiff(
             [o for o in old if isinstance(o, str)],
             [n for n in new if isinstance(n, str)],
             threshold_ratio=0.6,
+            resolutions=resolutions,
         )
         updiff |= identify_duplicate_updiff(old_sn, upd_sn)
         return updiff
@@ -40,6 +42,7 @@ def build_sentency_updiff(
 def build_term_updiff(
     old_sn: SysNet,
     upd_sn: SysNet,
+    resolutions: dict[str, str | None] | None = None,
 ) -> tuple[set[Term], set[Term], dict[Term, Term]]:
     """用語更新差分を作る."""
 
@@ -48,6 +51,7 @@ def build_term_updiff(
             [o for o in old if isinstance(o, Term)],
             [n for n in new if isinstance(n, Term)],
             threshold_ratio=0.6,
+            resolutions=resolutions,
         )
         updiff |= get_switched_def_terms(old_sn, upd_sn)
         return updiff

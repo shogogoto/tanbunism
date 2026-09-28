@@ -42,3 +42,23 @@ class ManagedQuizResult(BaseModel, frozen=True):
 
     data: list[ManagedQuiz]
     total: int
+
+
+class BrokenQuizReference(BaseModel, frozen=True):
+    """作成Quizから退役単文へ残された、修復可能な参照."""
+
+    quiz_id: UUID
+    retired_sentence_id: UUID
+    retired_value: str
+    resource_id: UUID
+    roles: list[str]
+    retired_at: Neo4jDateTime
+
+
+class QuizReattachmentResult(BaseModel, frozen=True):
+    """1件のQuizで付け替えた関係数と退役単文の保持状態."""
+
+    quiz_targets: int
+    quiz_options: int
+    quiz_corrects: int
+    retained: bool

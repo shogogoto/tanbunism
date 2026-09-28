@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from lark import Token, Transformer
 
 from tanbun.feature.domain.graph.edge_type import EdgeType
@@ -9,9 +11,12 @@ from tanbun.feature.domain.types import Duplicable
 from tanbun.feature.parsing.primitive.quoterm.domain import Quoterm
 from tanbun.feature.parsing.primitive.template import Template
 from tanbun.feature.parsing.primitive.term import Term
+from tanbun.feature.parsing.primitive.term.const import BRACE_MARKER
 from tanbun.feature.parsing.primitive.time import WhenNode
 from tanbun.feature.parsing.sysnet.sysnode import Def, KNArg
 from tanbun.feature.parsing.tree2net.lineparse import parse_line
+
+ELLIPSIS_PLACEHOLDER = re.compile(r"(?:\.{3,}|…+)")
 
 
 def _stoken(tok: Token, erase: str | None = None) -> Token:
@@ -50,7 +55,7 @@ class TSysArg(Transformer):
     @staticmethod
     def ONELINE(tok: Token) -> KNArg:  # noqa: N802 D102
         v = "".join(tok.split("   "))  # 適当な\nに対応する空白
-        return _parse2sysarg(v)
+        return parse_sysarg(v)
 
     @staticmethod
     def MULTILINE(tok: Token) -> KNArg:  # noqa: N802 D102
@@ -58,10 +63,11 @@ class TSysArg(Transformer):
         v = ""
         for s in sp:
             v += s.lstrip()
-        return _parse2sysarg(v)
+        return parse_sysarg(v)
 
 
-def _parse2sysarg(v: str) -> KNArg:
+def parse_sysarg(v: str) -> KNArg:
+    """本文1行を、構文木で利用するノードへ変換する."""
     if Template.is_parsable(v):
         return Template.parse(v)
 
@@ -70,5 +76,10 @@ def _parse2sysarg(v: str) -> KNArg:
         t = Term.create(*names, alias=alias)
         return Def.dummy(t)
     if alias is None and len(names) == 0:
+        if ELLIPSIS_PLACEHOLDER.fullmatch(sentence) is not None:
+            return Duplicable(n=sentence)
         return sentence
-    return Def.create(sentence, names, alias)
+    definition_sentence = sentence
+    if BRACE_MARKER.pattern.fullmatch(sentence) is not None:
+        definition_sentence = Duplicable(n=sentence)
+    return Def.create(definition_sentence, names, alias)

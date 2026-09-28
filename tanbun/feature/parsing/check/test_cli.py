@@ -70,7 +70,8 @@ def test_check_verbose_explains_relation_without_source_sentence() -> None:
     assert result.exit_code == 1
     assert "invalid.kn:3:3: 関係行に接続元の単文がありません。" in result.output
     assert "3 |   <-> child" in result.output
-    assert "この行をさらにインデント" in result.output
+    assert "関係記号を削除" in result.output
+    assert "その配下へさらにインデント" in result.output
     assert "validation errors for DirectedEdge" not in result.output
 
 

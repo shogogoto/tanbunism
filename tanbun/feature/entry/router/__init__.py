@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated
 from uuid import UUID
 
 import chardet  # 文字エンコーディング検出用
-from fastapi import APIRouter, Body, UploadFile
+from fastapi import APIRouter, UploadFile
 
 from tanbun.feature.domain.datetime import TZ
 from tanbun.feature.entry.domain import (
@@ -35,11 +34,18 @@ from tanbun.feature.entry.resource.limits import (
     validate_resource_text,
 )
 from tanbun.feature.entry.resource.repo.delete import delete_resource
+from tanbun.feature.entry.resource.repo.diff_update.errors import (
+    IdentityConflictResponse,
+)
+from tanbun.feature.entry.resource.repo.diff_update.preview import ResourceDiffPreview
 from tanbun.feature.entry.resource.repo.owner import check_entry_owner
 from tanbun.feature.entry.resource.repo.restore import restore_graph
 from tanbun.feature.entry.resource.repo.search import search_resources
-from tanbun.feature.entry.resource.usecase import save_resource_with_detail
-from tanbun.feature.entry.router.param import ResourceSearchBody
+from tanbun.feature.entry.resource.usecase import (
+    preview_resource_update,
+    save_resource_with_detail,
+)
+from tanbun.feature.entry.router.param import ResourceSearchBody, ResourceTextBody
 from tanbun.feature.user.router_util import ActiveUser, TrackUser
 
 router = APIRouter(tags=["entry"])
@@ -73,17 +79,45 @@ async def get_public_namespace(user_id: UUID) -> NameSpace:
     return await fetch_namespace(user_id)
 
 
-@router.post("/resource-text")
+@router.post(
+    "/resource-text",
+    responses={409: {"model": IdentityConflictResponse}},
+)
 async def post_text(
-    txt: Annotated[str, Body(embed=True)],
-    path: Annotated[list[str], Body(embed=True)],
+    body: ResourceTextBody,
     user: ActiveUser,
 ) -> dict[str, str]:
     """テキストからsysnetを読み取って永続化."""
-    validate_resource_text(txt)
+    validate_resource_text(body.txt)
     ns = await fetch_namespace(user.id)
-    m, _ = await save_resource_with_detail(ns, txt, path)
+    m, _ = await save_resource_with_detail(
+        ns,
+        body.txt,
+        body.path,
+        identity_resolutions=body.resolution_map("sentence"),
+        term_identity_resolutions=body.resolution_map("term"),
+    )
     return {"resource_id": m.uid.hex}
+
+
+@router.post(
+    "/resource-text/preview",
+    responses={409: {"model": IdentityConflictResponse}},
+)
+async def preview_text_update(
+    body: ResourceTextBody,
+    user: ActiveUser,
+) -> ResourceDiffPreview:
+    """保存せずにResourceの差分と同一性競合を検証する."""
+    validate_resource_text(body.txt)
+    ns = await fetch_namespace(user.id)
+    return await preview_resource_update(
+        ns,
+        body.txt,
+        body.path,
+        body.resolution_map("sentence"),
+        body.resolution_map("term"),
+    )
 
 
 @router.post("/resource")

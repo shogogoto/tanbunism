@@ -40,7 +40,6 @@ async def create_quiz_and_correct(  # noqa: PLR0917
         CREATE (quiz: Quiz {
             uid: $quiz_uid
             , quiz_type: $quiz_type
-            , is_link_broken: false
             , no_correct_option: $no_correct_option
             , created: datetime($now)
         })-[:QUIZ_TARGET]->(tgt)

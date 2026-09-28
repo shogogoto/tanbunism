@@ -2,6 +2,8 @@
 
 import click
 
+DEFAULT_UPLOAD_EXTENSIONS = ("txt", "md", "kn", "tb")
+
 
 @click.command("anchor")
 def anchor_cmd() -> None:
@@ -14,16 +16,37 @@ def anchor_cmd() -> None:
 
 
 @click.command("sync")
-@click.option("-g", "--glob", default="**/*.kn", show_default=True, help="検索パターン")
+@click.option(
+    "-e",
+    "--extension",
+    "extensions",
+    multiple=True,
+    default=DEFAULT_UPLOAD_EXTENSIONS,
+    show_default=True,
+    help="対象拡張子。複数回指定できます。",
+)
+@click.option("-g", "--glob", default=None, help="ファイルパスを絞り込むglob")
 @click.option(
     "-h",
     "--hide-error",
     is_flag=True,
     default=False,
-    help="パースエラーを表示",
+    help="パースエラーの詳細を隠します。",
 )
-def sync_cmd(glob: str, hide_error: bool) -> None:  # noqa: FBT001
+@click.option("--force", is_flag=True, help="変更がないファイルも再送します。")
+def sync_cmd(
+    extensions: tuple[str, ...],
+    glob: str | None,
+    *,
+    hide_error: bool,
+    force: bool,
+) -> None:
     """ファイルシステムと同期."""
     from .proc import sync_proc  # noqa: PLC0415
 
-    sync_proc(glob, not hide_error)
+    sync_proc(
+        glob,
+        show_error=not hide_error,
+        extensions=extensions,
+        force=force,
+    )

@@ -22,13 +22,14 @@ async def fetch_unattempted_quiz_ids(
 
     q = """
         MATCH (user: User {uid: $user_id})
-            -[:LEARN]->(quiz: Quiz {
-                quiz_type: $quiz_type,
-                is_link_broken: false
-            })-[:QUIZ_TARGET]->(
+            -[:LEARN]->(quiz: Quiz {quiz_type: $quiz_type})
+            -[:QUIZ_TARGET]->(
                 :Sentence {resource_uid: $resource_id}
             )
         WHERE NOT EXISTS {
+            MATCH (quiz)-[:BROKEN_BY]->()
+        }
+          AND NOT EXISTS {
             MATCH (user)-[:ANSWER]->(:Answer)-[:ANSWER_OF]->(quiz)
         }
           AND NOT EXISTS {

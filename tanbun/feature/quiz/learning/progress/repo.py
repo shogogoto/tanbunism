@@ -24,10 +24,11 @@ async def fetch_coverage(
             {eligible}
         WHERE sent.val <> $dummy_sentence
         OPTIONAL MATCH (user: User {{uid: $user_id}})
-            -[:LEARN]->(quiz: Quiz {{
-                quiz_type: $quiz_type,
-                is_link_broken: false
-            }})-[:QUIZ_TARGET]->(sent)
+            -[:LEARN]->(quiz: Quiz {{quiz_type: $quiz_type}})
+            -[:QUIZ_TARGET]->(sent)
+        WHERE quiz IS NULL OR NOT EXISTS {{
+            MATCH (quiz)-[:BROKEN_BY]->()
+        }}
         RETURN
             COUNT(DISTINCT sent) AS eligible,
             COUNT(DISTINCT CASE WHEN quiz IS NOT NULL THEN sent END) AS covered
@@ -59,12 +60,13 @@ async def fetch_attempt_rate(
     """用意された有効なクイズのうち回答したクイズの割合."""
     q = """
         MATCH (user: User {uid: $user_id})
-            -[:LEARN]->(quiz: Quiz {
-                quiz_type: $quiz_type,
-                is_link_broken: false
-            })-[:QUIZ_TARGET]->(
+            -[:LEARN]->(quiz: Quiz {quiz_type: $quiz_type})
+            -[:QUIZ_TARGET]->(
                 :Sentence {resource_uid: $resource_id}
             )
+        WHERE NOT EXISTS {
+            MATCH (quiz)-[:BROKEN_BY]->()
+        }
         OPTIONAL MATCH (user)-[:ANSWER]->(answer: Answer)
             -[:ANSWER_OF]->(quiz)
         RETURN
@@ -99,12 +101,13 @@ async def fetch_performance(
     """クイズへの回答数、正解数、正答率、最終回答日時を取得."""
     q = """
         MATCH (user: User {uid: $user_id})
-        OPTIONAL MATCH (user)-[:LEARN]->(quiz: Quiz {
-            quiz_type: $quiz_type,
-            is_link_broken: false
-        })-[:QUIZ_TARGET]->(
+        OPTIONAL MATCH (user)-[:LEARN]->(quiz: Quiz {quiz_type: $quiz_type})
+        -[:QUIZ_TARGET]->(
             :Sentence {resource_uid: $resource_id}
         )
+        WHERE quiz IS NULL OR NOT EXISTS {
+            MATCH (quiz)-[:BROKEN_BY]->()
+        }
         OPTIONAL MATCH (user)-[:ANSWER]->(answer: Answer)
             -[:ANSWER_OF]->(quiz)
         RETURN

@@ -6,9 +6,108 @@ from tanbun.feature.domain.types import UUIDy, to_uuid
 from tanbun.feature.entry.mapper import MResource
 from tanbun.feature.quiz.domain.parts import QuizType
 from tanbun.feature.quiz.management.domain import (
+    BrokenQuizReference,
+    QuizReattachmentResult,
     QuizResourceStatus,
     SentenceQuizStatus,
 )
+
+
+async def list_broken_created_quiz_references(
+    user_id: UUIDy,
+) -> list[BrokenQuizReference]:
+    """自分が作成したQuizの退役単文参照を一覧する."""
+    query = """
+        MATCH (:User {uid: $user_id})-[:CREATE]->(quiz:Quiz)
+            -[:BROKEN_BY]->(retired:RetiredSentence)
+        MATCH (quiz)-[source:QUIZ_TARGET|QUIZ_OPTION|CORRECT]->(retired)
+        RETURN quiz.uid, retired.uid, retired.val, retired.resource_uid,
+            collect(DISTINCT type(source)) AS roles, retired.retired_at
+        ORDER BY retired.retired_at DESC, quiz.uid, retired.uid
+    """
+    rows, _ = await adb.cypher_query(
+        query,
+        params={"user_id": to_uuid(user_id).hex},
+    )
+    return [
+        BrokenQuizReference(
+            quiz_id=quiz_id,
+            retired_sentence_id=retired_id,
+            retired_value=retired_value,
+            resource_id=resource_id,
+            roles=roles,
+            retired_at=retired_at,
+        )
+        for quiz_id, retired_id, retired_value, resource_id, roles, retired_at in rows
+    ]
+
+
+async def reattach_created_quiz_sentence(
+    user_id: UUIDy,
+    quiz_id: UUIDy,
+    retired_uid: UUIDy,
+    replacement_uid: UUIDy,
+) -> QuizReattachmentResult | None:
+    """作成者本人のQuiz 1件だけを現行単文へ付け替える."""
+    query = """
+        MATCH (:User {uid: $user_id})-[:CREATE]->(quiz:Quiz {uid: $quiz_id})
+            -[:BROKEN_BY]->(retired:RetiredSentence {uid: $retired_uid})
+        MATCH (replacement:Sentence {uid: $replacement_uid})
+        CALL (quiz, retired, replacement) {
+            OPTIONAL MATCH (quiz)-[old:QUIZ_TARGET]->(retired)
+            FOREACH (_ IN CASE WHEN old IS NULL THEN [] ELSE [1] END |
+                MERGE (quiz)-[:QUIZ_TARGET]->(replacement)
+                DELETE old
+            )
+            RETURN count(old) AS targets
+        }
+        CALL (quiz, retired, replacement) {
+            OPTIONAL MATCH (quiz)-[old:QUIZ_OPTION]->(retired)
+            FOREACH (_ IN CASE WHEN old IS NULL THEN [] ELSE [1] END |
+                MERGE (quiz)-[:QUIZ_OPTION]->(replacement)
+                DELETE old
+            )
+            RETURN count(old) AS options
+        }
+        CALL (quiz, retired, replacement) {
+            OPTIONAL MATCH (quiz)-[old:CORRECT]->(retired)
+            FOREACH (_ IN CASE WHEN old IS NULL THEN [] ELSE [1] END |
+                MERGE (quiz)-[:CORRECT]->(replacement)
+                DELETE old
+            )
+            RETURN count(old) AS corrects
+        }
+        MATCH (quiz)-[broken:BROKEN_BY]->(retired)
+        DELETE broken
+        WITH DISTINCT retired, targets, options, corrects
+        OPTIONAL MATCH (:Quiz)-[remaining:QUIZ_TARGET|QUIZ_OPTION|CORRECT]
+            ->(retired)
+        OPTIONAL MATCH (answer:Answer)-[:SELECT]->(retired)
+        WITH retired, targets, options, corrects,
+            count(DISTINCT remaining) + count(DISTINCT answer) > 0 AS retained
+        FOREACH (_ IN CASE WHEN retained THEN [] ELSE [1] END |
+            DETACH DELETE retired
+        )
+        RETURN targets, options, corrects, retained
+    """
+    rows, _ = await adb.cypher_query(
+        query,
+        params={
+            "user_id": to_uuid(user_id).hex,
+            "quiz_id": to_uuid(quiz_id).hex,
+            "retired_uid": to_uuid(retired_uid).hex,
+            "replacement_uid": to_uuid(replacement_uid).hex,
+        },
+    )
+    if not rows:
+        return None
+    targets, options, corrects, retained = rows[0]
+    return QuizReattachmentResult(
+        quiz_targets=targets,
+        quiz_options=options,
+        quiz_corrects=corrects,
+        retained=retained,
+    )
 
 
 async def list_created_quiz_resource_statuses(

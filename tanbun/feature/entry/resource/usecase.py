@@ -16,16 +16,19 @@ from tanbun.feature.entry.namespace import (
     fetch_resources_by_user,
     save_or_move_resource,
 )
-from tanbun.feature.entry.resource.repo.diff_update.repo import update_resource_diff
+from tanbun.feature.entry.resource.repo.diff_update.preview import ResourceDiffPreview
+from tanbun.feature.entry.resource.repo.diff_update.repo import (
+    ResourceDiffPlan,
+    prepare_resource_diff,
+    update_resource_diff,
+)
 from tanbun.feature.entry.resource.repo.save import sn2db
 from tanbun.feature.parsing.domain import try_parse2net
 from tanbun.feature.parsing.sysnet import SysNet
 
 from .stats.repo import save_resource_stats_cache
 
-_resource_save_locks: WeakValueDictionary[str, asyncio.Lock] = (
-    WeakValueDictionary()
-)
+_resource_save_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 
 
 def _resource_save_lock(user_id: UUID, title: str) -> asyncio.Lock:
@@ -36,6 +39,28 @@ def _resource_save_lock(user_id: UUID, title: str) -> asyncio.Lock:
         lock = asyncio.Lock()
         _resource_save_locks[key] = lock
     return lock
+
+
+async def preview_resource_update(
+    ns: NameSpace,
+    txt: str,
+    path: list[str] | None = None,
+    identity_resolutions: dict[str, str | None] | None = None,
+    term_identity_resolutions: dict[str, str | None] | None = None,
+) -> ResourceDiffPreview:
+    """DBを変更せず、Resource保存で適用される差分を返す."""
+    meta = ResourceMeta.from_str(txt, path)
+    network = try_parse2net(txt)
+    existing = ns.get_resource_or_none(meta.title)
+    if existing is None:
+        return ResourceDiffPreview.for_new(network)
+    plan = await prepare_resource_diff(
+        existing.uid,
+        network,
+        identity_resolutions,
+        term_identity_resolutions,
+    )
+    return ResourceDiffPreview.from_plan(existing.uid, plan)
 
 
 async def _check_duplication(user_id: UUID, title: str):
@@ -52,6 +77,9 @@ async def save_resource_with_detail(
     path: list[str] | None = None,
     updated: datetime | None = None,
     do_print: bool = False,  # noqa: FBT001, FBT002
+    *,
+    identity_resolutions: dict[str, str | None] | None = None,
+    term_identity_resolutions: dict[str, str | None] | None = None,
 ) -> tuple[MResource, ResourceMeta]:
     """テキストからResource内のTanbunネットワークを永続化."""
     meta = ResourceMeta.from_str(txt, path, updated)
@@ -66,6 +94,8 @@ async def save_resource_with_detail(
             meta,
             updated,
             do_print,
+            identity_resolutions=identity_resolutions,
+            term_identity_resolutions=term_identity_resolutions,
         )
 
 
@@ -75,12 +105,25 @@ async def _save_resource_with_detail(
     meta: ResourceMeta,
     updated: datetime | None,
     do_print: bool,  # noqa: FBT001
+    *,
+    identity_resolutions: dict[str, str | None] | None,
+    term_identity_resolutions: dict[str, str | None] | None,
 ) -> tuple[MResource, ResourceMeta]:
     """競合確認後にResourceを永続化する."""
     existing = ns.get_resource_or_none(meta.title)
     content_changed = existing is None or existing.txt_hash != meta.txt_hash
     cache_missing = existing is not None and existing.uid.hex not in ns.stats
     sn = try_parse2net(txt) if content_changed or cache_missing else None
+    diff_plan: ResourceDiffPlan | None = None
+    if existing is not None and content_changed and not cache_missing:
+        if sn is None:
+            sn = try_parse2net(txt)
+        diff_plan = await prepare_resource_diff(
+            existing.uid,
+            sn,
+            identity_resolutions,
+            term_identity_resolutions,
+        )
     lb = await save_or_move_resource(meta, ns)
     await _check_duplication(ns.user_id, meta.title)
     r = await LResource.nodes.get(uid=lb.uid)
@@ -103,7 +146,13 @@ async def _save_resource_with_detail(
     if cache is not None and content_changed:  # 差分更新
         if sn is None:
             sn = try_parse2net(txt)
-        await update_resource_diff(lb.uid, sn)
+        await update_resource_diff(
+            lb.uid,
+            sn,
+            identity_resolutions=identity_resolutions,
+            term_identity_resolutions=term_identity_resolutions,
+            plan=diff_plan,
+        )
         await save_resource_stats_cache(dbmeta.uid, sn)
 
     return dbmeta, meta

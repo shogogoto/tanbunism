@@ -8,13 +8,14 @@ from pydantic import Field
 
 from tanbun.feature.domain.collections import parted
 from tanbun.feature.domain.graph.edge_type import EdgeType
+from tanbun.feature.domain.types import Duplicable
 from tanbun.feature.parsing.primitive.term import (
     MergedTerms,
     Term,
     check_and_merge_term,
     eq_term,
 )
-from tanbun.feature.parsing.sysnet.sysnode import Def, DummySentence, IDef
+from tanbun.feature.parsing.sysnet.sysnode import Def, IDef
 
 if TYPE_CHECKING:
     import networkx as nx
@@ -24,14 +25,14 @@ class MergedDef(IDef, frozen=True):
     """termのマージによって生成されるまとめられたDef."""
 
     term: Term
-    sentences: list[str | DummySentence] = Field(min_length=1)
+    sentences: list[str | Duplicable] = Field(min_length=1)
 
     @override
     def __str__(self) -> str:
         return f"{self.term}: {self.sentences}"
 
     @classmethod
-    def one(cls, t: Term, *sentences: str) -> Self:
+    def one(cls, t: Term, *sentences: str | Duplicable) -> Self:
         """Create instance."""
         return cls(term=t, sentences=list(sentences))
 

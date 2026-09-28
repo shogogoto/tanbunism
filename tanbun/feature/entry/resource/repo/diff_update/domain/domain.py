@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Callable, Iterable
 from itertools import product
 from typing import TYPE_CHECKING
@@ -9,7 +10,13 @@ from typing import TYPE_CHECKING
 import Levenshtein
 
 from tanbun.feature.domain.types import Duplicable
-from tanbun.feature.entry.resource.repo.diff_update.errors import IdentificationError
+from tanbun.feature.entry.resource.repo.diff_update.errors import (
+    IdentificationError,
+    IdentityCandidate,
+    IdentityConflict,
+    IdentityKind,
+    InvalidIdentityResolutionError,
+)
 from tanbun.feature.entry.resource.repo.save import EdgeRel
 from tanbun.feature.parsing.sysnet.sysnode import Def, Sentency
 
@@ -24,22 +31,82 @@ def identify_updatediff_txt(
     old: Iterable[str],
     new: Iterable[str],
     threshold_ratio: float = 0.6,
+    resolutions: dict[str, str | None] | None = None,
+    kind: IdentityKind = "sentence",
 ) -> dict[Sentency, Sentency]:
     """2種類の文の集合の更新対を同定."""
     o, n = set(old), set(new)
     removed, added = o - n, n - o
-    d = {}
+    resolutions = resolutions or {}
+    resolved = _validate_resolutions(removed, added, resolutions)
+    removed -= set(resolutions)
+    added -= set(resolved.values())
+
+    candidates_by_old: dict[str, list[IdentityCandidate]] = defaultdict(list)
+    olds_by_new: dict[str, list[str]] = defaultdict(list)
     for txt1, txt2 in product(removed, added):
         r = Levenshtein.ratio(txt1, txt2)
         if r > threshold_ratio:
-            if txt1 in d:
-                msg = (
-                    f"{txt1}と重複して同定されました."
-                    f"閾値{threshold_ratio}を上げてみてください"
-                )
-                raise IdentificationError(msg, d[txt1], txt2)
-            d[txt1] = txt2
-    return d
+            candidates_by_old[txt1].append(IdentityCandidate(txt2, r))
+            olds_by_new[txt2].append(txt1)
+
+    ambiguous_old = {
+        old for old, candidates in candidates_by_old.items() if len(candidates) > 1
+    }
+    ambiguous_old.update(
+        old for olds in olds_by_new.values() if len(olds) > 1 for old in olds
+    )
+    if ambiguous_old:
+        conflicts = tuple(
+            IdentityConflict(
+                original=old,
+                candidates=tuple(
+                    sorted(
+                        candidates_by_old[old],
+                        key=lambda candidate: (-candidate.similarity, candidate.value),
+                    ),
+                ),
+            )
+            for old in sorted(ambiguous_old)
+        )
+        raise IdentificationError(conflicts, kind=kind)
+
+    automatic = {
+        old: candidates[0].value
+        for old, candidates in candidates_by_old.items()
+        if candidates
+    }
+    return resolved | automatic
+
+
+def _validate_resolutions(
+    removed: set[str],
+    added: set[str],
+    resolutions: dict[str, str | None],
+) -> dict[str, str]:
+    """明示された解決内容が現在の差分に適用できることを検証する."""
+    unknown_originals = set(resolutions) - removed
+    if unknown_originals:
+        values = "、".join(sorted(unknown_originals))
+        msg = f"削除対象ではない旧文です: {values}"
+        raise InvalidIdentityResolutionError(msg)
+
+    replacements = [value for value in resolutions.values() if value is not None]
+    unknown_replacements = set(replacements) - added
+    if unknown_replacements:
+        values = "、".join(sorted(unknown_replacements))
+        msg = f"追加対象ではない新文です: {values}"
+        raise InvalidIdentityResolutionError(msg)
+    if len(replacements) != len(set(replacements)):
+        msg = "複数の旧文を同じ新文へ同定することはできません"
+        raise InvalidIdentityResolutionError(
+            msg,
+        )
+    return {
+        original: replacement
+        for original, replacement in resolutions.items()
+        if replacement is not None
+    }
 
 
 def diff2sets[T](old: Iterable[T], new: Iterable[T]) -> tuple[set[T], set[T]]:
@@ -66,11 +133,18 @@ def identify_updatediff_term(
     old: Iterable[Term],
     new: Iterable[Term],
     threshold_ratio: float = 0.6,
+    resolutions: dict[str, str | None] | None = None,
 ) -> dict[Term, Term]:
     """2種類の用語の集合の更新対を同定."""
     r_txts = {str(t): t for t in old}
     a_txts = {str(t): t for t in new}
-    updiff = identify_updatediff_txt(r_txts.keys(), a_txts.keys(), threshold_ratio)
+    updiff = identify_updatediff_txt(
+        r_txts.keys(),
+        a_txts.keys(),
+        threshold_ratio,
+        resolutions,
+        kind="term",
+    )
     return {r_txts[k]: a_txts[v] for k, v in updiff.items()}
 
 

@@ -53,6 +53,12 @@ class AnswerParam(BaseModel, frozen=True):
     selected: list[str]
 
 
+class RepairQuizReferenceParam(BaseModel, frozen=True):
+    """退役単文の代わりに使う現行単文."""
+
+    replacement_sentence_id: str
+
+
 class AnswerFeedback(BaseModel, frozen=True):
     """回答フィードバック."""
 

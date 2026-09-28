@@ -12,6 +12,7 @@ from tanbun.feature.parsing.issue import (
 )
 from tanbun.feature.parsing.primitive.mark.errors import MarkContainsMarkError
 from tanbun.feature.parsing.primitive.term.errors import TermConflictError
+from tanbun.feature.parsing.sysnet.errors import SentenceConflictError
 from tanbun.feature.parsing.tree_parse.errors import UndedentError
 
 
@@ -71,6 +72,22 @@ def test_invalid_indent_points_to_fullwidth_space_root_cause() -> None:
         end_character=3,
     )
     assert "全角スペース" in issue.message
+
+
+def test_orphan_relation_with_term_target_points_to_relation_line() -> None:
+    """用語だけの関係先も、内部表現でなく原文の関係行へ戻す."""
+    text = "# title\n  first\n  -> relation target, alias:\n"
+
+    issue = inspect_document(text).issue
+
+    assert issue is not None
+    assert issue.code == "orphan-relation"
+    assert issue.source_range == SourceRange(
+        line=2,
+        start_character=2,
+        end_character=len("  -> relation target, alias:"),
+    )
+    assert "関係記号を削除" in (issue.suggestion or "")
 
 
 def test_fullwidth_definition_separator_is_a_warning() -> None:
@@ -158,6 +175,20 @@ def test_alias_with_term_reference_points_to_alias() -> None:
         end_character=len("  bad{alias}"),
     )
     assert "bad{alias}" in issue.message
+
+
+def test_duplicate_sentence_points_to_exact_later_line() -> None:
+    """部分一致する後続文でなく、重複した単文そのものを指す."""
+    text = "# title\n  same\n  same\n  sentence ending same\n"
+
+    issue = exception_to_parse_issue(
+        text,
+        SentenceConflictError("'same'は重複しています", sentence="same"),
+    )
+
+    assert issue.code == "duplicate-sentence"
+    assert issue.source_range == SourceRange(line=2, start_character=2, end_character=6)
+    assert "最初の単文は2行目" in issue.message
 
 
 def test_duplicate_term_does_not_point_to_later_reference() -> None:

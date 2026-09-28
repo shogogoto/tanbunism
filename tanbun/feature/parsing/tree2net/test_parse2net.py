@@ -4,6 +4,7 @@ from pytest_unordered import unordered
 
 from tanbun.feature.domain.graph import to_nested
 from tanbun.feature.domain.graph.edge_type import EdgeType
+from tanbun.feature.domain.types import Duplicable
 from tanbun.feature.parsing.meta_parse import title_parse
 from tanbun.feature.parsing.primitive.heading import get_heading_path, get_headings
 from tanbun.feature.parsing.tree2net import parse2net
@@ -39,6 +40,89 @@ def test_same_location_can_be_reused() -> None:
         "哲学者",
         "思想家",
     }
+
+
+def test_same_actor_can_be_reused() -> None:
+    """同じ人物を複数の単文へ結び付けられる."""
+    source = """
+        # title
+            帰納の懐疑論
+                by. ヒューム
+            因果関係への懐疑
+                by. ヒューム
+    """
+
+    network = parse2net(source)
+
+    assert set(EdgeType.BY.pred(network.g, "ヒューム")) == {
+        "帰納の懐疑論",
+        "因果関係への懐疑",
+    }
+
+
+def test_same_relation_target_can_be_reused() -> None:
+    """同じ関係先を複数の単文から参照できる."""
+    source = """
+        # title
+            帰納への懐疑
+                <- ヒューム
+            因果関係への懐疑
+                <- ヒューム
+    """
+
+    network = parse2net(source)
+
+    assert set(EdgeType.TO.succ(network.g, "ヒューム")) == {
+        "帰納への懐疑",
+        "因果関係への懐疑",
+    }
+
+
+def test_same_term_reference_can_define_multiple_terms() -> None:
+    """同じ用語参照だけからなる定義文を異なる用語で共有できる."""
+    source = """
+        # title
+            間接責任: 会社を介して責任を負う
+            株式会社: {間接責任}
+            有限会社: {間接責任}
+    """
+
+    network = parse2net(source)
+    reference_sentences = [
+        sentence for sentence in network.sentences if str(sentence) == "{間接責任}"
+    ]
+    expected_terms = {"株式会社", "有限会社"}
+
+    assert len(reference_sentences) == len(expected_terms)
+    assert all(isinstance(sentence, Duplicable) for sentence in reference_sentences)
+    assert {
+        network.get(sentence).term.rep for sentence in reference_sentences
+    } == expected_terms
+    assert all(
+        network.get_resolved(sentence) == {"会社を介して責任を負う": {}}
+        for sentence in reference_sentences
+    )
+
+
+def test_ellipsis_placeholders_can_be_repeated() -> None:
+    """単独の省略記号は、文末の省略表現とは別の個別ノードにする."""
+    source = """
+        # title
+            first
+                ...
+            second
+                ...
+            sentence ending ...
+    """
+
+    network = parse2net(source)
+    placeholders = [
+        sentence for sentence in network.sentences if str(sentence) == "..."
+    ]
+
+    assert len(placeholders) == len({"first", "second"})
+    assert all(isinstance(sentence, Duplicable) for sentence in placeholders)
+    assert "sentence ending ..." in network.sentences
 
 
 def test_add_resolved_edge() -> None:

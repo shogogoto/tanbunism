@@ -42,12 +42,12 @@ class Def(IDef, frozen=True):
     """定義."""
 
     term: Term
-    sentence: str | DummySentence
+    sentence: str | Duplicable
 
     @classmethod
     def create(
         cls,
-        sentence: str,
+        sentence: str | Duplicable,
         names: list[str] | None = None,
         alias: str | None = None,
     ) -> Self:

@@ -81,7 +81,7 @@ def _iter_files(path: Path, extensions: tuple[str, ...]) -> Iterable[Path]:
         yield path
         return
 
-    suffixes = {_normalize_extension(extension) for extension in extensions}
+    suffixes = {normalize_extension(extension) for extension in extensions}
     yield from sorted(
         candidate
         for candidate in path.rglob("*")
@@ -89,7 +89,8 @@ def _iter_files(path: Path, extensions: tuple[str, ...]) -> Iterable[Path]:
     )
 
 
-def _normalize_extension(extension: str) -> str:
+def normalize_extension(extension: str) -> str:
+    """拡張子を小文字かつ先頭ドット付きに揃える."""
     normalized = extension.lower().strip()
     return normalized if normalized.startswith(".") else f".{normalized}"
 

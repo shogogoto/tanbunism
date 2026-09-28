@@ -35,6 +35,18 @@ from tanbun.feature.parsing.tree_parse import get_leaves, parse2tree
 from .interpreter import SysNetInterpreter
 from .transformer import TSysArg
 
+REUSABLE_CONTEXT_EDGE_TYPES = frozenset(
+    {
+        EdgeType.TO,
+        EdgeType.EXAMPLE,
+        EdgeType.REF,
+        EdgeType.SIMILAR,
+        EdgeType.ANTI,
+        EdgeType.WHERE,
+        EdgeType.BY,
+    },
+)
+
 if TYPE_CHECKING:
     from lark import Tree
 
@@ -79,10 +91,12 @@ def _extract_leaves(
 ) -> tuple[nx.MultiDiGraph, MarkResolver]:
     """transformedなASTを処理."""
     leaves = get_leaves(tree)
-    reusable_locations = [
-        arg2sentence(edge.nodes[-1]) for edge in col.values if edge.t is EdgeType.WHERE
+    reusable_context_values = [
+        arg2sentence(edge.nodes[-1])
+        for edge in col.values
+        if edge.t in REUSABLE_CONTEXT_EDGE_TYPES
     ]
-    check_duplicated_sentence(leaves, reusable=reusable_locations)
+    check_duplicated_sentence(leaves, reusable=reusable_context_values)
     mdefs, stddefs, mt = MergedDef.create_and_parted(to_def(leaves))
     g = nx.MultiDiGraph()  # 同じノード間で複数エッジを表現できるように
     [md.add_edge(g) for md in mdefs]

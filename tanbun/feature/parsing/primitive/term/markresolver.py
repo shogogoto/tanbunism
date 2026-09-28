@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from tanbun.feature.domain.graph import to_nested
 from tanbun.feature.domain.graph.schema import NXGraph
+from tanbun.feature.domain.types import Duplicable
 from tanbun.feature.parsing.primitive.term import Term
 from tanbun.feature.parsing.primitive.term.const import (
     BRACE_MARKER,
@@ -36,7 +37,7 @@ class MarkResolver(BaseModel, frozen=True):
             g = nx.compose(g, t.marktree)
         return cls(g=g, lookup=lookup)
 
-    def sentence2marktree(self, s: str) -> dict[str, str | dict]:
+    def sentence2marktree(self, s: str | Duplicable) -> dict[str, str | dict]:
         """任意の文字列を用語解決 mark dict tree.
 
         Return:
@@ -44,10 +45,11 @@ class MarkResolver(BaseModel, frozen=True):
             {mark: {mark:{...:{}}}}
 
         """
-        marks = BRACE_MARKER.pick(s, FORMULA_IGNORE_MARK)
+        sentence = str(s)
+        marks = BRACE_MARKER.pick(sentence, FORMULA_IGNORE_MARK)
         for m in marks:
             if m not in self.g:
-                msg = f"'{m}'は用語として存在しません at '{s}'"
+                msg = f"'{m}'は用語として存在しません at '{sentence}'"
                 raise MarkUncontainedError(msg)
         return {m: to_nested(self.g, m, lambda g, n: g.successors(n)) for m in marks}
 

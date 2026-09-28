@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Annotated, Final, Self
 
-from pydantic import BaseModel, PlainSerializer
+from pydantic import BaseModel, Field, PlainSerializer
 from typing_extensions import TypedDict
 
 from tanbun.config.env import Settings
@@ -27,10 +27,16 @@ class LocalConfig(BaseModel):
 
     ANCHOR: Annotated[
         Path | None,
-        PlainSerializer(str, return_type=str, when_used="json"),
+        PlainSerializer(
+            lambda value: str(value) if value is not None else None,
+            return_type=str | None,
+            when_used="json",
+        ),
     ] = None
 
     CREDENTIALS: Credential | None = None
+
+    UPLOAD_HISTORY: dict[str, tuple[int, int]] = Field(default_factory=dict)
 
     @classmethod
     def load(cls) -> Self:

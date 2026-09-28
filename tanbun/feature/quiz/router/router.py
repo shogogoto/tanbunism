@@ -27,18 +27,22 @@ from tanbun.feature.quiz.listing.repo import (
     search_created_quizzes,
 )
 from tanbun.feature.quiz.management.domain import (
+    BrokenQuizReference,
     ManagedQuizResult,
+    QuizReattachmentResult,
     QuizResourceStatus,
     SentenceQuizStatus,
 )
 from tanbun.feature.quiz.management.repo import (
+    list_broken_created_quiz_references,
     list_created_quiz_resource_statuses,
     list_created_quiz_sentence_statuses,
 )
-from tanbun.feature.quiz.management.usecase import delete_quiz
+from tanbun.feature.quiz.management.usecase import delete_quiz, repair_quiz_reference
 from tanbun.feature.quiz.router.params import (
     AnswerParam,
     CreateQuizParam,
+    RepairQuizReferenceParam,
 )
 from tanbun.feature.repo.cypher import Paging
 from tanbun.feature.user.router_util import ActiveUser
@@ -141,6 +145,30 @@ async def list_created_quiz_sentences(
 ) -> list[SentenceQuizStatus]:
     """Resource内の単文を対象にした作成済みQuiz状況を取得."""
     return await list_created_quiz_sentence_statuses(user.uid, resource_id)
+
+
+@_r.get("/created/broken")
+async def list_broken_created_quizzes(
+    user: ActiveUser,
+) -> list[BrokenQuizReference]:
+    """自分が作成したQuizの修復待ち参照を取得."""
+    return await list_broken_created_quiz_references(user.uid)
+
+
+@_r.post("/{quiz_id}/broken/{retired_sentence_id}/reattach")
+async def repair_quiz_reference_api(
+    quiz_id: UUID,
+    retired_sentence_id: UUID,
+    param: RepairQuizReferenceParam,
+    user: ActiveUser,
+) -> QuizReattachmentResult:
+    """退役単文へのQuiz参照を選択した現行単文へ付け替える."""
+    return await repair_quiz_reference(
+        quiz_id,
+        retired_sentence_id,
+        param.replacement_sentence_id,
+        user.uid,
+    )
 
 
 @_r.delete("/{quiz_id}", status_code=status.HTTP_204_NO_CONTENT)
