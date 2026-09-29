@@ -1,6 +1,9 @@
 """個人ダッシュボードAPIのテスト."""
 
+from uuid import uuid4
+
 from httpx import AsyncClient
+from neomodel import adb
 from starlette import status
 
 from tanbun.conftest import mark_async_test
@@ -18,7 +21,7 @@ async def test_personal_tanbun_timeline_and_daily_exposure(ac: AsyncClient) -> N
         user.uid,
         """
         # 新しい読書メモ
-            学びは再会することで定着する
+            再会: 学びは再会することで定着する
         """,
     )
     headers = await aauth_header(user.email)
@@ -27,8 +30,13 @@ async def test_personal_tanbun_timeline_and_daily_exposure(ac: AsyncClient) -> N
     assert response.status_code == status.HTTP_200_OK
     items = [PersonalTanbunItem.model_validate(item) for item in response.json()]
     target = next(item for item in items if "学びは再会" in item.sentence)
+    assert target.term_names == ["再会"]
+    assert target.score >= 0
     assert target.exposure_count == 0
     assert not target.seen_today
+
+    detail = await ac.get(f"/tanbun/sentence/{target.uid}", headers=headers)
+    assert detail.status_code == status.HTTP_200_OK
 
     first = await ac.post(
         f"/dashboard/tanbuns/{target.uid}/exposures",
@@ -58,6 +66,39 @@ async def test_personal_tanbun_timeline_requires_login(ac: AsyncClient) -> None:
     """個人TLは未ログインでは取得できない."""
     response = await ac.get("/dashboard/tanbuns")
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+@mark_async_test()
+async def test_personal_tanbun_timeline_excludes_sentence_without_location(
+    ac: AsyncClient,
+) -> None:
+    """resource_uidだけが残った孤立単文をTLへ表示しない."""
+    user = await aregister("dashboard-orphan@example.com")
+    _, resource = await save_text(
+        user.uid,
+        """
+        # 現行の読書メモ
+            現在位置を持つ知識
+        """,
+    )
+    orphan_uid = uuid4().hex
+    await adb.cypher_query(
+        """
+        CREATE (:Sentence {
+            uid: $sentence_id,
+            val: '位置を失った古い知識',
+            resource_uid: $resource_id
+        })
+        """,
+        params={"sentence_id": orphan_uid, "resource_id": resource.uid.hex},
+    )
+    headers = await aauth_header(user.email)
+
+    response = await ac.get("/dashboard/tanbuns", headers=headers)
+
+    assert response.status_code == status.HTTP_200_OK
+    ids = {item["uid"] for item in response.json()}
+    assert orphan_uid not in ids
 
 
 @mark_async_test()

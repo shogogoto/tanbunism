@@ -5,6 +5,9 @@ from datetime import date
 from neomodel import adb
 
 from tanbun.feature.domain.types import UUIDy, to_uuid
+from tanbun.feature.repo.cypher import q_call_term_names
+from tanbun.feature.tanbun.repo.clause import OrderBy
+from tanbun.feature.tanbun.repo.cypher import q_location, q_stats
 
 from .domain import PersonalTanbunItem, TanbunExposureResult
 
@@ -52,7 +55,10 @@ async def _fetch_personal_tanbuns(
     rediscovery: bool,
 ) -> list[PersonalTanbunItem]:
     """新着順または、遭遇が少なく古い順で単文を取得."""
-    rows, _ = await adb.cypher_query(
+    location_query = q_location("sentence")
+    term_names_query = q_call_term_names("sentence")
+    stats_query = q_stats("sentence", OrderBy())
+    query = (
         """
         MATCH (resource:Resource)-[:PARENT*0..]->(owner_entry)
             -[:OWNED]->(:User {uid: $user_id})
@@ -70,14 +76,30 @@ async def _fetch_personal_tanbuns(
             CASE WHEN $rediscovery THEN resource.updated END ASC,
             CASE WHEN NOT $rediscovery THEN resource.updated END DESC,
             sentence.uid ASC
+        LIMIT $candidate_limit
+        """
+        + location_query
+        + """
+        WITH resource, sentence, exposure_count, seen_today, location
+        WHERE location IS NOT NULL
         LIMIT $limit
-        RETURN sentence.uid, sentence.val, resource.uid, resource.title,
-            resource.updated, exposure_count, seen_today
-        """,
+        """
+        + term_names_query
+        + stats_query
+        + """
+        RETURN sentence.uid, sentence.val,
+            coalesce([name IN names | name.val], []) AS term_names,
+            resource.uid, resource.title, resource.updated, stats.score,
+            exposure_count, seen_today
+        """
+    )
+    rows, _ = await adb.cypher_query(
+        query,
         params={
             "user_id": to_uuid(user_id).hex,
             "seen_on": seen_on.isoformat(),
             "limit": limit,
+            "candidate_limit": max(limit * 3, 30),
             "rediscovery": rediscovery,
         },
     )
@@ -85,11 +107,13 @@ async def _fetch_personal_tanbuns(
         PersonalTanbunItem(
             uid=row[0],
             sentence=row[1],
-            resource_uid=row[2],
-            resource_name=row[3],
-            updated_at=row[4],
-            exposure_count=row[5],
-            seen_today=row[6],
+            term_names=row[2],
+            resource_uid=row[3],
+            resource_name=row[4],
+            updated_at=row[5],
+            score=row[6],
+            exposure_count=row[7],
+            seen_today=row[8],
         )
         for row in rows
     ]
@@ -103,7 +127,8 @@ async def record_tanbun_exposure(
     """所有する単文へ、同じ日は重複しない閲覧記録を残す."""
     uid = to_uuid(user_id).hex
     sentence_uid = to_uuid(sentence_id).hex
-    rows, _ = await adb.cypher_query(
+    location_query = q_location("sentence")
+    query = (
         """
         MATCH (resource:Resource)-[:PARENT*0..]->(owner_entry)
             -[:OWNED]->(:User {uid: $user_id})
@@ -111,6 +136,11 @@ async def record_tanbun_exposure(
             uid: $sentence_id,
             resource_uid: resource.uid
         })
+        """
+        + location_query
+        + """
+        WITH sentence, location
+        WHERE location IS NOT NULL
         OPTIONAL MATCH (previous:TanbunExposure {key: $key})
         WITH sentence, previous IS NULL AS recorded
         MERGE (exposure:TanbunExposure {key: $key})
@@ -124,7 +154,10 @@ async def record_tanbun_exposure(
             sentence_id: $sentence_id
         })
         RETURN recorded, count(all_exposures)
-        """,
+        """
+    )
+    rows, _ = await adb.cypher_query(
+        query,
         params={
             "user_id": uid,
             "sentence_id": sentence_uid,

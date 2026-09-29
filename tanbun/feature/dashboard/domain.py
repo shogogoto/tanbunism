@@ -13,9 +13,11 @@ class PersonalTanbunItem(BaseModel, frozen=True):
 
     uid: UUID
     sentence: str
+    term_names: list[str]
     resource_uid: UUID
     resource_name: str
     updated_at: Neo4jDateTime | None
+    score: int
     exposure_count: int
     seen_today: bool
 
