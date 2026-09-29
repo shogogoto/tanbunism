@@ -88,6 +88,27 @@ class UpdateUserStatusRequest(BaseModel, frozen=True):
     is_active: bool
 
 
+class ResetUserPasswordRequest(BaseModel, frozen=True):
+    """管理者が設定する新しいパスワード."""
+
+    password: str = Field(min_length=3, max_length=100)
+
+
+class DeleteUserRequest(BaseModel, frozen=True):
+    """メールアドレスによるユーザー削除確認."""
+
+    confirmation: str = Field(min_length=1)
+
+
+class DeleteUserResult(BaseModel, frozen=True):
+    """ユーザーと所有データの削除結果."""
+
+    user_id: UUID
+    deleted_resource_count: int
+    deleted_quiz_count: int
+    deleted_answer_count: int
+
+
 class AdminResourceItem(BaseModel, frozen=True):
     """管理対象ユーザーが所有するResource."""
 

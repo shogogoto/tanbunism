@@ -17,6 +17,7 @@ from .domain import (
     DeleteAdminResourceResult,
     DeleteBrokenQuizzesResult,
     DeleteOrphanedTanbunsResult,
+    DeleteUserResult,
     OrphanedTanbun,
     OrphanReason,
     ResourceDeletionImpact,
@@ -283,6 +284,103 @@ async def update_user_status(
         is_superuser=row[5],
         created=row[6],
         resource_count=row[7],
+    )
+
+
+async def update_user_password_hash(
+    user_uid: UUIDy,
+    *,
+    hashed_password: str,
+) -> bool:
+    """ユーザーのパスワードハッシュだけを更新する."""
+    rows, _ = await adb.cypher_query(
+        """
+        MATCH (user:User {uid: $user_uid})
+        SET user.hashed_password = $hashed_password
+        RETURN count(user)
+        """,
+        params={
+            "user_uid": to_uuid(user_uid).hex,
+            "hashed_password": hashed_password,
+        },
+    )
+    return bool(rows and rows[0][0])
+
+
+async def delete_user_account(user_uid: UUIDy) -> DeleteUserResult | None:
+    """所有Resourceを安全に処理してからユーザー固有データを削除する."""
+    uid = to_uuid(user_uid)
+    rows, _ = await adb.cypher_query(
+        """
+        MATCH (user:User {uid: $user_uid})
+        OPTIONAL MATCH (resource:Resource)-[:PARENT|OWNED]->*(user)
+        RETURN collect(DISTINCT resource.uid)
+        """,
+        params={"user_uid": uid.hex},
+    )
+    if not rows:
+        return None
+    resource_ids = [resource_id for resource_id in rows[0][0] if resource_id]
+    for resource_id in resource_ids:
+        await delete_resource(resource_id)
+
+    counts, _ = await adb.cypher_query(
+        """
+        MATCH (user:User {uid: $user_uid})
+        CALL (user) {
+            OPTIONAL MATCH (user)-[:CREATE]->(quiz:Quiz)
+            OPTIONAL MATCH (answer:Answer)-[:ANSWER_OF]->(quiz)
+            WITH [item IN collect(DISTINCT quiz) WHERE item IS NOT NULL]
+                    AS quizzes,
+                [item IN collect(DISTINCT answer) WHERE item IS NOT NULL]
+                    AS quiz_answers
+            OPTIONAL MATCH (user)-[:ANSWER]->(own_answer:Answer)
+            RETURN quizzes, quiz_answers,
+                [item IN collect(DISTINCT own_answer) WHERE item IS NOT NULL]
+                    AS own_answers
+        }
+        WITH user, quizzes,
+            reduce(all = quiz_answers, item IN own_answers |
+                CASE WHEN item IN all THEN all ELSE all + item END
+            ) AS answers
+        WITH user, quizzes, answers, size(quizzes) AS quiz_count,
+            size(answers) AS answer_count
+        FOREACH (answer IN answers | DETACH DELETE answer)
+        FOREACH (quiz IN quizzes | DETACH DELETE quiz)
+        WITH user, quiz_count, answer_count
+        OPTIONAL MATCH (owned)-[:OWNED]->(user)
+        WHERE owned:StudyPlan OR owned:Notification OR owned:PushSubscription
+        WITH user, quiz_count, answer_count,
+            [item IN collect(DISTINCT owned) WHERE item IS NOT NULL] AS owned
+        FOREACH (item IN owned | DETACH DELETE item)
+        WITH user, quiz_count, answer_count
+        OPTIONAL MATCH (account:Account)<-[:OAUTH]-(user)
+        WITH user, quiz_count, answer_count,
+            [item IN collect(DISTINCT account) WHERE item IS NOT NULL] AS accounts
+        FOREACH (account IN accounts | DETACH DELETE account)
+        WITH user, quiz_count, answer_count
+        OPTIONAL MATCH (folder:Folder)-[:PARENT|OWNED]->*(user)
+        WITH user, quiz_count, answer_count,
+            [item IN collect(DISTINCT folder) WHERE item IS NOT NULL] AS folders
+        FOREACH (folder IN folders | DETACH DELETE folder)
+        WITH user, quiz_count, answer_count
+        OPTIONAL MATCH (exposure:TanbunExposure {user_id: $user_uid})
+        WITH user, quiz_count, answer_count,
+            [item IN collect(DISTINCT exposure) WHERE item IS NOT NULL] AS exposures
+        FOREACH (exposure IN exposures | DETACH DELETE exposure)
+        DETACH DELETE user
+        RETURN quiz_count, answer_count
+        """,
+        params={"user_uid": uid.hex},
+    )
+    if not counts:
+        return None
+    await purge_orphaned_retired_sentences()
+    return DeleteUserResult(
+        user_id=uid,
+        deleted_resource_count=len(resource_ids),
+        deleted_quiz_count=counts[0][0],
+        deleted_answer_count=counts[0][1],
     )
 
 

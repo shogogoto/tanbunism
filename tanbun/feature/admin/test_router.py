@@ -256,3 +256,92 @@ async def test_admin_inspects_and_deletes_another_users_resource(
         },
     )
     assert counts == [[0, 0, 1]]
+
+
+@mark_async_test()
+async def test_admin_resets_regular_user_password(ac: AsyncClient) -> None:
+    """adminは通常ユーザーへ新しいパスワードを設定できる."""
+    target = await aregister("password-target@example.com")
+    headers = await _admin_headers("password-admin@example.com")
+
+    changed = await ac.put(
+        f"/admin/users/{target.uid}/password",
+        headers=headers,
+        json={"password": "new-password"},
+    )
+
+    assert changed.status_code == status.HTTP_204_NO_CONTENT
+    old_login = await ac.post(
+        "/auth/jwt/login",
+        data={"username": target.email, "password": "password"},
+    )
+    new_login = await ac.post(
+        "/auth/jwt/login",
+        data={"username": target.email, "password": "new-password"},
+    )
+    assert old_login.status_code == status.HTTP_400_BAD_REQUEST
+    assert new_login.status_code == status.HTTP_200_OK
+
+
+@mark_async_test()
+async def test_admin_deletes_regular_user_and_owned_data(ac: AsyncClient) -> None:
+    """Resourceの退役規則を通し、通常ユーザーの固有データを削除する."""
+    target = await aregister("delete-target@example.com")
+    _, resource = await save_text(target.uid, "# 削除ユーザー\n  対象単文\n")
+    quiz_uid = uuid4().hex
+    answer_uid = uuid4().hex
+    await adb.cypher_query(
+        """
+        MATCH (user:User {uid: $user_uid})
+        MATCH (sentence:Sentence {resource_uid: $resource_uid})
+        CREATE (user)-[:CREATE]->(quiz:Quiz {
+            uid: $quiz_uid,
+            quiz_type: 'TERM_TO_SENTENCE'
+        })-[:QUIZ_TARGET]->(sentence)
+        CREATE (user)-[:ANSWER]->(answer:Answer {uid: $answer_uid})
+            -[:ANSWER_OF]->(quiz)
+        """,
+        params={
+            "user_uid": target.uid.hex,
+            "resource_uid": resource.uid.hex,
+            "quiz_uid": quiz_uid,
+            "answer_uid": answer_uid,
+        },
+    )
+    headers = await _admin_headers("delete-admin@example.com")
+
+    mismatch = await ac.post(
+        f"/admin/users/{target.uid}/delete",
+        headers=headers,
+        json={"confirmation": "wrong@example.com"},
+    )
+    assert mismatch.status_code == status.HTTP_409_CONFLICT
+    deleted = await ac.post(
+        f"/admin/users/{target.uid}/delete",
+        headers=headers,
+        json={"confirmation": target.email},
+    )
+
+    assert deleted.status_code == status.HTTP_200_OK
+    assert deleted.json() == {
+        "user_id": str(target.uid),
+        "deleted_resource_count": 1,
+        "deleted_quiz_count": 1,
+        "deleted_answer_count": 1,
+    }
+    rows, _ = await adb.cypher_query(
+        """
+        OPTIONAL MATCH (user:User {uid: $user_uid})
+        OPTIONAL MATCH (resource:Resource {uid: $resource_uid})
+        OPTIONAL MATCH (quiz:Quiz {uid: $quiz_uid})
+        OPTIONAL MATCH (answer:Answer {uid: $answer_uid})
+        RETURN count(user), count(resource), count(quiz), count(answer)
+        """,
+        params={
+            "user_uid": target.uid.hex,
+            "resource_uid": resource.uid.hex,
+            "quiz_uid": quiz_uid,
+            "answer_uid": answer_uid,
+        },
+    )
+    assert rows == [[0, 0, 0, 0]]

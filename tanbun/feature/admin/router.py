@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 
+from tanbun.feature.user.manager import get_user_manager
 from tanbun.feature.user.router_util import AdminUser
 
 from .domain import (
@@ -17,19 +18,24 @@ from .domain import (
     DeleteBrokenQuizzesResult,
     DeleteOrphanedTanbunsRequest,
     DeleteOrphanedTanbunsResult,
+    DeleteUserRequest,
+    DeleteUserResult,
     OrphanedTanbun,
+    ResetUserPasswordRequest,
     ResourceDeletionImpact,
     UpdateUserStatusRequest,
 )
 from .repo import (
     delete_broken_quizzes,
     delete_orphaned_tanbuns,
+    delete_user_account,
     delete_user_resource,
     get_resource_deletion_impact,
     list_broken_quizzes,
     list_orphaned_tanbuns,
     list_user_resources,
     list_users,
+    update_user_password_hash,
     update_user_status,
 )
 
@@ -101,6 +107,84 @@ async def change_user_status(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="superuserを停止することはできません",
+        )
+    return result
+
+
+@router.put("/users/{user_id}/password", status_code=status.HTTP_204_NO_CONTENT)
+async def reset_user_password(
+    user_id: UUID,
+    body: ResetUserPasswordRequest,
+    admin: AdminUser,
+) -> None:
+    """通常ユーザーへ管理者が新しいパスワードを設定する."""
+    if user_id == admin.uid:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="自分自身のパスワードはアカウント設定から変更してください",
+        )
+    target = next(
+        (user for user in await list_users() if user.uid == user_id),
+        None,
+    )
+    if target is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ユーザーが見つかりません",
+        )
+    if target.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="superuserのパスワードは変更できません",
+        )
+    manager = get_user_manager()
+    hashed_password = manager.password_helper.hash(body.password)
+    if not await update_user_password_hash(
+        user_id,
+        hashed_password=hashed_password,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ユーザーが見つかりません",
+        )
+
+
+@router.post("/users/{user_id}/delete")
+async def remove_user(
+    user_id: UUID,
+    body: DeleteUserRequest,
+    admin: AdminUser,
+) -> DeleteUserResult:
+    """確認済みの通常ユーザーと所有データを削除する."""
+    if user_id == admin.uid:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="自分自身を削除することはできません",
+        )
+    target = next(
+        (user for user in await list_users() if user.uid == user_id),
+        None,
+    )
+    if target is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ユーザーが見つかりません",
+        )
+    if target.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="superuserを削除することはできません",
+        )
+    if body.confirmation != target.email:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="メールアドレスが一致しません",
+        )
+    result = await delete_user_account(user_id)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ユーザーが見つかりません",
         )
     return result
 
