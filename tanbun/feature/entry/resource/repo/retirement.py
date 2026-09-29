@@ -47,12 +47,17 @@ def retire_or_delete_sentence_qs(
 
 
 async def retire_referenced_sentences(resource_uid: UUIDy) -> None:
-    """Resource削除前に、Quizから参照される単文だけを退役させる."""
+    """Resource削除前に、Quizや回答から参照される単文だけを退役させる."""
     query = f"""
-        MATCH (quiz:Quiz)-[:{QUIZ_SENTENCE_RELS}]->(
-            sentence:Sentence {{resource_uid: $uid}}
-        )
-        WITH sentence, collect(DISTINCT quiz) AS quizzes
+        MATCH (sentence:Sentence {{resource_uid: $uid}})
+        WHERE EXISTS {{
+            MATCH (:Quiz)-[:{QUIZ_SENTENCE_RELS}]->(sentence)
+        }} OR EXISTS {{
+            MATCH (:Answer)-[:SELECT]->(sentence)
+        }}
+        OPTIONAL MATCH (quiz:Quiz)-[:{QUIZ_SENTENCE_RELS}]->(sentence)
+        WITH sentence,
+            [item IN collect(DISTINCT quiz) WHERE item IS NOT NULL] AS quizzes
         FOREACH (quiz IN quizzes |
             MERGE (quiz)-[:BROKEN_BY]->(sentence)
         )

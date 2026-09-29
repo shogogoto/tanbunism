@@ -2,9 +2,19 @@
 
 from neomodel import adb
 
+from tanbun.feature.domain.types import UUIDy, to_uuid
+from tanbun.feature.entry.resource.repo.delete import delete_resource
 from tanbun.feature.tanbun.repo.cypher import STREAM
 
-from .domain import DeleteOrphanedTanbunsResult, OrphanedTanbun, OrphanReason
+from .domain import (
+    AdminResourceItem,
+    AdminUserItem,
+    DeleteAdminResourceResult,
+    DeleteOrphanedTanbunsResult,
+    OrphanedTanbun,
+    OrphanReason,
+    ResourceDeletionImpact,
+)
 
 QUIZ_SENTENCE_RELS = "QUIZ_TARGET|QUIZ_OPTION|CORRECT"
 LOCATION_RELS = f"{STREAM}"
@@ -136,4 +146,180 @@ async def delete_orphaned_tanbuns(
         deleted_count=deleted_count,
         retired_count=retired_count,
         skipped_count=skipped_count,
+    )
+
+
+async def list_users() -> list[AdminUserItem]:
+    """ユーザーを所有Resource数付きで返す."""
+    rows, _ = await adb.cypher_query(
+        """
+        MATCH (user:User)
+        OPTIONAL MATCH (resource:Resource)-[:PARENT|OWNED]->*(user)
+        RETURN user.uid, user.email, user.display_name, user.username,
+            user.is_active, user.is_superuser, user.created,
+            count(DISTINCT resource) AS resource_count
+        ORDER BY user.is_superuser DESC, user.created DESC, user.email
+        """,
+    )
+    return [
+        AdminUserItem(
+            uid=uid,
+            email=email,
+            display_name=display_name,
+            username=username,
+            is_active=is_active,
+            is_superuser=is_superuser,
+            created=created,
+            resource_count=resource_count,
+        )
+        for (
+            uid,
+            email,
+            display_name,
+            username,
+            is_active,
+            is_superuser,
+            created,
+            resource_count,
+        ) in rows
+    ]
+
+
+async def update_user_status(
+    user_uid: UUIDy,
+    *,
+    is_active: bool,
+) -> AdminUserItem | None:
+    """ユーザーの利用可否を変更する."""
+    rows, _ = await adb.cypher_query(
+        """
+        MATCH (user:User {uid: $user_uid})
+        SET user.is_active = $is_active
+        WITH user
+        OPTIONAL MATCH (resource:Resource)-[:PARENT|OWNED]->*(user)
+        RETURN user.uid, user.email, user.display_name, user.username,
+            user.is_active, user.is_superuser, user.created,
+            count(DISTINCT resource) AS resource_count
+        """,
+        params={"user_uid": to_uuid(user_uid).hex, "is_active": is_active},
+    )
+    if not rows:
+        return None
+    row = rows[0]
+    return AdminUserItem(
+        uid=row[0],
+        email=row[1],
+        display_name=row[2],
+        username=row[3],
+        is_active=row[4],
+        is_superuser=row[5],
+        created=row[6],
+        resource_count=row[7],
+    )
+
+
+async def list_user_resources(user_uid: UUIDy) -> list[AdminResourceItem] | None:
+    """指定ユーザーが存在すれば、所有Resourceを返す."""
+    rows, _ = await adb.cypher_query(
+        """
+        MATCH (user:User {uid: $user_uid})
+        OPTIONAL MATCH (resource:Resource)-[:PARENT|OWNED]->*(user)
+        CALL (resource) {
+            OPTIONAL MATCH (sentence:Sentence {resource_uid: resource.uid})
+            RETURN count(DISTINCT sentence) AS sentence_count
+        }
+        RETURN resource.uid, resource.title, resource.updated, sentence_count
+        ORDER BY resource.updated DESC, resource.title
+        """,
+        params={"user_uid": to_uuid(user_uid).hex},
+    )
+    if not rows:
+        return None
+    return [
+        AdminResourceItem(
+            uid=uid,
+            name=name,
+            updated_at=updated_at,
+            sentence_count=sentence_count,
+        )
+        for uid, name, updated_at, sentence_count in rows
+        if uid is not None
+    ]
+
+
+async def get_resource_deletion_impact(
+    resource_uid: UUIDy,
+) -> ResourceDeletionImpact | None:
+    """Resource削除時に削除・退役するデータ数を調べる."""
+    rows, _ = await adb.cypher_query(
+        f"""
+        MATCH (resource:Resource {{uid: $resource_uid}})
+        MATCH (resource)-[:PARENT|OWNED]->*(owner:User)
+        CALL (resource) {{
+            OPTIONAL MATCH (sentence:Sentence {{resource_uid: resource.uid}})
+            RETURN count(DISTINCT sentence) AS sentence_count
+        }}
+        CALL (resource) {{
+            OPTIONAL MATCH (term:Term)-[:DEF]->(
+                :Sentence {{resource_uid: resource.uid}}
+            )
+            RETURN count(DISTINCT term) AS term_count
+        }}
+        CALL (resource) {{
+            OPTIONAL MATCH (quiz:Quiz)-[:{QUIZ_SENTENCE_RELS}]->(
+                :Sentence {{resource_uid: resource.uid}}
+            )
+            RETURN count(DISTINCT quiz) AS quiz_count
+        }}
+        CALL (resource) {{
+            OPTIONAL MATCH (answer:Answer)-[:SELECT]->(
+                :Sentence {{resource_uid: resource.uid}}
+            )
+            RETURN count(DISTINCT answer) AS answer_count
+        }}
+        CALL (resource) {{
+            OPTIONAL MATCH (sentence:Sentence {{resource_uid: resource.uid}})
+            WHERE EXISTS {{
+                MATCH (:Quiz)-[:{QUIZ_SENTENCE_RELS}]->(sentence)
+            }} OR EXISTS {{
+                MATCH (:Answer)-[:SELECT]->(sentence)
+            }}
+            RETURN count(DISTINCT sentence) AS retiring_sentence_count
+        }}
+        RETURN resource.uid, resource.title, owner.uid, owner.email,
+            sentence_count, term_count, quiz_count, answer_count,
+            retiring_sentence_count,
+            sentence_count - retiring_sentence_count AS deleting_sentence_count
+        """,
+        params={"resource_uid": to_uuid(resource_uid).hex},
+    )
+    if not rows:
+        return None
+    row = rows[0]
+    return ResourceDeletionImpact(
+        resource_uid=row[0],
+        resource_name=row[1],
+        owner_uid=row[2],
+        owner_email=row[3],
+        sentence_count=row[4],
+        term_count=row[5],
+        quiz_count=row[6],
+        answer_count=row[7],
+        retiring_sentence_count=row[8],
+        deleting_sentence_count=row[9],
+    )
+
+
+async def delete_user_resource(
+    resource_uid: UUIDy,
+) -> DeleteAdminResourceResult | None:
+    """影響数を記録してから既存の安全なResource削除を実行する."""
+    impact = await get_resource_deletion_impact(resource_uid)
+    if impact is None:
+        return None
+    await delete_resource(resource_uid)
+    return DeleteAdminResourceResult(
+        resource_uid=impact.resource_uid,
+        deleted_sentence_count=impact.deleting_sentence_count,
+        retired_sentence_count=impact.retiring_sentence_count,
     )
