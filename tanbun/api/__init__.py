@@ -16,6 +16,7 @@ from tanbun.api.middleware.logging.log_config import setup_logging
 from tanbun.api.middleware.transaction import Neo4jTransactionMiddleware
 from tanbun.config.env import Settings
 from tanbun.feature.achievement.router.router import user_achievement_router
+from tanbun.feature.dashboard import dashboard_router
 from tanbun.feature.entry.router import entry_router
 from tanbun.feature.gamification import gamification_router
 from tanbun.feature.language_service.router import language_router
@@ -63,6 +64,7 @@ api.include_router(
     tags=["public_user"],
 )
 api.include_router(entry_router())
+api.include_router(dashboard_router())
 api.include_router(gamification_router())
 api.include_router(language_router())
 api.include_router(tanbun_router(), prefix="/tanbun", tags=["tanbun"])
