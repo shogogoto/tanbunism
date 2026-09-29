@@ -48,6 +48,7 @@ class BrokenQuizReference(BaseModel, frozen=True):
     """作成Quizから退役単文へ残された、修復可能な参照."""
 
     quiz_id: UUID
+    quiz_type: QuizType
     retired_sentence_id: UUID
     retired_value: str
     resource_id: UUID

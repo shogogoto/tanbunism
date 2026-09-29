@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from tanbun.feature.domain.datetime import Neo4jDateTime
+from tanbun.feature.quiz.domain.parts import QuizType
 
 
 class OrphanReason(StrEnum):
@@ -42,6 +43,30 @@ class DeleteOrphanedTanbunsResult(BaseModel, frozen=True):
     deleted_count: int
     retired_count: int
     skipped_count: int
+
+
+class AdminBrokenQuiz(BaseModel, frozen=True):
+    """管理者が監査する参照切れQuiz."""
+
+    quiz_id: UUID
+    quiz_type: QuizType
+    owner_email: str | None
+    broken_reference_count: int
+    answer_count: int
+    created: Neo4jDateTime
+
+
+class DeleteBrokenQuizzesRequest(BaseModel, frozen=True):
+    """強制削除する参照切れQuiz."""
+
+    quiz_ids: list[UUID] = Field(min_length=1, max_length=500)
+
+
+class DeleteBrokenQuizzesResult(BaseModel, frozen=True):
+    """参照切れQuizの強制削除結果."""
+
+    deleted_count: int
+    deleted_answer_count: int
 
 
 class AdminUserItem(BaseModel, frozen=True):

@@ -21,7 +21,8 @@ async def list_broken_created_quiz_references(
         MATCH (:User {uid: $user_id})-[:CREATE]->(quiz:Quiz)
             -[:BROKEN_BY]->(retired:RetiredSentence)
         MATCH (quiz)-[source:QUIZ_TARGET|QUIZ_OPTION|CORRECT]->(retired)
-        RETURN quiz.uid, retired.uid, retired.val, retired.resource_uid,
+        RETURN quiz.uid, quiz.quiz_type, retired.uid, retired.val,
+            retired.resource_uid,
             collect(DISTINCT type(source)) AS roles, retired.retired_at
         ORDER BY retired.retired_at DESC, quiz.uid, retired.uid
     """
@@ -32,13 +33,22 @@ async def list_broken_created_quiz_references(
     return [
         BrokenQuizReference(
             quiz_id=quiz_id,
+            quiz_type=QuizType(quiz_type.lower()),
             retired_sentence_id=retired_id,
             retired_value=retired_value,
             resource_id=resource_id,
             roles=roles,
             retired_at=retired_at,
         )
-        for quiz_id, retired_id, retired_value, resource_id, roles, retired_at in rows
+        for (
+            quiz_id,
+            quiz_type,
+            retired_id,
+            retired_value,
+            resource_id,
+            roles,
+            retired_at,
+        ) in rows
     ]
 
 
@@ -118,6 +128,9 @@ async def list_created_quiz_resource_statuses(
         MATCH (:User {uid: $user_id})-[:CREATE]->(quiz: Quiz)
             -[:QUIZ_TARGET]->(target: Sentence)
         MATCH (resource: Resource {uid: target.resource_uid})
+        WHERE NOT EXISTS {
+            MATCH (quiz)-[:BROKEN_BY]->()
+        }
         WITH resource, quiz.quiz_type AS quiz_type, COUNT(quiz) AS count,
             MAX(quiz.created) AS type_last_created
         ORDER BY quiz_type
@@ -153,6 +166,9 @@ async def list_created_quiz_sentence_statuses(
     q = """
         MATCH (:User {uid: $user_id})-[:CREATE]->(quiz: Quiz)
             -[:QUIZ_TARGET]->(target: Sentence {resource_uid: $resource_id})
+        WHERE NOT EXISTS {
+            MATCH (quiz)-[:BROKEN_BY]->()
+        }
         WITH target, quiz.quiz_type AS quiz_type, COUNT(quiz) AS count
         ORDER BY quiz_type
         WITH target, COLLECT([quiz_type, count]) AS counts, SUM(count) AS total

@@ -8,10 +8,13 @@ from fastapi import APIRouter, HTTPException, Query, status
 from tanbun.feature.user.router_util import AdminUser
 
 from .domain import (
+    AdminBrokenQuiz,
     AdminResourceItem,
     AdminUserItem,
     DeleteAdminResourceRequest,
     DeleteAdminResourceResult,
+    DeleteBrokenQuizzesRequest,
+    DeleteBrokenQuizzesResult,
     DeleteOrphanedTanbunsRequest,
     DeleteOrphanedTanbunsResult,
     OrphanedTanbun,
@@ -19,9 +22,11 @@ from .domain import (
     UpdateUserStatusRequest,
 )
 from .repo import (
+    delete_broken_quizzes,
     delete_orphaned_tanbuns,
     delete_user_resource,
     get_resource_deletion_impact,
+    list_broken_quizzes,
     list_orphaned_tanbuns,
     list_user_resources,
     list_users,
@@ -47,6 +52,24 @@ async def remove_orphaned_tanbuns(
 ) -> DeleteOrphanedTanbunsResult:
     """選択された孤立単文を削除または退役させる."""
     return await delete_orphaned_tanbuns(body.sentence_ids)
+
+
+@router.get("/broken-quizzes")
+async def get_broken_quizzes(
+    _admin: AdminUser,
+    limit: Annotated[int, Query(ge=1, le=500)] = 200,
+) -> list[AdminBrokenQuiz]:
+    """参照切れQuizを一覧する."""
+    return await list_broken_quizzes(limit=limit)
+
+
+@router.post("/broken-quizzes/delete")
+async def remove_broken_quizzes(
+    body: DeleteBrokenQuizzesRequest,
+    _admin: AdminUser,
+) -> DeleteBrokenQuizzesResult:
+    """参照切れQuizと回答履歴を削除する."""
+    return await delete_broken_quizzes(body.quiz_ids)
 
 
 @router.get("/users")

@@ -4,12 +4,18 @@ from neomodel import adb
 
 from tanbun.feature.domain.types import UUIDy, to_uuid
 from tanbun.feature.entry.resource.repo.delete import delete_resource
+from tanbun.feature.entry.resource.repo.retirement import (
+    purge_orphaned_retired_sentences,
+)
+from tanbun.feature.quiz.domain.parts import QuizType
 from tanbun.feature.tanbun.repo.cypher import STREAM
 
 from .domain import (
+    AdminBrokenQuiz,
     AdminResourceItem,
     AdminUserItem,
     DeleteAdminResourceResult,
+    DeleteBrokenQuizzesResult,
     DeleteOrphanedTanbunsResult,
     OrphanedTanbun,
     OrphanReason,
@@ -146,6 +152,68 @@ async def delete_orphaned_tanbuns(
         deleted_count=deleted_count,
         retired_count=retired_count,
         skipped_count=skipped_count,
+    )
+
+
+async def list_broken_quizzes(*, limit: int = 200) -> list[AdminBrokenQuiz]:
+    """管理者向けに参照切れQuizを一覧する."""
+    query = """
+        MATCH (quiz:Quiz)-[:BROKEN_BY]->(retired:RetiredSentence)
+        OPTIONAL MATCH (owner:User)-[:CREATE]->(quiz)
+        WITH quiz, collect(DISTINCT retired) AS retireds,
+            head(collect(DISTINCT owner.email)) AS owner_email
+        OPTIONAL MATCH (answer:Answer)-[:ANSWER_OF]->(quiz)
+        WITH quiz, owner_email, size(retireds) AS broken_reference_count,
+            count(DISTINCT answer) AS answer_count
+        RETURN quiz.uid, quiz.quiz_type, owner_email,
+            broken_reference_count, answer_count, quiz.created
+        ORDER BY answer_count DESC, broken_reference_count DESC,
+            quiz.created DESC, quiz.uid
+        LIMIT $limit
+    """
+    rows, _ = await adb.cypher_query(query, params={"limit": limit})
+    return [
+        AdminBrokenQuiz(
+            quiz_id=quiz_id,
+            quiz_type=QuizType(quiz_type.lower()),
+            owner_email=owner_email,
+            broken_reference_count=broken_count,
+            answer_count=answer_count,
+            created=created,
+        )
+        for quiz_id, quiz_type, owner_email, broken_count, answer_count, created in rows
+    ]
+
+
+async def delete_broken_quizzes(
+    quiz_ids: list[UUIDy],
+) -> DeleteBrokenQuizzesResult:
+    """参照切れQuizと回答履歴を管理者権限で削除する."""
+    query = """
+        UNWIND $quiz_ids AS quiz_id
+        OPTIONAL MATCH (quiz:Quiz {uid: quiz_id})-[:BROKEN_BY]->()
+        WITH DISTINCT quiz
+        CALL (quiz) {
+            OPTIONAL MATCH (answer:Answer)-[:ANSWER_OF]->(quiz)
+            RETURN [item IN collect(DISTINCT answer) WHERE item IS NOT NULL]
+                AS answers
+        }
+        WITH quiz, answers
+        FOREACH (answer IN answers | DETACH DELETE answer)
+        FOREACH (_ IN CASE WHEN quiz IS NULL THEN [] ELSE [1] END |
+            DETACH DELETE quiz
+        )
+        RETURN count(quiz), sum(size(answers))
+    """
+    rows, _ = await adb.cypher_query(
+        query,
+        params={"quiz_ids": list(dict.fromkeys(to_uuid(uid).hex for uid in quiz_ids))},
+    )
+    deleted_count, deleted_answer_count = rows[0]
+    await purge_orphaned_retired_sentences()
+    return DeleteBrokenQuizzesResult(
+        deleted_count=deleted_count,
+        deleted_answer_count=deleted_answer_count or 0,
     )
 
 

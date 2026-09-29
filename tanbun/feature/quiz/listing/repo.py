@@ -50,7 +50,10 @@ async def list_quiz_by_user_ids(
         MATCH (u: User {{uid: user_uid}})
         MATCH (quiz: Quiz)<-[:CREATE]-(u)
         MATCH (quiz)-[:QUIZ_TARGET]->(target: Sentence)
-        WHERE $resource_ids IS NULL OR target.resource_uid IN $resource_ids
+        WHERE NOT EXISTS {{
+            MATCH (quiz)-[:BROKEN_BY]->()
+        }}
+          AND ($resource_ids IS NULL OR target.resource_uid IN $resource_ids)
         WITH quiz, target
         WHERE $sentence_ids IS NULL OR target.uid IN $sentence_ids
         // 新しい順
@@ -95,7 +98,10 @@ async def search_created_quizzes(
     q = f"""
         MATCH (:User {{uid: $user_id}})-[:CREATE]->(quiz: Quiz)
         MATCH (quiz)-[:QUIZ_TARGET]->(target: Sentence)
-        WHERE ($resource_id IS NULL OR target.resource_uid = $resource_id)
+        WHERE NOT EXISTS {{
+            MATCH (quiz)-[:BROKEN_BY]->()
+        }}
+          AND ($resource_id IS NULL OR target.resource_uid = $resource_id)
           AND ($sentence_id IS NULL OR target.uid = $sentence_id)
           AND ($quiz_types IS NULL OR quiz.quiz_type IN $quiz_types)
           AND ($created_from IS NULL OR quiz.created >= datetime($created_from))
@@ -173,6 +179,9 @@ async def list_learning_quizzes(
     """ユーザーの学習対象クイズを新しい順に列挙."""
     q = f"""
         MATCH (:User {{uid: $user_uid}})-[:LEARN]->(quiz: Quiz)
+        WHERE NOT EXISTS {{
+            MATCH (quiz)-[:BROKEN_BY]->()
+        }}
         WITH DISTINCT quiz
         ORDER BY quiz.created DESC, quiz.uid ASC
         WITH COLLECT(quiz.uid) AS quiz_ids
@@ -197,6 +206,9 @@ async def list_quiz_by_sentence_ids(
         UNWIND $sent_uids AS sent_uid
         MATCH (s: Sentence {{uid: sent_uid}})
         MATCH (quiz: Quiz)-[:QUIZ_TARGET]->(s)
+        WHERE NOT EXISTS {{
+            MATCH (quiz)-[:BROKEN_BY]->()
+        }}
         // 新しい順
         ORDER BY quiz.created DESC
         WITH COLLECT(quiz.uid) as quiz_ids
@@ -293,6 +305,9 @@ async def list_answer_history(
         MATCH (user: User {{uid: $user_uid}})-[:ANSWER]->(answer: Answer)
             -[:ANSWER_OF]->(quiz: Quiz)-[:QUIZ_TARGET]->(target: Sentence)
         WHERE ($is_correct IS NULL OR answer.is_correct = $is_correct)
+          AND NOT EXISTS {{
+              MATCH (quiz)-[:BROKEN_BY]->()
+          }}
           AND ($quiz_type IS NULL OR quiz.quiz_type = $quiz_type)
           AND ($resource_id IS NULL OR target.resource_uid = $resource_id)
         OPTIONAL MATCH (answer)-[:SELECT]->(selected: Sentence)
