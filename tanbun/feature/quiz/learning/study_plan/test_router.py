@@ -18,8 +18,10 @@ from tanbun.feature.quiz.learning.recommendation.domain import (
     QuizRecommendationReason,
 )
 from tanbun.feature.quiz.learning.study_plan.domain import (
+    PrepareStudyPlanResult,
     StudyPlan,
     StudyPlanDraft,
+    StudyPlanPreparationStatus,
 )
 from tanbun.feature.quiz.learning.study_plan.schema import (
     QuizRecommendationResponse,
@@ -63,6 +65,16 @@ async def test_study_plan_crud_api(ac: AsyncClient, u: LUser):
 
     response = await ac.get("/quiz/study-plans", headers=headers)
     assert [StudyPlan.model_validate(item) for item in response.json()] == [created]
+
+    response = await ac.get("/quiz/study-plans/preparations", headers=headers)
+    assert [
+        StudyPlanPreparationStatus.model_validate(item) for item in response.json()
+    ] == [
+        StudyPlanPreparationStatus(
+            plan_id=created.uid,
+            prepared_quiz_count=0,
+        ),
+    ]
 
     response = await ac.get(
         f"/quiz/study-plans/{created.uid}",
@@ -126,6 +138,15 @@ async def test_study_plan_recommendation_api(ac: AsyncClient, u: LUser):
     assert recommendation.quiz_type is QuizType.TERM2SENT
     assert recommendation.reason is QuizRecommendationReason.COVERAGE
 
+    preparation_response = await ac.get(
+        f"/quiz/study-plans/{plan.uid}/preparation",
+        headers=headers,
+    )
+    preparation = StudyPlanPreparationStatus.model_validate(
+        preparation_response.json(),
+    )
+    assert preparation.prepared_quiz_count == 1
+
     existing_response = await ac.post(
         f"/quiz/study-plans/{plan.uid}/recommendations",
         params={
@@ -158,6 +179,54 @@ async def test_study_plan_recommendation_api(ac: AsyncClient, u: LUser):
     assert status.coverage.covered == 1
     assert status.attempt_rate.attempted == 1
     assert status.performance.corrects == 1
+
+    preparation_response = await ac.get(
+        f"/quiz/study-plans/{plan.uid}/preparation",
+        headers=headers,
+    )
+    preparation = StudyPlanPreparationStatus.model_validate(
+        preparation_response.json(),
+    )
+    assert preparation.prepared_quiz_count == 0
+
+
+@mark_async_test()
+async def test_add_questions_to_study_plan(ac: AsyncClient, u: LUser):
+    """指定数を上限として未coverageの問題を追加し、準備数へ反映する."""
+    additional_count = 2
+    resource_id = await learning_resource_id(u.uid)
+    plan = await _create_plan_via_api(
+        ac,
+        u,
+        StudyPlanDraft(
+            name="問題を補充",
+            resource_ids=[resource_id],
+            quiz_types=[QuizType.TERM2SENT],
+            n_quiz=additional_count,
+            n_option=3,
+        ),
+    )
+    headers = await aauth_header(email=u.email)
+
+    response = await ac.post(
+        f"/quiz/study-plans/{plan.uid}/prepare",
+        json={"additional_count": additional_count},
+        headers=headers,
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    result = PrepareStudyPlanResult.model_validate(response.json())
+    assert result.requested_count == additional_count
+    assert result.added_count == additional_count
+    assert result.prepared_quiz_count == additional_count
+
+    notification_response = await ac.get("/notifications", headers=headers)
+    assert notification_response.status_code == status.HTTP_200_OK
+    notification_feed = notification_response.json()
+    assert notification_feed["unread_count"] == 1
+    assert notification_feed["notifications"][0]["kind"] == (
+        "quiz_preparation_complete"
+    )
 
 
 @mark_async_test()

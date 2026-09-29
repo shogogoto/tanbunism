@@ -1,7 +1,7 @@
 """StudyPlanのrepo."""
 
 from datetime import datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from neomodel import adb
 
@@ -194,3 +194,70 @@ async def delete_study_plan(
         },
     )
     return bool(rows and rows[0][0])
+
+
+async def count_prepared_quizzes(
+    plan_id: UUIDy,
+    user_id: UUIDy,
+) -> int:
+    """Plan対象内の、壊れておらず未回答なクイズを数える."""
+    q = """
+        MATCH (plan:StudyPlan {uid: $plan_id})-[:OWNED]->(
+            user:User {uid: $user_id}
+        )
+        CALL (plan, user) {
+            MATCH (plan)-[:STUDY]->(resource:Resource)
+            MATCH (user)-[:LEARN]->(quiz:Quiz)-[:QUIZ_TARGET]->(
+                sentence:Sentence
+            )
+            WHERE sentence.resource_uid = resource.uid
+              AND quiz.quiz_type IN plan.quiz_types
+              AND NOT EXISTS {
+                  MATCH (quiz)-[:BROKEN_BY]->()
+              }
+              AND NOT EXISTS {
+                  MATCH (user)-[:ANSWER]->(:Answer)-[:ANSWER_OF]->(quiz)
+              }
+            RETURN count(DISTINCT quiz) AS prepared_count
+        }
+        RETURN prepared_count
+    """
+    rows, _ = await adb.cypher_query(
+        q,
+        params={
+            "plan_id": to_uuid(plan_id).hex,
+            "user_id": to_uuid(user_id).hex,
+        },
+    )
+    return rows[0][0] if rows else 0
+
+
+async def list_prepared_quiz_counts(
+    user_id: UUIDy,
+) -> dict[UUID, int]:
+    """所有する全Planの準備済みクイズ数を一括取得する."""
+    q = """
+        MATCH (plan:StudyPlan)-[:OWNED]->(user:User {uid: $user_id})
+        CALL (plan, user) {
+            OPTIONAL MATCH (plan)-[:STUDY]->(resource:Resource)
+            OPTIONAL MATCH (user)-[:LEARN]->(quiz:Quiz)-[:QUIZ_TARGET]->(
+                sentence:Sentence
+            )
+            WHERE sentence.resource_uid = resource.uid
+              AND quiz.quiz_type IN plan.quiz_types
+              AND NOT EXISTS {
+                  MATCH (quiz)-[:BROKEN_BY]->()
+              }
+              AND NOT EXISTS {
+                  MATCH (user)-[:ANSWER]->(:Answer)-[:ANSWER_OF]->(quiz)
+              }
+            RETURN count(DISTINCT quiz) AS prepared_count
+        }
+        RETURN plan.uid, prepared_count
+        ORDER BY plan.created DESC, plan.uid
+    """
+    rows, _ = await adb.cypher_query(
+        q,
+        params={"user_id": to_uuid(user_id).hex},
+    )
+    return {to_uuid(plan_id): count for plan_id, count in rows}

@@ -37,3 +37,23 @@ class StudyPlan(StudyPlanDraft, frozen=True):
 
     uid: UUID
     created: datetime
+
+
+class StudyPlanPreparationStatus(BaseModel, frozen=True):
+    """StudyPlanで現在回答可能な準備済みクイズ数."""
+
+    plan_id: UUID
+    prepared_quiz_count: int
+
+
+class PrepareStudyPlanRequest(BaseModel, frozen=True):
+    """StudyPlanへ追加するクイズ数."""
+
+    additional_count: int = Field(ge=1, le=MAX_QUIZZES_PER_REQUEST)
+
+
+class PrepareStudyPlanResult(StudyPlanPreparationStatus, frozen=True):
+    """StudyPlanのクイズ補充結果."""
+
+    requested_count: int
+    added_count: int

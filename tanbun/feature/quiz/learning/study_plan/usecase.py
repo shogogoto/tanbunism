@@ -2,31 +2,39 @@
 
 from tanbun.feature.domain.types import UUIDy
 from tanbun.feature.entry.resource.repo.owner import check_entry_owner
+from tanbun.feature.notification.domain import NewNotification, NotificationKind
+from tanbun.feature.notification.usecase import notify_user
 from tanbun.feature.quiz.candidate.types import CandidateType
 from tanbun.feature.quiz.domain.parts import QuizType
+from tanbun.feature.quiz.learning.fill.usecase import generate_quizzes
 from tanbun.feature.quiz.learning.recommendation.domain import (
     QuizRecommendation,
 )
 from tanbun.feature.quiz.learning.recommendation.usecase import (
     recommend_quizzes,
 )
+from tanbun.feature.quiz.learning.selection.domain import QuizFillStrategy
 from tanbun.feature.quiz.learning.study_plan.domain import (
+    PrepareStudyPlanResult,
     StudyPlan,
     StudyPlanDraft,
+    StudyPlanPreparationStatus,
 )
 from tanbun.feature.quiz.learning.study_plan.errors import (
     StudyPlanNotFoundError,
     StudyPlanResourceAccessError,
 )
 from tanbun.feature.quiz.learning.study_plan.repo import (
+    count_prepared_quizzes,
+    fetch_study_plan,
+    list_prepared_quiz_counts,
+    list_study_plans,
+)
+from tanbun.feature.quiz.learning.study_plan.repo import (
     create_study_plan as create_study_plan_in_repo,
 )
 from tanbun.feature.quiz.learning.study_plan.repo import (
     delete_study_plan as delete_study_plan_in_repo,
-)
-from tanbun.feature.quiz.learning.study_plan.repo import (
-    fetch_study_plan,
-    list_study_plans,
 )
 from tanbun.feature.quiz.learning.study_plan.repo import (
     update_study_plan as update_study_plan_in_repo,
@@ -92,6 +100,87 @@ async def delete_study_plan(
     if not await delete_study_plan_in_repo(plan_id, user_id):
         msg = f"StudyPlanが見つかりません: {plan_id}"
         raise StudyPlanNotFoundError(msg=msg)
+
+
+async def get_study_plan_preparation_status(
+    plan_id: UUIDy,
+    user_id: UUIDy,
+) -> StudyPlanPreparationStatus:
+    """StudyPlanで現在回答可能な準備済みクイズ数を返す."""
+    plan = await get_study_plan(plan_id, user_id)
+    return StudyPlanPreparationStatus(
+        plan_id=plan.uid,
+        prepared_quiz_count=await count_prepared_quizzes(plan.uid, user_id),
+    )
+
+
+async def get_study_plan_preparation_statuses(
+    user_id: UUIDy,
+) -> list[StudyPlanPreparationStatus]:
+    """所有する全StudyPlanの準備済みクイズ数を返す."""
+    counts = await list_prepared_quiz_counts(user_id)
+    return [
+        StudyPlanPreparationStatus(
+            plan_id=plan_id,
+            prepared_quiz_count=count,
+        )
+        for plan_id, count in counts.items()
+    ]
+
+
+def _allocate_counts(total: int, size: int) -> list[int]:
+    """入力順を維持して追加数を均等配分する."""
+    quotient, remainder = divmod(total, size)
+    return [quotient + (index < remainder) for index in range(size)]
+
+
+async def prepare_additional_study_plan_quizzes(
+    plan_id: UUIDy,
+    user_id: UUIDy,
+    additional_count: int,
+) -> PrepareStudyPlanResult:
+    """Planの形式・Resourceへ未coverageのクイズを追加する."""
+    plan = await get_study_plan(plan_id, user_id)
+    before = await count_prepared_quizzes(plan.uid, user_id)
+    targets = [
+        (quiz_type, resource_id)
+        for quiz_type in plan.quiz_types
+        for resource_id in plan.resource_ids
+    ]
+    counts = _allocate_counts(additional_count, len(targets))
+    for (quiz_type, resource_id), count in zip(targets, counts, strict=True):
+        if count == 0:
+            continue
+        await generate_quizzes(
+            resource_id,
+            user_id,
+            quiz_type,
+            QuizFillStrategy.COVERAGE,
+            CandidateType.ALL,
+            n_quiz=count,
+            n_option=plan.n_option,
+        )
+    prepared = await count_prepared_quizzes(plan.uid, user_id)
+    added = max(0, prepared - before)
+    if added > 0:
+        await notify_user(
+            user_id,
+            NewNotification(
+                kind=NotificationKind.QUIZ_PREPARATION_COMPLETE,
+                title="クイズの準備完了",
+                description=(
+                    f"「{plan.name}」に{added}問追加しました。"
+                    f"準備済みは合計{prepared}問です。"
+                ),
+                href="/dashboard?view=study-plans",
+            ),
+        )
+    return PrepareStudyPlanResult(
+        plan_id=plan.uid,
+        requested_count=additional_count,
+        added_count=added,
+        prepared_quiz_count=prepared,
+    )
 
 
 async def recommend_quizzes_for_study_plan(

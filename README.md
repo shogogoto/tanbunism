@@ -69,6 +69,26 @@ tb check notes --extension md
 続けられないため、1回の検査では各ファイルの最初のエラーを検出する。通常は
 エラーがあるファイルのパスだけを列挙し、`-v`で詳細を表示する。
 
+### Web Push
+
+Web Pushを有効にするサーバーではVAPID鍵を一度だけ生成する。
+
+```sh
+poetry run vapid --gen
+poetry run vapid --applicationServerKey --private-key private_key.pem
+```
+
+サーバーへ次の環境変数を設定する。秘密鍵ファイルはGitへ追加せず、Renderでは
+Secret Fileなどで配置する。
+
+```text
+VAPID_PUBLIC_KEY=<applicationServerKeyの出力>
+VAPID_PRIVATE_KEY=/etc/secrets/private_key.pem
+VAPID_SUBJECT=mailto:<運用連絡先メールアドレス>
+```
+
+公開鍵と秘密鍵の組を変更すると既存の端末購読は使えなくなるため、同じ鍵を維持する。
+
 例: プレーンテキストを読み取り
 ```sh
 cat xxx.txt |tb read

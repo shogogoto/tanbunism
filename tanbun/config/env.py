@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     COOKIE_DOMAIN: str | None = None
     KN_REDIRECT_URL: str | None = None
     FRONTEND_URL: str | None = None
+    VAPID_PUBLIC_KEY: str | None = None
+    VAPID_PRIVATE_KEY: str | None = None
+    VAPID_SUBJECT: str = "mailto:gotoadmn0605@gmail.com"
     CONFIG_PATH: str = ".config/knowde"
 
     NEO4J_TRANSACTION_EXCLUDE_PATHS: str = "/health"  # カンマ区切り
