@@ -26,6 +26,11 @@ def auth_component() -> FastAPIUsers:
 # type aliasは遅延評価されるらしく、そのせいでswaggerに鍵マークが出なかったらしい
 ActiveUser = Annotated[User, Depends(auth_component().current_user(active=True))]
 
+AdminUser = Annotated[
+    User,
+    Depends(auth_component().current_user(active=True, superuser=True)),
+]
+
 TrackUser = Annotated[
     User | None,
     Depends(auth_component().current_user(optional=True, active=True)),

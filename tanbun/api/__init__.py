@@ -16,6 +16,7 @@ from tanbun.api.middleware.logging.log_config import setup_logging
 from tanbun.api.middleware.transaction import Neo4jTransactionMiddleware
 from tanbun.config.env import Settings
 from tanbun.feature.achievement.router.router import user_achievement_router
+from tanbun.feature.admin import admin_router
 from tanbun.feature.dashboard import dashboard_router
 from tanbun.feature.entry.router import entry_router
 from tanbun.feature.gamification import gamification_router
@@ -58,6 +59,7 @@ api.add_middleware(LoggingMiddleware)
 
 api.include_router(auth_router())
 api.include_router(user_router())
+api.include_router(admin_router())
 api.include_router(
     user_achievement_router(),
     prefix=PREFIX_USER,
