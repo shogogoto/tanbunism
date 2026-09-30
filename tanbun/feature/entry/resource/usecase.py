@@ -50,8 +50,10 @@ async def preview_resource_update(
 ) -> ResourceDiffPreview:
     """DBを変更せず、Resource保存で適用される差分を返す."""
     meta = ResourceMeta.from_str(txt, path)
-    network = try_parse2net(txt)
     existing = ns.get_resource_or_none(meta.title)
+    if existing is not None and existing.txt_hash == meta.txt_hash:
+        return ResourceDiffPreview.unchanged(existing.uid)
+    network = try_parse2net(txt)
     if existing is None:
         return ResourceDiffPreview.for_new(network)
     plan = await prepare_resource_diff(
@@ -124,10 +126,20 @@ async def _save_resource_with_detail(
             identity_resolutions,
             term_identity_resolutions,
         )
-    lb = await save_or_move_resource(meta, ns)
+    same_location = existing is not None and (
+        ns.roots_.get(meta.title) == existing
+        if meta.path is None
+        else ns.get_or_none(*meta.names) == existing
+    )
+    resource_unchanged = existing is not None and not content_changed and same_location
+    lb = (
+        await LResource.nodes.get(uid=existing.uid.hex)
+        if resource_unchanged
+        else await save_or_move_resource(meta, ns)
+    )
     await _check_duplication(ns.user_id, meta.title)
     r = await LResource.nodes.get(uid=lb.uid)
-    if updated is not None and r.updated != updated:
+    if not resource_unchanged and updated is not None and r.updated != updated:
         msg = f"'{meta.title}'は同時に更新されたのでロールバック"
         raise ResourceSaveOptimisticLockError(msg)
     if lb is None:

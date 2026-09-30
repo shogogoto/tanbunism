@@ -74,3 +74,19 @@ async def test_save_resource_with_detail_saved_cached(u: LUser):
     ns = await fetch_namespace(u.uid)
     assert len(ns.g.nodes) == 1
     assert ns.stats[rid].n_sentence == 2  # noqa: PLR2004
+
+
+@mark_async_test()
+async def test_save_identical_resource_is_noop(u: LUser) -> None:
+    """同じ場所へ同一本文を再保存してもResourceの更新日時を変えない."""
+    text = """# unchanged resource
+  concept: same sentence
+"""
+    ns = await fetch_namespace(u.uid)
+    first, _ = await save_resource_with_detail(ns, text, ["unchanged.tb"])
+
+    ns = await fetch_namespace(u.uid)
+    second, _ = await save_resource_with_detail(ns, text, ["unchanged.tb"])
+
+    assert second.uid == first.uid
+    assert second.updated == first.updated

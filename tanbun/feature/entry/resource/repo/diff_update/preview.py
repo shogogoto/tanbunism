@@ -21,6 +21,20 @@ class ResourceDiffPreview(BaseModel, frozen=True):
     terms_updated: int
 
     @classmethod
+    def unchanged(cls, resource_id: UUID) -> "ResourceDiffPreview":
+        """本文が保存済みの内容と一致するResourceを返す."""
+        return cls(
+            resource_id=resource_id,
+            is_new=False,
+            sentences_added=0,
+            sentences_removed=0,
+            sentences_updated=0,
+            terms_added=0,
+            terms_removed=0,
+            terms_updated=0,
+        )
+
+    @classmethod
     def for_new(cls, network: SysNet) -> "ResourceDiffPreview":
         """新規Resourceの概要を作る."""
         return cls(

@@ -1,5 +1,7 @@
 """Resource更新時の同一性競合APIテスト."""
 
+from uuid import UUID
+
 from httpx import AsyncClient
 
 from tanbun.conftest import mark_async_test
@@ -95,3 +97,37 @@ async def test_resource_text_rejects_duplicate_resolution_input(
     )
 
     assert response.status_code == 422  # noqa: PLR2004
+
+
+@mark_async_test()
+async def test_identical_resource_text_has_no_diff(ac: AsyncClient) -> None:
+    """同一本文を再送しても変更ありとして扱わない."""
+    headers = await async_auth_header()
+    text = """# identical preview hash test
+  concept: unchanged sentence
+"""
+    created = await ac.post(
+        "/resource-text",
+        headers=headers,
+        json={"txt": text, "path": ["identical-hash.tb"]},
+    )
+    assert created.is_success
+
+    preview = await ac.post(
+        "/resource-text/preview",
+        headers=headers,
+        json={"txt": text, "path": ["identical-hash.tb"]},
+    )
+
+    assert preview.is_success
+    result = preview.json()
+    assert UUID(result.pop("resource_id")).hex == created.json()["resource_id"]
+    assert result == {
+        "is_new": False,
+        "sentences_added": 0,
+        "sentences_removed": 0,
+        "sentences_updated": 0,
+        "terms_added": 0,
+        "terms_removed": 0,
+        "terms_updated": 0,
+    }
