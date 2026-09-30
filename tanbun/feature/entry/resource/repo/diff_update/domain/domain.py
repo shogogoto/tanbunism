@@ -26,6 +26,89 @@ if TYPE_CHECKING:
 
 type UpdateGetter[T] = Callable[[Iterable[T], Iterable[T]], dict[T, T]]
 
+_CONFIDENT_MATCH_MARGIN = 0.1
+
+
+def _confident_best(
+    candidates: list[IdentityCandidate],
+) -> IdentityCandidate | None:
+    """次点より十分に類似度が高い候補だけを返す."""
+    ranked = sorted(candidates, key=lambda candidate: -candidate.similarity)
+    if not ranked:
+        return None
+    if len(ranked) == 1:
+        return ranked[0]
+    if ranked[0].similarity - ranked[1].similarity >= _CONFIDENT_MATCH_MARGIN:
+        return ranked[0]
+    return None
+
+
+def _confident_reciprocal_matches(
+    candidates_by_old: dict[str, list[IdentityCandidate]],
+) -> dict[str, str]:
+    """旧文と新文の双方から明確な第一候補になる組を返す."""
+    candidates_by_new: dict[str, list[IdentityCandidate]] = defaultdict(list)
+    for original, candidates in candidates_by_old.items():
+        for candidate in candidates:
+            candidates_by_new[candidate.value].append(
+                IdentityCandidate(original, candidate.similarity),
+            )
+    best_by_old = {
+        original: candidate
+        for original, candidates in candidates_by_old.items()
+        if (candidate := _confident_best(candidates)) is not None
+    }
+    best_by_new = {
+        replacement: candidate
+        for replacement, candidates in candidates_by_new.items()
+        if (candidate := _confident_best(candidates)) is not None
+    }
+    return {
+        original: candidate.value
+        for original, candidate in best_by_old.items()
+        if best_by_new.get(candidate.value, IdentityCandidate("", 0)).value == original
+    }
+
+
+def _unmatched_candidates(
+    candidates_by_old: dict[str, list[IdentityCandidate]],
+    removed: set[str],
+    added: set[str],
+    matched: dict[str, str],
+) -> dict[str, list[IdentityCandidate]]:
+    """確定済みの組を除いた候補を返す."""
+    unmatched_new = added - set(matched.values())
+    return {
+        original: [
+            candidate
+            for candidate in candidates_by_old[original]
+            if candidate.value in unmatched_new
+        ]
+        for original in removed - set(matched)
+    }
+
+
+def _ambiguous_originals(
+    candidates_by_old: dict[str, list[IdentityCandidate]],
+) -> set[str]:
+    """一対多または多対一で選択が必要な旧文を返す."""
+    originals_by_new: dict[str, list[str]] = defaultdict(list)
+    for original, candidates in candidates_by_old.items():
+        for candidate in candidates:
+            originals_by_new[candidate.value].append(original)
+    ambiguous = {
+        original
+        for original, candidates in candidates_by_old.items()
+        if len(candidates) > 1
+    }
+    ambiguous.update(
+        original
+        for originals in originals_by_new.values()
+        if len(originals) > 1
+        for original in originals
+    )
+    return ambiguous
+
 
 def identify_updatediff_txt(
     old: Iterable[str],
@@ -43,26 +126,25 @@ def identify_updatediff_txt(
     added -= set(resolved.values())
 
     candidates_by_old: dict[str, list[IdentityCandidate]] = defaultdict(list)
-    olds_by_new: dict[str, list[str]] = defaultdict(list)
     for txt1, txt2 in product(removed, added):
         r = Levenshtein.ratio(txt1, txt2)
         if r > threshold_ratio:
             candidates_by_old[txt1].append(IdentityCandidate(txt2, r))
-            olds_by_new[txt2].append(txt1)
-
-    ambiguous_old = {
-        old for old, candidates in candidates_by_old.items() if len(candidates) > 1
-    }
-    ambiguous_old.update(
-        old for olds in olds_by_new.values() if len(olds) > 1 for old in olds
+    confident = _confident_reciprocal_matches(candidates_by_old)
+    remaining_candidates = _unmatched_candidates(
+        candidates_by_old,
+        removed,
+        added,
+        confident,
     )
+    ambiguous_old = _ambiguous_originals(remaining_candidates)
     if ambiguous_old:
         conflicts = tuple(
             IdentityConflict(
                 original=old,
                 candidates=tuple(
                     sorted(
-                        candidates_by_old[old],
+                        remaining_candidates[old],
                         key=lambda candidate: (-candidate.similarity, candidate.value),
                     ),
                 ),
@@ -73,10 +155,10 @@ def identify_updatediff_txt(
 
     automatic = {
         old: candidates[0].value
-        for old, candidates in candidates_by_old.items()
+        for old, candidates in remaining_candidates.items()
         if candidates
     }
-    return resolved | automatic
+    return resolved | confident | automatic
 
 
 def _validate_resolutions(

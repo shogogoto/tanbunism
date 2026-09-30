@@ -92,6 +92,24 @@ def test_sentence_diff_reports_many_to_one_conflict() -> None:
     assert raised.value.detail["kind"] == "sentence"
 
 
+def test_sentence_diff_automatically_pairs_clear_reciprocal_matches() -> None:
+    """複数候補があっても双方の第一候補が明確なら自動で対応付ける."""
+    old_conjunction = r"$ eg(P \land eg P)$"
+    old_disjunction = r"$P \lor eg P$"
+    new_conjunction = r"$\neg(P \land \neg P)$"
+    new_disjunction = r"$P \lor \neg P$"
+
+    result = identify_updatediff_txt(
+        [old_conjunction, old_disjunction],
+        [new_conjunction, new_disjunction],
+    )
+
+    assert result == {
+        old_conjunction: new_conjunction,
+        old_disjunction: new_disjunction,
+    }
+
+
 def test_sentence_diff_applies_explicit_resolution() -> None:
     """曖昧な候補でもユーザーが選んだ1文だけへ同定する."""
     result = identify_updatediff_txt(
