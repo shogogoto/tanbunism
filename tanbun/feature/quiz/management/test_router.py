@@ -138,3 +138,51 @@ async def test_list_and_delete_created_quizzes_api(ac: AsyncClient, u: LUser):
     response = await ac.get("/quiz/created", headers=headers)
     result = ReadableQuizResult.model_validate(response.json())
     assert result.total == n_created - 1
+
+
+@mark_async_test()
+async def test_bulk_delete_only_own_created_quizzes(ac: AsyncClient, u: LUser):
+    """一括削除は本人のQuizだけを削除し、他人のQuizは読み飛ばす."""
+    target = await LSentence.nodes.first(val="ccc")
+    own_quizzes = [
+        await generate_quiz(
+            QuizType.TERM2SENT,
+            CandidateType.ALL,
+            target.uid,
+            3,
+            u.uid,
+        )
+        for _ in range(2)
+    ]
+    other = await aregister(email="quiz-bulk-delete-other@ex.com")
+    other_quiz = await generate_quiz(
+        QuizType.TERM2SENT,
+        CandidateType.ALL,
+        target.uid,
+        3,
+        other.uid,
+    )
+    headers = await aauth_header(email=u.email)
+
+    response = await ac.post(
+        "/quiz/created/delete",
+        headers=headers,
+        json={
+            "quiz_ids": [
+                *(str(quiz.quiz_id) for quiz in own_quizzes),
+                str(other_quiz.quiz_id),
+            ],
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {
+        "deleted_count": 2,
+        "deleted_answer_count": 0,
+        "skipped_count": 1,
+    }
+    other_response = await ac.get(
+        "/quiz/created",
+        headers=await aauth_header(email=other.email),
+    )
+    assert other_response.json()["total"] == 1

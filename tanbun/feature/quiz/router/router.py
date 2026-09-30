@@ -28,6 +28,7 @@ from tanbun.feature.quiz.listing.repo import (
 )
 from tanbun.feature.quiz.management.domain import (
     BrokenQuizReference,
+    DeleteQuizzesResult,
     ManagedQuizResult,
     QuizReattachmentResult,
     QuizResourceStatus,
@@ -38,10 +39,15 @@ from tanbun.feature.quiz.management.repo import (
     list_created_quiz_resource_statuses,
     list_created_quiz_sentence_statuses,
 )
-from tanbun.feature.quiz.management.usecase import delete_quiz, repair_quiz_reference
+from tanbun.feature.quiz.management.usecase import (
+    delete_quiz,
+    delete_quizzes,
+    repair_quiz_reference,
+)
 from tanbun.feature.quiz.router.params import (
     AnswerParam,
     CreateQuizParam,
+    DeleteQuizzesParam,
     RepairQuizReferenceParam,
 )
 from tanbun.feature.repo.cypher import Paging
@@ -153,6 +159,15 @@ async def list_broken_created_quizzes(
 ) -> list[BrokenQuizReference]:
     """自分が作成したQuizの修復待ち参照を取得."""
     return await list_broken_created_quiz_references(user.uid)
+
+
+@_r.post("/created/delete")
+async def delete_created_quizzes_api(
+    param: DeleteQuizzesParam,
+    user: ActiveUser,
+) -> DeleteQuizzesResult:
+    """認証ユーザー自身が作成したQuizを一括削除."""
+    return await delete_quizzes(param.quiz_ids, user.uid)
 
 
 @_r.post("/{quiz_id}/broken/{retired_sentence_id}/reattach")

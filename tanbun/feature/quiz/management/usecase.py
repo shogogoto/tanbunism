@@ -4,10 +4,14 @@ from tanbun.feature.domain.types import UUIDy
 from tanbun.feature.entry.resource.repo.retirement import (
     purge_orphaned_retired_sentences,
 )
-from tanbun.feature.quiz.management.domain import QuizReattachmentResult
+from tanbun.feature.quiz.management.domain import (
+    DeleteQuizzesResult,
+    QuizReattachmentResult,
+)
 from tanbun.feature.quiz.management.errors import QuizNotFoundError
 from tanbun.feature.quiz.management.repo import (
     delete_created_quiz,
+    delete_created_quizzes,
     reattach_created_quiz_sentence,
 )
 
@@ -21,6 +25,24 @@ async def delete_quiz(
         msg = f"削除できるQuizが見つかりません: {quiz_id}"
         raise QuizNotFoundError(msg=msg)
     await purge_orphaned_retired_sentences()
+
+
+async def delete_quizzes(
+    quiz_ids: list[UUIDy],
+    user_id: UUIDy,
+) -> DeleteQuizzesResult:
+    """作成者本人のQuizだけを一括削除し、対象外は読み飛ばす."""
+    unique_ids = list(dict.fromkeys(quiz_ids))
+    deleted_count, deleted_answer_count = await delete_created_quizzes(
+        unique_ids,
+        user_id,
+    )
+    await purge_orphaned_retired_sentences()
+    return DeleteQuizzesResult(
+        deleted_count=deleted_count,
+        deleted_answer_count=deleted_answer_count,
+        skipped_count=len(unique_ids) - deleted_count,
+    )
 
 
 async def repair_quiz_reference(

@@ -44,6 +44,14 @@ class ManagedQuizResult(BaseModel, frozen=True):
     total: int
 
 
+class DeleteQuizzesResult(BaseModel, frozen=True):
+    """作成済みQuizの一括削除結果."""
+
+    deleted_count: int
+    deleted_answer_count: int
+    skipped_count: int
+
+
 class BrokenQuizReference(BaseModel, frozen=True):
     """作成Quizから退役単文へ残された、修復可能な参照."""
 

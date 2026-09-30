@@ -215,3 +215,32 @@ async def delete_created_quiz(
         },
     )
     return bool(rows)
+
+
+async def delete_created_quizzes(
+    quiz_ids: list[UUIDy],
+    user_id: UUIDy,
+) -> tuple[int, int]:
+    """作成者本人のQuiz群と、それらに対するAnswerを一括削除."""
+    unique_ids = list(dict.fromkeys(to_uuid(quiz_id).hex for quiz_id in quiz_ids))
+    q = """
+        UNWIND $quiz_ids AS quiz_id
+        OPTIONAL MATCH (:User {uid: $user_id})-[:CREATE]->(quiz:Quiz {uid: quiz_id})
+        CALL (quiz) {
+            OPTIONAL MATCH (answer:Answer)-[:ANSWER_OF]->(quiz)
+            RETURN [item IN collect(DISTINCT answer) WHERE item IS NOT NULL]
+                AS answers
+        }
+        WITH quiz, answers
+        WHERE quiz IS NOT NULL
+        WITH collect(DISTINCT quiz) AS quizzes,
+            reduce(all = [], items IN collect(answers) | all + items) AS answers
+        FOREACH (answer IN answers | DETACH DELETE answer)
+        FOREACH (quiz IN quizzes | DETACH DELETE quiz)
+        RETURN size(quizzes), size(answers)
+    """
+    rows, _ = await adb.cypher_query(
+        q,
+        params={"quiz_ids": unique_ids, "user_id": to_uuid(user_id).hex},
+    )
+    return (rows[0][0], rows[0][1]) if rows else (0, 0)

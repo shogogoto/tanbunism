@@ -59,6 +59,12 @@ class RepairQuizReferenceParam(BaseModel, frozen=True):
     replacement_sentence_id: str
 
 
+class DeleteQuizzesParam(BaseModel, frozen=True):
+    """作成済みQuizの一括削除対象."""
+
+    quiz_ids: list[str] = Field(min_length=1, max_length=100)
+
+
 class AnswerFeedback(BaseModel, frozen=True):
     """回答フィードバック."""
 
