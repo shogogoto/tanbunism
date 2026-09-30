@@ -44,5 +44,6 @@ def meta_parse(text: str, mark: str) -> list[str]:
     for line in text.splitlines():
         stripped = line.strip()
         if stripped.startswith(mark):
-            metas.append(stripped[len(mark) :].strip())
+            value = stripped[len(mark) :].strip()
+            metas.append(value.removeprefix(":").strip())
     return metas

@@ -51,3 +51,9 @@ def test_author_parse():
             """,
         "@author",
     ) == unordered(["John Due", "Jane Due"])
+
+
+def test_meta_parse_accepts_legacy_colon_separator():
+    """Legacy metadata with a colon is parsed consistently with tree parsing."""
+    assert meta_parse("@published: 2016-7-10", "@published") == ["2016-7-10"]
+    assert meta_parse("@author: John Due", "@author") == ["John Due"]

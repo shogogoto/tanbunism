@@ -79,6 +79,7 @@ async def test_fetch_user_by_score(us: list[LUser]):
     res = await fetch_user_with_current_achivement("", keys=["n_sentence"])
     assert [r.user.username for r in res.data] == ["three", "two", "one", "zero"]
     assert [r.archivement.n_resource for r in res.data] == [3, 2, 1, 0]
+    assert all(row.level >= 1 for row in res.data)
 
 
 @mark_async_test()

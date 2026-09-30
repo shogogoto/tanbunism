@@ -3,9 +3,9 @@
 
 h1: H1 _NL [_INDENT [source_about _NL]* block* _DEDENT] (h2)*
 ?source_about: AUTHOR | PUBLISHED | URL
-AUTHOR.1: "@author " ANY       //著者
-PUBLISHED.1: "@published " ANY // 第一出版日
-URL.1: "@url " ANY
+AUTHOR.1: /@author:? / ANY       //著者
+PUBLISHED.1: /@published:? / ANY // 第一出版日
+URL.1: /@url:? / ANY
 
 h2: H2 _NL [_INDENT block* _DEDENT] (h3)*
 h3: H3 _NL [_INDENT block* _DEDENT] (h4)*

@@ -27,6 +27,12 @@ def _stoken(tok: Token, erase: str | None = None) -> Token:
     return Token(type=tok.type, value=v.strip())
 
 
+def _meta_token(tok: Token, marker: str) -> Token:
+    """Strip a metadata marker and its optional legacy colon separator."""
+    value = str(tok).removeprefix(marker).strip().removeprefix(":").strip()
+    return Token(type=tok.type, value=value)
+
+
 class TSysArg(Transformer):
     """to SysArg transformer."""
 
@@ -48,9 +54,9 @@ class TSysArg(Transformer):
     TIME = lambda _, _tok: WhenNode.of(n=_stoken(_tok))  # noqa: E731
 
     # Resources
-    AUTHOR = lambda _, _tok: _stoken(_tok, "@author")  # noqa: E731
-    PUBLISHED = lambda _, _tok: _stoken(_tok, "@published")  # noqa: E731
-    URL = lambda _, _tok: _stoken(_tok, "@url")  # noqa: E731
+    AUTHOR = lambda _, _tok: _meta_token(_tok, "@author")  # noqa: E731
+    PUBLISHED = lambda _, _tok: _meta_token(_tok, "@published")  # noqa: E731
+    URL = lambda _, _tok: _meta_token(_tok, "@url")  # noqa: E731
 
     @staticmethod
     def ONELINE(tok: Token) -> KNArg:  # noqa: N802 D102

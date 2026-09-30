@@ -55,3 +55,23 @@ def test_regression2() -> None:
         D: bbbaaaaa
     """
     _sn = parse2net(s)
+
+
+def test_resource_metadata_accepts_legacy_colon_separator() -> None:
+    """Legacy colon-separated metadata remains importable."""
+    source = """
+    # title
+        @author: John Due
+        @published: 2016-7-10
+        @url: https://example.com/book
+    ## section
+        sentence
+    """
+
+    network = parse2net(source)
+
+    assert {node.type: str(node) for node in network.meta} == {
+        "AUTHOR": "John Due",
+        "PUBLISHED": "2016-7-10",
+        "URL": "https://example.com/book",
+    }

@@ -7,6 +7,8 @@ from neomodel.async_.core import AsyncDatabase
 
 from tanbun.feature.domain.datetime import TZ
 from tanbun.feature.domain.types import UUIDy, to_uuid
+from tanbun.feature.gamification.domain import calculate_learning_progress
+from tanbun.feature.learning_activity.domain import LearningActivityCounts
 from tanbun.feature.repo.cypher import Paging
 from tanbun.feature.user.public_schema import UserReadPublic
 
@@ -70,6 +72,12 @@ async def fetch_user_with_current_achivement(  # noqa: PLR0914
     if not rows:
         return UserSearchResult(total=0, data=[])
     total, page = rows[0]
+    quiz_counts = await _fetch_quiz_counts(
+        [
+            str(UserReadPublic.model_validate(row["u"]).id).replace("-", "")
+            for row in page
+        ],
+    )
     now = datetime.now(tz=TZ)
     for row in page:
         u, n_char, n_sentence, n_resource = (
@@ -85,11 +93,57 @@ async def fetch_user_with_current_achivement(  # noqa: PLR0914
             n_resource=n_resource,
             created=now,
         )
-        data.append(UserSearchRow(user=user, archivement=archivement))
+        n_quiz_created, n_quiz_answered, n_quiz_correct = quiz_counts.get(
+            str(user.id).replace("-", ""),
+            (0, 0, 0),
+        )
+        progress = calculate_learning_progress(
+            LearningActivityCounts(
+                n_sentence=n_sentence,
+                n_quiz_created=n_quiz_created,
+                n_quiz_answered=n_quiz_answered,
+                n_quiz_correct=n_quiz_correct,
+            ),
+        )
+        data.append(
+            UserSearchRow(
+                user=user,
+                archivement=archivement,
+                level=progress.level,
+            ),
+        )
     return UserSearchResult(
         total=total,
         data=data,
     )
+
+
+async def _fetch_quiz_counts(
+    user_ids: list[str],
+) -> dict[str, tuple[int, int, int]]:
+    """検索ページのQuiz活動量を1クエリで取得する."""
+    if not user_ids:
+        return {}
+    rows, _ = await AsyncDatabase().cypher_query(
+        """
+        UNWIND $user_ids AS user_id
+        MATCH (user:User {uid: user_id})
+        OPTIONAL MATCH (user)-[:CREATE]->(quiz:Quiz)
+        WITH user, count(quiz) AS n_quiz_created
+        OPTIONAL MATCH (user)-[:ANSWER]->(answer:Answer)
+        RETURN user.uid, n_quiz_created, count(answer),
+            count(CASE WHEN answer.is_correct THEN 1 END)
+        """,
+        params={"user_ids": user_ids},
+    )
+    return {
+        str(user_id).replace("-", ""): (
+            n_quiz_created,
+            n_quiz_answered,
+            n_quiz_correct,
+        )
+        for user_id, n_quiz_created, n_quiz_answered, n_quiz_correct in rows
+    }
 
 
 def week_start(now: datetime) -> str:

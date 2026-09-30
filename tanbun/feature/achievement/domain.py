@@ -47,6 +47,7 @@ class UserSearchRow(BaseModel, frozen=True):
 
     user: UserReadPublic
     archivement: UserAchievement
+    level: int
 
 
 class UserSearchResult(BaseModel, frozen=True):
