@@ -94,6 +94,13 @@ def test_quiz_sent2term(sn: SysNet):
     )
     q = src.to_readable()
     assert q.statement == "文'aaa'に合う用語はどれ?"
+    assert q.quiz_type is QuizType.SENT2TERM
+    assert q.prompt.model_dump() == {
+        "subject": "aaa",
+        "object": None,
+        "relations": [],
+        "answer_kind": "term",
+    }
     assert set(q.options.values()) == {"A", "B", "C", "D"}
     assert q.is_correct(["1"])
     assert not q.is_correct(["1", "4"])
@@ -116,6 +123,8 @@ def test_quiz_term2sent(sn: SysNet):
     q = src.to_readable()
     assert set(q.options.values()) == {"aaa", "bbb", "ccc", "ddd"}
     assert q.statement == "用語'A'に合う文はどれ?"
+    assert q.prompt.subject == "A"
+    assert q.prompt.answer_kind == "sentence"
     assert q.is_correct(["1"])
     assert not q.is_correct(["1", "4"])
     assert not q.is_correct(["2"])
@@ -157,6 +166,12 @@ def test_quiz_rel2sent_lv1(sn: SysNet):
     # 詳細はどれか
     q = src.to_readable()
     assert q.statement == "'ccc'-[BELOW]-><?>\n<?>に入る文はどれ?"
+    assert q.prompt.model_dump() == {
+        "subject": "ccc",
+        "object": None,
+        "relations": [{"name": "BELOW", "is_forward": True}],
+        "answer_kind": "sentence",
+    }
     assert q.is_correct(["2"])
     assert not q.is_correct(["3"])
 
@@ -189,6 +204,12 @@ def test_quiz_pair2rel_shows_graph_direction(sn: SysNet):
 
     conclusion = source.to_readable()
     assert conclusion.statement == "'ccc'-[]->'to'\n[]に入る関係はどれ?"
+    assert conclusion.prompt.model_dump() == {
+        "subject": "ccc",
+        "object": "to",
+        "relations": [{"name": None, "is_forward": True}],
+        "answer_kind": "relation",
+    }
 
     premise = source.model_copy(update={"correct_ids": ["3"]}).to_readable()
     assert premise.statement == "'cccb'-[]->'ccc'\n[]に入る関係はどれ?"

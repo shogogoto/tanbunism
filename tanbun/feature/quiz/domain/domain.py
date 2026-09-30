@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from random import Random
 from textwrap import indent
-from typing import Self
+from typing import Literal, Self
 from uuid import UUID
 
 from more_itertools import duplicates_everseen
@@ -22,11 +22,29 @@ from tanbun.feature.quiz.errors import (
 from .parts import QuizOption, QuizType
 
 
+class QuizPromptRelation(BaseModel, frozen=True):
+    """問題の対象から見た1辺の向きと、表示可能な関係名."""
+
+    name: str | None
+    is_forward: bool
+
+
+class QuizPrompt(BaseModel, frozen=True):
+    """UIが問題文を組み立てるための表示非依存データ."""
+
+    subject: str
+    object: str | None = None
+    relations: list[QuizPromptRelation] = Field(default_factory=list)
+    answer_kind: Literal["term", "sentence", "relation"]
+
+
 class ReadableQuiz(BaseModel, frozen=True):
     """「読める状態」の問題文と選択肢を備えたクイズ."""
 
     # 既に読める状態の問題文や選択肢
     quiz_id: UUID
+    quiz_type: QuizType
+    prompt: QuizPrompt
     statement: str = Field(title="問題文")
     options: dict[str, str] = Field(title="選択肢")
     correct: list[str] = Field(title="正解")
@@ -35,7 +53,7 @@ class ReadableQuiz(BaseModel, frozen=True):
 
     @property
     def type(self) -> QuizType:  # noqa: D102
-        return QuizType.from_statemet(self.statement)
+        return self.quiz_type
 
     @property
     def distractors(self) -> list[str]:
@@ -119,11 +137,42 @@ class QuizSource(BaseModel, frozen=True):
         correct_opts = [self.sources[c] for c in self.correct_ids]
         return ReadableQuiz(
             quiz_id=self.quiz_id,
+            quiz_type=self.quiz_type,
+            prompt=self._prompt(correct_opts),
             statement=self.quiz_type.statement(self.target, correct_opts),
             options=self.readable_options(),
             correct=self.correct_ids,
             created=self.created,
             no_correct_option=self.no_correct_option,
+        )
+
+    def _prompt(self, corrects: list[QuizOption]) -> QuizPrompt:
+        """表示層が文章を解析せずに描画できる構造化問題文を作る."""
+        if self.quiz_type.has_term:
+            answer_kind: Literal["term", "sentence", "relation"] = (
+                "term" if self.quiz_type is QuizType.SENT2TERM else "sentence"
+            )
+            return QuizPrompt(
+                subject=self.quiz_type.opt_question(self.target),
+                answer_kind=answer_kind,
+            )
+
+        correct = corrects[0]
+        if correct.rels is None:
+            msg = "relation quiz requires a relation"
+            raise ValueError(msg)
+        conceal_relations = self.quiz_type is QuizType.PAIR2REL
+        return QuizPrompt(
+            subject=self.target.sentence,
+            object=correct.sentence if conceal_relations else None,
+            relations=[
+                QuizPromptRelation(
+                    name=None if conceal_relations else edge.name,
+                    is_forward=is_forward,
+                )
+                for edge, is_forward in (relation.edge for relation in correct.rels)
+            ],
+            answer_kind="relation" if conceal_relations else "sentence",
         )
 
     @classmethod
