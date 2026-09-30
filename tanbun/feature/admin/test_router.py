@@ -7,6 +7,7 @@ from neomodel import adb
 from starlette import status
 
 from tanbun.conftest import mark_async_test
+from tanbun.feature.domain.types import to_uuid
 from tanbun.feature.entry.resource.usecase import save_text
 from tanbun.feature.user.testing import aauth_header, aregister
 
@@ -287,6 +288,8 @@ async def test_admin_resets_regular_user_password(ac: AsyncClient) -> None:
 async def test_admin_deletes_regular_user_and_owned_data(ac: AsyncClient) -> None:
     """Resourceの退役規則を通し、通常ユーザーの固有データを削除する."""
     target = await aregister("delete-target@example.com")
+    target_uid = to_uuid(target.uid)
+    target_headers = await aauth_header(target.email)
     _, resource = await save_text(target.uid, "# 削除ユーザー\n  対象単文\n")
     quiz_uid = uuid4().hex
     answer_uid = uuid4().hex
@@ -302,7 +305,7 @@ async def test_admin_deletes_regular_user_and_owned_data(ac: AsyncClient) -> Non
             -[:ANSWER_OF]->(quiz)
         """,
         params={
-            "user_uid": target.uid.hex,
+            "user_uid": target_uid.hex,
             "resource_uid": resource.uid.hex,
             "quiz_uid": quiz_uid,
             "answer_uid": answer_uid,
@@ -311,24 +314,26 @@ async def test_admin_deletes_regular_user_and_owned_data(ac: AsyncClient) -> Non
     headers = await _admin_headers("delete-admin@example.com")
 
     mismatch = await ac.post(
-        f"/admin/users/{target.uid}/delete",
+        f"/admin/users/{target_uid}/delete",
         headers=headers,
         json={"confirmation": "wrong@example.com"},
     )
     assert mismatch.status_code == status.HTTP_409_CONFLICT
     deleted = await ac.post(
-        f"/admin/users/{target.uid}/delete",
+        f"/admin/users/{target_uid}/delete",
         headers=headers,
         json={"confirmation": target.email},
     )
 
     assert deleted.status_code == status.HTTP_200_OK
     assert deleted.json() == {
-        "user_id": str(target.uid),
+        "user_id": str(target_uid),
         "deleted_resource_count": 1,
         "deleted_quiz_count": 1,
         "deleted_answer_count": 1,
     }
+    denied = await ac.get("/user/me", headers=target_headers)
+    assert denied.status_code == status.HTTP_401_UNAUTHORIZED
     rows, _ = await adb.cypher_query(
         """
         OPTIONAL MATCH (user:User {uid: $user_uid})
@@ -338,7 +343,7 @@ async def test_admin_deletes_regular_user_and_owned_data(ac: AsyncClient) -> Non
         RETURN count(user), count(resource), count(quiz), count(answer)
         """,
         params={
-            "user_uid": target.uid.hex,
+            "user_uid": target_uid.hex,
             "resource_uid": resource.uid.hex,
             "quiz_uid": quiz_uid,
             "answer_uid": answer_uid,

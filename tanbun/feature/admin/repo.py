@@ -308,11 +308,13 @@ async def update_user_password_hash(
 
 
 async def delete_user_account(user_uid: UUIDy) -> DeleteUserResult | None:
-    """所有Resourceを安全に処理してからユーザー固有データを削除する."""
+    """先に利用停止し、所有Resourceとユーザー固有データを削除する."""
     uid = to_uuid(user_uid)
     rows, _ = await adb.cypher_query(
         """
         MATCH (user:User {uid: $user_uid})
+        SET user.is_active = false
+        WITH user
         OPTIONAL MATCH (resource:Resource)-[:PARENT|OWNED]->*(user)
         RETURN collect(DISTINCT resource.uid)
         """,
