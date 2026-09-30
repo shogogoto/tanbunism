@@ -160,3 +160,7 @@ cython_debug/
 .docker/
 .testmon*
 /chatgpt-web
+
+# Locally generated VAPID key pair
+/private_key.pem
+/public_key.pem
