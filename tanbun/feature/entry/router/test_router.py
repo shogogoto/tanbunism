@@ -72,6 +72,7 @@ async def test_sync_router(files: tuple[Anchor, list[Path]]) -> None:  # noqa: F
     )
     [f.close() for f in op]
     assert res.is_success
+    assert len(res.json()["resource_ids"]) == len(reqfiles)
 
 
 @mark_async_test()

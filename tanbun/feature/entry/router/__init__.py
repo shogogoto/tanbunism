@@ -124,7 +124,7 @@ async def preview_text_update(
 async def post_files(
     files: list[UploadFile],
     user: ActiveUser,
-) -> None:
+) -> dict[str, list[str]]:
     """ファイルからsysnetを読み取って永続化."""
     validate_file_count(len(files))
 
@@ -145,14 +145,17 @@ async def post_files(
         validate_batch_size(total_size)
         resources.append((file, text))
 
+    resource_ids: list[str] = []
     for file, text in resources:
         ns = await fetch_namespace(user.id)
-        await save_resource_with_detail(
+        resource, _ = await save_resource_with_detail(
             ns,
             text,
             path=file.filename.split("/") if file.filename else None,
             updated=datetime.now(tz=TZ),
         )
+        resource_ids.append(resource.uid.hex)
+    return {"resource_ids": resource_ids}
 
 
 @router.get("/resource/{resource_id}")
