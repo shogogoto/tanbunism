@@ -28,6 +28,7 @@ from tanbun.feature.entry.errors import (
     DuplicatedTitleError,
     EntryAlreadyExistsError,
     FolderDeleteError,
+    ResourceIncompleteError,
     ResourceSaveOptimisticLockError,
     SaveResourceError,
 )
@@ -342,7 +343,18 @@ async def fetch_info_by_resource_uid(resource_uid: UUIDy) -> ResourceInfo:
     """Wrap tool for resource info."""
     uid = to_uuid(resource_uid)
     infos = await resource_infos_by_resource_uids([uid])
-    return infos[uid]
+    if uid in infos:
+        return infos[uid]
+
+    resource = await LResource.nodes.get_or_none(uid=uid.hex)
+    if resource is None:
+        msg = f"resource not found: {uid}"
+        raise NotFoundError(msg)
+
+    # Resourceだけが作られ、本文や統計の保存に失敗した古いデータを
+    # KeyErrorによる500にしない。同じ読書メモの再importで修復できる。
+    msg = "Resourceの取り込みが完了していません。同じ読書メモを再importしてください。"
+    raise ResourceIncompleteError(msg)
 
 
 async def delete_folder(folder_uid: UUIDy):

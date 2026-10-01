@@ -39,6 +39,12 @@ class ResourceSaveOptimisticLockError(DomainError):
     status_code = status.HTTP_409_CONFLICT
 
 
+class ResourceIncompleteError(DomainError):
+    """Resourceの本文グラフが保存途中で欠けている."""
+
+    status_code = status.HTTP_409_CONFLICT
+
+
 class ResourceUploadLimitError(DomainError):
     """同期的に保存できるResourceの負荷上限を超過."""
 

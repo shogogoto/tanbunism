@@ -1,7 +1,10 @@
 """test repo."""
 
+import pytest
+
 from tanbun.conftest import mark_async_test
 from tanbun.feature.entry.domain import ResourceMeta
+from tanbun.feature.entry.errors import ResourceIncompleteError
 from tanbun.feature.entry.namespace import (
     create_resource,
     fetch_info_by_resource_uid,
@@ -60,3 +63,13 @@ async def test_fetch_resource_info_by_resource_uid() -> None:
     assert info.resource_stats is not None
 
     assert await fetch_resource_stats_cache(r.uid)
+
+
+@mark_async_test()
+async def test_incomplete_resource_info_explains_reimport() -> None:
+    """Resourceだけ残ったデータを500ではなく修復可能な競合として返す."""
+    user = await LUser(email="incomplete@gmail.com").save()
+    resource = await create_resource(user.uid, "# incomplete")
+
+    with pytest.raises(ResourceIncompleteError, match="再import"):
+        await fetch_info_by_resource_uid(resource.uid)

@@ -77,6 +77,20 @@ async def test_save_and_restore(sn: SysNet) -> None:
     assert sn.whens == unordered(r.whens)
 
 
+@mark_async_test()
+async def test_save_and_restore_apostrophes(u: LUser) -> None:
+    """英語のアポストロフィを含む用語と単文を実DBへ保存できる."""
+    text = """# quoted values
+  Grimm's law: Sokal's criticism refers to {Grimm's law}
+"""
+
+    original, resource = await save_text(u.uid, text)
+    restored, _uids = await restore_sysnet(resource.uid)
+
+    assert set(original.terms) == set(restored.terms)
+    assert set(original.sentences) == set(restored.sentences)
+
+
 @async_fixture()
 async def u() -> LUser:  # noqa: D103
     return await LUser(email="one@gmail.com").save()

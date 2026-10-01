@@ -5,7 +5,9 @@ cache 有無 / resource 有無 でテスト
 
 from tanbun.conftest import async_fixture, mark_async_test
 from tanbun.feature.entry.namespace import create_resource, fetch_namespace
+from tanbun.feature.entry.resource.repo.restore import restore_sysnet
 from tanbun.feature.entry.resource.usecase import (
+    preview_resource_update,
     save_resource_with_detail,
 )
 from tanbun.feature.user.label import LUser
@@ -45,10 +47,16 @@ async def test_save_resource_with_detail_saved_uncached(u: LUser):
     assert len(ns.g.nodes) == 1
     assert len(ns.stats.values()) == 0
 
-    await save_resource_with_detail(ns, s)
+    preview = await preview_resource_update(ns, s)
+    assert preview.sentences_added == 1
+
+    _resource, _meta, changed = await save_resource_with_detail(ns, s)
     ns = await fetch_namespace(u.uid)
     assert len(ns.g.nodes) == 1
     assert len(ns.stats.values()) == 1
+    assert changed is True
+    restored, _uids = await restore_sysnet(ns.get_resource("# title1").uid)
+    assert set(restored.sentences) == {"aaa"}
 
 
 @mark_async_test()

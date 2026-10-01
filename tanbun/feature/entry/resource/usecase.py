@@ -51,7 +51,12 @@ async def preview_resource_update(
     """DBを変更せず、Resource保存で適用される差分を返す."""
     meta = ResourceMeta.from_str(txt, path)
     existing = ns.get_resource_or_none(meta.title)
-    if existing is not None and existing.txt_hash == meta.txt_hash:
+    cache_missing = existing is not None and existing.uid.hex not in ns.stats
+    if (
+        existing is not None
+        and existing.txt_hash == meta.txt_hash
+        and not cache_missing
+    ):
         return ResourceDiffPreview.unchanged(existing.uid)
     network = try_parse2net(txt)
     if existing is None:
@@ -117,7 +122,7 @@ async def _save_resource_with_detail(
     cache_missing = existing is not None and existing.uid.hex not in ns.stats
     sn = try_parse2net(txt) if content_changed or cache_missing else None
     diff_plan: ResourceDiffPlan | None = None
-    if existing is not None and content_changed and not cache_missing:
+    if existing is not None and (content_changed or cache_missing):
         if sn is None:
             sn = try_parse2net(txt)
         diff_plan = await prepare_resource_diff(
@@ -150,10 +155,19 @@ async def _save_resource_with_detail(
 
     dbmeta = MResource.freeze_dict(lb.__properties__)
     cache = await r.cached_stats.get_or_none()
-    if cache is None:  # 新規作成
+    if cache is None:  # 新規作成、または過去に本文保存が中断したResourceの修復
         if sn is None:
             sn = try_parse2net(txt)
-        await sn2db(sn, lb.uid, do_print)
+        if existing is None:
+            await sn2db(sn, lb.uid, do_print)
+        else:
+            await update_resource_diff(
+                lb.uid,
+                sn,
+                identity_resolutions=identity_resolutions,
+                term_identity_resolutions=term_identity_resolutions,
+                plan=diff_plan,
+            )
         await save_resource_stats_cache(dbmeta.uid, sn)
     if cache is not None and content_changed:  # 差分更新
         if sn is None:
@@ -167,7 +181,7 @@ async def _save_resource_with_detail(
         )
         await save_resource_stats_cache(dbmeta.uid, sn)
 
-    return dbmeta, meta, not resource_unchanged
+    return dbmeta, meta, not resource_unchanged or cache_missing
 
 
 async def save_text(
