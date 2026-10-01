@@ -59,7 +59,7 @@ async def retire_referenced_sentences(resource_uid: UUIDy) -> None:
             MATCH (:Answer)-[:SELECT]->(sentence)
         }}
         OPTIONAL MATCH (quiz:Quiz)-[:{QUIZ_SENTENCE_RELS}]->(sentence)
-        WITH sentence,
+        WITH resource, sentence,
             [item IN collect(DISTINCT quiz) WHERE item IS NOT NULL] AS quizzes
         FOREACH (quiz IN quizzes |
             MERGE (quiz)-[:BROKEN_BY]->(sentence)
