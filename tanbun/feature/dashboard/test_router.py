@@ -128,3 +128,16 @@ async def test_personal_tanbun_timeline_includes_rediscovery_slot(
     assert len(items) == request_limit
     assert items[0].updated_at >= items[1].updated_at
     assert items[2].updated_at <= items[1].updated_at
+
+    await ac.post(
+        f"/dashboard/tanbuns/{items[0].uid}/exposures",
+        headers=headers,
+    )
+    refreshed = await ac.get(
+        f"/dashboard/tanbuns?limit={request_limit}",
+        headers=headers,
+    )
+    refreshed_items = [
+        PersonalTanbunItem.model_validate(item) for item in refreshed.json()
+    ]
+    assert refreshed_items[0].uid != items[0].uid

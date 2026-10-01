@@ -26,23 +26,38 @@ async def list_personal_tanbuns(
         limit=recent_limit,
         rediscovery=False,
     )
-    if len(recent) >= limit:
-        return recent
-
     rediscovery = await _fetch_personal_tanbuns(
         user_id,
         seen_on,
         limit=limit,
         rediscovery=True,
     )
-    combined = list(recent)
-    included = {item.uid for item in recent}
-    for item in rediscovery:
-        if item.uid in included:
-            continue
-        combined.append(item)
-        included.add(item.uid)
-        if len(combined) >= limit:
+    combined: list[PersonalTanbunItem] = []
+    included = set()
+    recent_index = 0
+    rediscovery_index = 0
+    while len(combined) < limit:
+        added = False
+        for _ in range(2):
+            while recent_index < len(recent):
+                item = recent[recent_index]
+                recent_index += 1
+                if item.uid in included:
+                    continue
+                combined.append(item)
+                included.add(item.uid)
+                added = True
+                break
+        while rediscovery_index < len(rediscovery) and len(combined) < limit:
+            item = rediscovery[rediscovery_index]
+            rediscovery_index += 1
+            if item.uid in included:
+                continue
+            combined.append(item)
+            included.add(item.uid)
+            added = True
+            break
+        if not added:
             break
     return combined
 
@@ -72,6 +87,7 @@ async def _fetch_personal_tanbuns(
             count(CASE WHEN exposure.seen_on = date($seen_on) THEN 1 END) > 0
                 AS seen_today
         ORDER BY
+            seen_today ASC,
             CASE WHEN $rediscovery THEN exposure_count END ASC,
             CASE WHEN $rediscovery THEN resource.updated END ASC,
             CASE WHEN NOT $rediscovery THEN resource.updated END DESC,
@@ -82,11 +98,18 @@ async def _fetch_personal_tanbuns(
         + """
         WITH resource, sentence, exposure_count, seen_today, location
         WHERE location IS NOT NULL
-        LIMIT $limit
         """
         + term_names_query
         + stats_query
         + """
+        ORDER BY
+            seen_today ASC,
+            CASE WHEN $rediscovery THEN exposure_count END ASC,
+            stats.score DESC,
+            CASE WHEN $rediscovery THEN resource.updated END ASC,
+            CASE WHEN NOT $rediscovery THEN resource.updated END DESC,
+            sentence.uid ASC
+        LIMIT $limit
         RETURN sentence.uid, sentence.val,
             coalesce([name IN names | name.val], []) AS term_names,
             resource.uid, resource.title, resource.updated, stats.score,
