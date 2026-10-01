@@ -221,3 +221,39 @@ async def test_search_skips_legacy_term_quiz_without_term(
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json() == {"total": 0, "data": []}
+
+
+@mark_async_test()
+async def test_report_quiz_issue_and_list_for_creator(ac: AsyncClient, u: LUser):
+    """他ユーザーの報告を作成者が確認し、再報告では重複しない."""
+    target = await LSentence.nodes.first(val="ccc")
+    created = await generate_quiz(
+        QuizType.TERM2SENT,
+        CandidateType.ALL,
+        target.uid,
+        3,
+        u.uid,
+    )
+    reporter = await aregister(email="quiz-reporter@ex.com")
+    reporter_headers = await aauth_header(email=reporter.email)
+    creator_headers = await aauth_header(email=u.email)
+
+    first = await ac.post(
+        f"/quiz/{created.quiz_id}/reports",
+        headers=reporter_headers,
+        json={"reason": "undefined", "detail": "undefinedが含まれる"},
+    )
+    second = await ac.post(
+        f"/quiz/{created.quiz_id}/reports",
+        headers=reporter_headers,
+        json={"reason": "incorrect", "detail": "正解がおかしい"},
+    )
+    reports = await ac.get("/quiz/created/reports", headers=creator_headers)
+
+    assert first.status_code == status.HTTP_204_NO_CONTENT
+    assert second.status_code == status.HTTP_204_NO_CONTENT
+    assert reports.status_code == status.HTTP_200_OK
+    assert reports.json()[0]["quiz_id"].replace("-", "") == created.quiz_id.hex
+    assert reports.json()[0]["reason"] == "incorrect"
+    assert reports.json()[0]["detail"] == "正解がおかしい"
+    assert reports.json()[0]["report_count"] == 1

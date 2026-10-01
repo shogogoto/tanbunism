@@ -8,9 +8,84 @@ from tanbun.feature.quiz.domain.parts import QuizType
 from tanbun.feature.quiz.management.domain import (
     BrokenQuizReference,
     QuizReattachmentResult,
+    QuizReport,
+    QuizReportReason,
     QuizResourceStatus,
     SentenceQuizStatus,
 )
+
+
+async def report_quiz_issue(
+    user_id: UUIDy,
+    quiz_id: UUIDy,
+    reason: QuizReportReason,
+    detail: str | None,
+) -> bool:
+    """同じユーザーから同じQuizへの報告をupsertする."""
+    query = """
+        MATCH (user:User {uid: $user_id})
+        MATCH (quiz:Quiz {uid: $quiz_id})
+        MERGE (user)-[:REPORT]->(report:QuizReport {key: $key})
+            -[:REPORT_OF]->(quiz)
+        ON CREATE SET report.uid = randomUUID(), report.created = datetime()
+        SET report.reason = $reason,
+            report.detail = $detail,
+            report.updated = datetime()
+        RETURN report.uid
+    """
+    rows, _ = await adb.cypher_query(
+        query,
+        params={
+            "user_id": to_uuid(user_id).hex,
+            "quiz_id": to_uuid(quiz_id).hex,
+            "key": f"{to_uuid(user_id).hex}:{to_uuid(quiz_id).hex}",
+            "reason": reason.value,
+            "detail": detail.strip() if detail else None,
+        },
+    )
+    return bool(rows)
+
+
+async def list_reported_created_quizzes(user_id: UUIDy) -> list[QuizReport]:
+    """自分が作成したQuizに届いた不備報告を集約する."""
+    query = """
+        MATCH (:User {uid: $user_id})-[:CREATE]->(quiz:Quiz)
+        MATCH (:User)-[:REPORT]->(report:QuizReport)-[:REPORT_OF]->(quiz)
+        OPTIONAL MATCH (quiz)-[:QUIZ_TARGET]->(target)
+        OPTIONAL MATCH (resource:Resource {uid: target.resource_uid})
+        WITH quiz, target, resource, collect(report) AS reports
+        UNWIND reports AS latest
+        WITH quiz, target, resource, reports, latest
+        ORDER BY latest.updated DESC
+        WITH quiz, target, resource, reports, collect(latest)[0] AS latest
+        RETURN quiz.uid, latest.reason, latest.detail, size(reports),
+            target.resource_uid, resource.title, latest.updated
+        ORDER BY latest.updated DESC, quiz.uid
+    """
+    rows, _ = await adb.cypher_query(
+        query,
+        params={"user_id": to_uuid(user_id).hex},
+    )
+    return [
+        QuizReport(
+            quiz_id=quiz_id,
+            reason=QuizReportReason(reason),
+            detail=detail,
+            report_count=report_count,
+            resource_id=resource_id,
+            resource_name=resource_name,
+            updated_at=updated_at,
+        )
+        for (
+            quiz_id,
+            reason,
+            detail,
+            report_count,
+            resource_id,
+            resource_name,
+            updated_at,
+        ) in rows
+    ]
 
 
 async def list_broken_created_quiz_references(
@@ -206,8 +281,12 @@ async def delete_created_quiz(
     q = """
         MATCH (:User {uid: $user_id})-[:CREATE]->(quiz: Quiz {uid: $quiz_id})
         OPTIONAL MATCH (answer: Answer)-[:ANSWER_OF]->(quiz)
-        WITH quiz, [answer IN COLLECT(answer) WHERE answer IS NOT NULL] AS answers
+        OPTIONAL MATCH (report:QuizReport)-[:REPORT_OF]->(quiz)
+        WITH quiz,
+            [answer IN COLLECT(DISTINCT answer) WHERE answer IS NOT NULL] AS answers,
+            [report IN COLLECT(DISTINCT report) WHERE report IS NOT NULL] AS reports
         FOREACH (answer IN answers | DETACH DELETE answer)
+        FOREACH (report IN reports | DETACH DELETE report)
         DETACH DELETE quiz
         RETURN 1 AS deleted
     """
@@ -235,11 +314,18 @@ async def delete_created_quizzes(
             RETURN [item IN collect(DISTINCT answer) WHERE item IS NOT NULL]
                 AS answers
         }
-        WITH quiz, answers
+        CALL (quiz) {
+            OPTIONAL MATCH (report:QuizReport)-[:REPORT_OF]->(quiz)
+            RETURN [item IN collect(DISTINCT report) WHERE item IS NOT NULL]
+                AS reports
+        }
+        WITH quiz, answers, reports
         WHERE quiz IS NOT NULL
         WITH collect(DISTINCT quiz) AS quizzes,
-            reduce(all = [], items IN collect(answers) | all + items) AS answers
+            reduce(all = [], items IN collect(answers) | all + items) AS answers,
+            reduce(all = [], items IN collect(reports) | all + items) AS reports
         FOREACH (answer IN answers | DETACH DELETE answer)
+        FOREACH (report IN reports | DETACH DELETE report)
         FOREACH (quiz IN quizzes | DETACH DELETE quiz)
         RETURN size(quizzes), size(answers)
     """

@@ -1,5 +1,6 @@
 """Quiz管理domain."""
 
+from enum import StrEnum
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -72,3 +73,30 @@ class QuizReattachmentResult(BaseModel, frozen=True):
     quiz_options: int
     quiz_corrects: int
     retained: bool
+
+
+class QuizReportReason(StrEnum):
+    """Quizの不備分類."""
+
+    UNDEFINED = "undefined"
+    INCORRECT = "incorrect"
+    OTHER = "other"
+
+
+class QuizReportRequest(BaseModel, frozen=True):
+    """Quiz不備の報告内容."""
+
+    reason: QuizReportReason
+    detail: str | None = Field(default=None, max_length=500)
+
+
+class QuizReport(BaseModel, frozen=True):
+    """作成者が確認するQuiz不備報告."""
+
+    quiz_id: UUID
+    reason: QuizReportReason
+    detail: str | None
+    report_count: int
+    resource_id: UUID | None
+    resource_name: str | None
+    updated_at: Neo4jDateTime

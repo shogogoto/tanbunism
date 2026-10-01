@@ -31,6 +31,8 @@ from tanbun.feature.quiz.management.domain import (
     DeleteQuizzesResult,
     ManagedQuizResult,
     QuizReattachmentResult,
+    QuizReport,
+    QuizReportRequest,
     QuizResourceStatus,
     SentenceQuizStatus,
 )
@@ -38,6 +40,8 @@ from tanbun.feature.quiz.management.repo import (
     list_broken_created_quiz_references,
     list_created_quiz_resource_statuses,
     list_created_quiz_sentence_statuses,
+    list_reported_created_quizzes,
+    report_quiz_issue,
 )
 from tanbun.feature.quiz.management.usecase import (
     delete_quiz,
@@ -161,6 +165,12 @@ async def list_broken_created_quizzes(
     return await list_broken_created_quiz_references(user.uid)
 
 
+@_r.get("/created/reports")
+async def list_created_quiz_reports(user: ActiveUser) -> list[QuizReport]:
+    """自分が作成したQuizへ届いた不備報告を取得."""
+    return await list_reported_created_quizzes(user.uid)
+
+
 @_r.post("/created/delete")
 async def delete_created_quizzes_api(
     param: DeleteQuizzesParam,
@@ -184,6 +194,23 @@ async def repair_quiz_reference_api(
         param.replacement_sentence_id,
         user.uid,
     )
+
+
+@_r.post("/{quiz_id}/reports", status_code=status.HTTP_204_NO_CONTENT)
+async def report_quiz_issue_api(
+    quiz_id: UUID,
+    param: QuizReportRequest,
+    user: ActiveUser,
+) -> Response:
+    """自他を問わず、表示できたQuizの不備を報告する."""
+    if not await report_quiz_issue(
+        user.uid,
+        quiz_id,
+        param.reason,
+        param.detail,
+    ):
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @_r.delete("/{quiz_id}", status_code=status.HTTP_204_NO_CONTENT)
