@@ -60,6 +60,13 @@ class QuizOption(BaseModel, frozen=True):
         return str(self.val)
 
     @property
+    def terms(self) -> list[str]:
+        """単文に定義された表示用の用語名."""
+        if isinstance(self.val, Def):
+            return list(self.val.term.names)
+        return []
+
+    @property
     def def_(self) -> Def:
         """クイズ対象."""
         tgt = self.val

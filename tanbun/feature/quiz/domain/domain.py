@@ -33,7 +33,9 @@ class QuizPrompt(BaseModel, frozen=True):
     """UIが問題文を組み立てるための表示非依存データ."""
 
     subject: str
+    subject_terms: list[str] = Field(default_factory=list)
     object: str | None = None
+    object_terms: list[str] = Field(default_factory=list)
     relations: list[QuizPromptRelation] = Field(default_factory=list)
     answer_kind: Literal["term", "sentence", "relation"]
 
@@ -164,7 +166,9 @@ class QuizSource(BaseModel, frozen=True):
         conceal_relations = self.quiz_type is QuizType.PAIR2REL
         return QuizPrompt(
             subject=self.target.sentence,
+            subject_terms=self.target.terms,
             object=correct.sentence if conceal_relations else None,
+            object_terms=correct.terms if conceal_relations else [],
             relations=[
                 QuizPromptRelation(
                     name=None if conceal_relations else edge.name,

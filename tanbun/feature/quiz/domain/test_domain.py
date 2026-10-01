@@ -97,7 +97,9 @@ def test_quiz_sent2term(sn: SysNet):
     assert q.quiz_type is QuizType.SENT2TERM
     assert q.prompt.model_dump() == {
         "subject": "aaa",
+        "subject_terms": [],
         "object": None,
+        "object_terms": [],
         "relations": [],
         "answer_kind": "term",
     }
@@ -168,7 +170,9 @@ def test_quiz_rel2sent_lv1(sn: SysNet):
     assert q.statement == "'ccc'-[BELOW]-><?>\n<?>に入る文はどれ?"
     assert q.prompt.model_dump() == {
         "subject": "ccc",
+        "subject_terms": ["C"],
         "object": None,
+        "object_terms": [],
         "relations": [{"name": "BELOW", "is_forward": True}],
         "answer_kind": "sentence",
     }
@@ -206,7 +210,9 @@ def test_quiz_pair2rel_shows_graph_direction(sn: SysNet):
     assert conclusion.statement == "'ccc'-[]->'to'\n[]に入る関係はどれ?"
     assert conclusion.prompt.model_dump() == {
         "subject": "ccc",
+        "subject_terms": ["C"],
         "object": "to",
+        "object_terms": ["TO"],
         "relations": [{"name": None, "is_forward": True}],
         "answer_kind": "relation",
     }
