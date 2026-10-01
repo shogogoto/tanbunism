@@ -30,7 +30,9 @@ from tanbun.feature.entry.errors import (
     FolderDeleteError,
     ResourceIncompleteError,
     ResourceSaveOptimisticLockError,
-    SaveResourceError,
+)
+from tanbun.feature.entry.errors import (
+    SaveResourceError as SaveResourceError,
 )
 from tanbun.feature.entry.label import LFolder, LResource, LResourceStatsCache
 from tanbun.feature.entry.mapper import MFolder, MResource
@@ -126,6 +128,16 @@ async def _save_unique_resource(
         raise ResourceSaveOptimisticLockError(msg) from error
 
 
+async def fetch_resource_by_key(
+    user_id: UUIDy,
+    title: str,
+) -> MResource | None:
+    """名前空間から切れたResourceもユーザー固有キーで取得する."""
+    key = f"{to_uuid(user_id).hex}:{title}"
+    resource = await LResource.nodes.get_or_none(resource_key=key)
+    return resource.frozen if resource is not None else None
+
+
 async def save_resource(m: ResourceMeta, ns: NameSpace) -> LResource | None:
     """新規作成 or 更新して返す."""
     path = ns.get_path(*m.names)
@@ -165,10 +177,12 @@ async def save_or_move_resource(
     """移動を反映してsave."""
     # NSに重複したタイトルがあると困る
 
-    old = ns.get_resource_or_none(m.title)
+    old_in_namespace = ns.get_resource_or_none(m.title)
+    old = old_in_namespace or await fetch_resource_by_key(ns.user_id, m.title)
     if old is None:  # 新規
         return await save_resource(m, ns)
-    ns.remove_resource(m.title)
+    if old_in_namespace is not None:
+        ns.remove_resource(m.title)
 
     d = old.model_dump()
     d.update(m.model_dump())
@@ -176,14 +190,10 @@ async def save_or_move_resource(
     upd = await _save_unique_resource(LResource(**d), ns, m.title)  # reflesh
     owner = await upd.owner.get_or_none()
     parent = await upd.parent.get_or_none()
-    if owner is None and parent is None:
-        msg = "所有者も親もなかったなんてあり得ないからね"
-        raise SaveResourceError(msg)
-
     # 既存の繋がりを切る
-    if parent is None:  # owner直下
+    if parent is None and owner is not None:  # owner直下
         await upd.owner.disconnect(owner)
-    else:
+    elif parent is not None:
         await upd.parent.disconnect(parent)
 
     new_parent = await fill_parents(ns, *m.names[:-1])

@@ -4,6 +4,9 @@ cache 有無 / resource 有無 でテスト
 """
 
 from tanbun.conftest import async_fixture, mark_async_test
+from tanbun.feature.domain.types import to_uuid
+from tanbun.feature.entry.domain import ResourceMeta
+from tanbun.feature.entry.label import LResource
 from tanbun.feature.entry.namespace import create_resource, fetch_namespace
 from tanbun.feature.entry.resource.repo.restore import restore_sysnet
 from tanbun.feature.entry.resource.usecase import (
@@ -57,6 +60,39 @@ async def test_save_resource_with_detail_saved_uncached(u: LUser):
     assert changed is True
     restored, _uids = await restore_sysnet(ns.get_resource("# title1").uid)
     assert set(restored.sentences) == {"aaa"}
+
+
+@mark_async_test()
+async def test_import_recovers_resource_detached_from_namespace(u: LUser) -> None:
+    """一意キーだけ残ったResourceを再利用して名前空間へ接続し直す."""
+    text = """# アジャイルサムライ
+  iterative delivery
+"""
+    meta = ResourceMeta.from_str(text, ["it", "1アジャイルサムライ.kn"])
+    orphan = await LResource(
+        **meta.model_dump(),
+        resource_key=f"{to_uuid(u.uid).hex}:{meta.title}",
+    ).save()
+    ns = await fetch_namespace(u.uid)
+    assert ns.get_resource_or_none(meta.title) is None
+
+    preview = await preview_resource_update(
+        ns,
+        text,
+        ["it", "1アジャイルサムライ.kn"],
+    )
+    assert preview.sentences_added == 1
+
+    resource, _meta, _changed = await save_resource_with_detail(
+        ns,
+        text,
+        ["it", "1アジャイルサムライ.kn"],
+    )
+
+    repaired = await fetch_namespace(u.uid)
+    assert resource.uid.hex == orphan.uid
+    assert repaired.get_resource(meta.title).uid == resource.uid
+    assert repaired.stats[resource.uid.hex].n_sentence == 1
 
 
 @mark_async_test()

@@ -13,6 +13,7 @@ from tanbun.feature.entry.label import LResource
 from tanbun.feature.entry.mapper import MResource
 from tanbun.feature.entry.namespace import (
     fetch_namespace,
+    fetch_resource_by_key,
     fetch_resources_by_user,
     save_or_move_resource,
 )
@@ -50,7 +51,10 @@ async def preview_resource_update(
 ) -> ResourceDiffPreview:
     """DBを変更せず、Resource保存で適用される差分を返す."""
     meta = ResourceMeta.from_str(txt, path)
-    existing = ns.get_resource_or_none(meta.title)
+    existing = ns.get_resource_or_none(meta.title) or await fetch_resource_by_key(
+        ns.user_id,
+        meta.title,
+    )
     cache_missing = existing is not None and existing.uid.hex not in ns.stats
     if (
         existing is not None
@@ -117,7 +121,10 @@ async def _save_resource_with_detail(
     term_identity_resolutions: dict[str, str | None] | None,
 ) -> tuple[MResource, ResourceMeta, bool]:
     """競合確認後にResourceを永続化する."""
-    existing = ns.get_resource_or_none(meta.title)
+    existing = ns.get_resource_or_none(meta.title) or await fetch_resource_by_key(
+        ns.user_id,
+        meta.title,
+    )
     content_changed = existing is None or existing.txt_hash != meta.txt_hash
     cache_missing = existing is not None and existing.uid.hex not in ns.stats
     sn = try_parse2net(txt) if content_changed or cache_missing else None
