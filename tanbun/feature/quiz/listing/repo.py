@@ -101,6 +101,15 @@ async def search_created_quizzes(
         WHERE NOT EXISTS {{
             MATCH (quiz)-[:BROKEN_BY]->()
         }}
+          AND (
+            NOT quiz.quiz_type IN ['TERM2SENT', 'SENT2TERM']
+            OR EXISTS {{ MATCH (:Term)-[:DEF]->(target) }}
+          )
+          AND NOT EXISTS {{
+            MATCH (quiz)-[:QUIZ_OPTION]->(invalid_option:Sentence)
+            WHERE quiz.quiz_type IN ['TERM2SENT', 'SENT2TERM']
+              AND NOT EXISTS {{ MATCH (:Term)-[:DEF]->(invalid_option) }}
+          }}
           AND ($resource_id IS NULL OR target.resource_uid = $resource_id)
           AND ($sentence_id IS NULL OR target.uid = $sentence_id)
           AND ($quiz_types IS NULL OR quiz.quiz_type IN $quiz_types)

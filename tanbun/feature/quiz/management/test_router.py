@@ -2,6 +2,7 @@
 
 from fastapi import status
 from httpx import AsyncClient
+from neomodel import adb
 
 from tanbun.conftest import async_fixture, mark_async_test
 from tanbun.feature.domain.types import to_uuid
@@ -186,3 +187,37 @@ async def test_bulk_delete_only_own_created_quizzes(ac: AsyncClient, u: LUser):
         headers=await aauth_header(email=other.email),
     )
     assert other_response.json()["total"] == 1
+
+
+@mark_async_test()
+async def test_search_skips_legacy_term_quiz_without_term(
+    ac: AsyncClient,
+    u: LUser,
+):
+    """用語を失った旧Quizがあっても管理一覧全体を壊さない."""
+    target = await LSentence.nodes.first(val="parent")
+    await adb.cypher_query(
+        """
+        MATCH (user:User {uid: $user_id})
+        MATCH (target:Sentence {uid: $target_id})
+        CREATE (user)-[:CREATE]->(quiz:Quiz {
+            uid: randomUUID(),
+            quiz_type: 'TERM2SENT',
+            created: datetime()
+        })
+        CREATE (quiz)-[:QUIZ_TARGET]->(target)
+        CREATE (quiz)-[:QUIZ_OPTION]->(target)
+        """,
+        params={
+            "user_id": to_uuid(u.uid).hex,
+            "target_id": to_uuid(target.uid).hex,
+        },
+    )
+
+    response = await ac.get(
+        "/quiz/created/search",
+        headers=await aauth_header(email=u.email),
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {"total": 0, "data": []}
