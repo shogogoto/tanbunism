@@ -82,7 +82,7 @@ async def save_resource_with_detail(
     *,
     identity_resolutions: dict[str, str | None] | None = None,
     term_identity_resolutions: dict[str, str | None] | None = None,
-) -> tuple[MResource, ResourceMeta]:
+) -> tuple[MResource, ResourceMeta, bool]:
     """テキストからResource内のTanbunネットワークを永続化."""
     meta = ResourceMeta.from_str(txt, path, updated)
     lock = _resource_save_lock(ns.user_id, meta.title)
@@ -110,7 +110,7 @@ async def _save_resource_with_detail(
     *,
     identity_resolutions: dict[str, str | None] | None,
     term_identity_resolutions: dict[str, str | None] | None,
-) -> tuple[MResource, ResourceMeta]:
+) -> tuple[MResource, ResourceMeta, bool]:
     """競合確認後にResourceを永続化する."""
     existing = ns.get_resource_or_none(meta.title)
     content_changed = existing is None or existing.txt_hash != meta.txt_hash
@@ -167,7 +167,7 @@ async def _save_resource_with_detail(
         )
         await save_resource_stats_cache(dbmeta.uid, sn)
 
-    return dbmeta, meta
+    return dbmeta, meta, not resource_unchanged
 
 
 async def save_text(
@@ -179,7 +179,7 @@ async def save_text(
 ) -> tuple[SysNet, MResource]:
     """テキストをリソース詳細として保存するラッパー."""
     ns = await fetch_namespace(to_uuid(user_id))
-    m, _meta = await save_resource_with_detail(
+    m, _meta, _changed = await save_resource_with_detail(
         ns,
         s,
         list(path) if path is not None else None,

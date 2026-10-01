@@ -45,7 +45,11 @@ from tanbun.feature.entry.resource.usecase import (
     preview_resource_update,
     save_resource_with_detail,
 )
-from tanbun.feature.entry.router.param import ResourceSearchBody, ResourceTextBody
+from tanbun.feature.entry.router.param import (
+    ResourceSearchBody,
+    ResourceTextBody,
+    ResourceTextSaveResult,
+)
 from tanbun.feature.user.router_util import ActiveUser, TrackUser
 
 router = APIRouter(tags=["entry"])
@@ -86,18 +90,18 @@ async def get_public_namespace(user_id: UUID) -> NameSpace:
 async def post_text(
     body: ResourceTextBody,
     user: ActiveUser,
-) -> dict[str, str]:
+) -> ResourceTextSaveResult:
     """テキストからsysnetを読み取って永続化."""
     validate_resource_text(body.txt)
     ns = await fetch_namespace(user.id)
-    m, _ = await save_resource_with_detail(
+    m, _, changed = await save_resource_with_detail(
         ns,
         body.txt,
         body.path,
         identity_resolutions=body.resolution_map("sentence"),
         term_identity_resolutions=body.resolution_map("term"),
     )
-    return {"resource_id": m.uid.hex}
+    return ResourceTextSaveResult(resource_id=m.uid.hex, changed=changed)
 
 
 @router.post(
@@ -148,7 +152,7 @@ async def post_files(
     resource_ids: list[str] = []
     for file, text in resources:
         ns = await fetch_namespace(user.id)
-        resource, _ = await save_resource_with_detail(
+        resource, _, _changed = await save_resource_with_detail(
             ns,
             text,
             path=file.filename.split("/") if file.filename else None,

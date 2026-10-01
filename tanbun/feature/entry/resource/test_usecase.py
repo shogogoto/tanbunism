@@ -83,10 +83,20 @@ async def test_save_identical_resource_is_noop(u: LUser) -> None:
   concept: same sentence
 """
     ns = await fetch_namespace(u.uid)
-    first, _ = await save_resource_with_detail(ns, text, ["unchanged.tb"])
+    first, _, first_changed = await save_resource_with_detail(
+        ns,
+        text,
+        ["unchanged.tb"],
+    )
 
     ns = await fetch_namespace(u.uid)
-    second, _ = await save_resource_with_detail(ns, text, ["unchanged.tb"])
+    second, _, second_changed = await save_resource_with_detail(
+        ns,
+        text,
+        ["unchanged.tb"],
+    )
 
     assert second.uid == first.uid
     assert second.updated == first.updated
+    assert first_changed is True
+    assert second_changed is False

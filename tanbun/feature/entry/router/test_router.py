@@ -95,8 +95,17 @@ async def test_fetch_resource_detail(files: tuple[Anchor, list[Path]]):  # noqa:
         json={"txt": s, "path": ["a", "b", "c"]},
     )
     assert res.is_success
+    assert res.json()["changed"] is True
 
     uid = res.json()["resource_id"]
+    unchanged = client.post(
+        "/resource-text",
+        headers=h,
+        json={"txt": s, "path": ["a", "b", "c"]},
+    )
+    assert unchanged.is_success
+    assert unchanged.json() == {"resource_id": uid, "changed": False}
+
     res = client.get(f"/resource/{uid}")
     assert res.is_success
     info = ResourceInfo.model_validate(res.json()["resource_info"])

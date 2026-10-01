@@ -50,6 +50,13 @@ class ResourceTextBody(BaseModel, frozen=True):
         }
 
 
+class ResourceTextSaveResult(BaseModel, frozen=True):
+    """Resource本文を保存した結果."""
+
+    resource_id: str
+    changed: bool
+
+
 class ResourceSearchBody(BaseModel, frozen=True):
     """リソース検索のPOST Body."""
 
