@@ -50,10 +50,8 @@ from tanbun.feature.entry.router.param import (
     ResourceTextBody,
     ResourceTextSaveResult,
 )
-from tanbun.feature.quiz.learning.study_plan.repo import (
-    ensure_default_resource_study_plan,
-)
 from tanbun.feature.user.router_util import ActiveUser, TrackUser
+from tanbun.workflow.resource_import import prepare_imported_resource_learning
 
 router = APIRouter(tags=["entry"])
 
@@ -104,7 +102,7 @@ async def post_text(
         identity_resolutions=body.resolution_map("sentence"),
         term_identity_resolutions=body.resolution_map("term"),
     )
-    await ensure_default_resource_study_plan(user.id, m.uid, m.name)
+    await prepare_imported_resource_learning(user.id, m)
     return ResourceTextSaveResult(resource_id=m.uid.hex, changed=changed)
 
 
@@ -162,11 +160,7 @@ async def post_files(
             path=file.filename.split("/") if file.filename else None,
             updated=datetime.now(tz=TZ),
         )
-        await ensure_default_resource_study_plan(
-            user.id,
-            resource.uid,
-            resource.name,
-        )
+        await prepare_imported_resource_learning(user.id, resource)
         resource_ids.append(resource.uid.hex)
     return {"resource_ids": resource_ids}
 
