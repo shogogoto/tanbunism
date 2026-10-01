@@ -39,7 +39,13 @@ def val2str(val: Any) -> str:
         case UUID():
             return val.hex
         case _:
-            return f"'{val}'"
+            return cypher_string(val)
+
+
+def cypher_string(value: object) -> str:
+    """Cypherへ埋め込む文字列リテラルを安全に作る."""
+    escaped = str(value).replace("\\", "\\\\").replace("'", "\\'")
+    return f"'{escaped}'"
 
 
 def propstr(tgt: AsyncStructuredNode | BaseModel | dict) -> str:
@@ -75,12 +81,15 @@ def q_create_node(
             pass
         case Token() if n.type.startswith("H"):  # heading
             uid = getattr(n, "uid", uuid4()).hex
-            return f"CREATE ({var}:{t2labels(LHead)} {{val: '{n}', uid: '{uid}'}})"
+            return (
+                f"CREATE ({var}:{t2labels(LHead)} "
+                f"{{val: {cypher_string(n)}, uid: '{uid}'}})"
+            )
         case Term():
             ret = []
             for i, name in enumerate(n.names):
                 ivar = f"{var}_{i}" if i > 0 else var
-                c = f"CREATE ({ivar}:Term {{val: '{name}'}})"
+                c = f"CREATE ({ivar}:Term {{val: {cypher_string(name)}}})"
                 ret.append(c)
             return ret
         case WhenNode():
@@ -91,7 +100,8 @@ def q_create_node(
             t = "Quoterm" if isinstance(n, Quoterm) else "Sentence"
             uid = getattr(n, "uid", uuid4()).hex
             return (
-                f"CREATE ({var}:{t} {{val: '{n}', uid: '{uid}', resource_uid: $uid}})"
+                f"CREATE ({var}:{t} "
+                f"{{val: {cypher_string(n)}, uid: '{uid}', resource_uid: $uid}})"
             )
         case _:
             return None
@@ -132,7 +142,7 @@ def rel2q(
             if not isinstance(u, Term):
                 raise TypeError
             uv = varnames[u]
-            p = f"{{ alias: '{u.alias}' }}" if u.alias else ""
+            p = f"{{ alias: {cypher_string(u.alias)} }}" if u.alias else ""
             ret = [f"CREATE ({uv}) -[:{t.arrow} {p}]-> ({varnames[v]})"]  # DEF
             names = [f"{uv}_{i}" if i > 0 else uv for i, name in enumerate(u.names)]
             # 別名は :ALIAS 関係 term同士の関係

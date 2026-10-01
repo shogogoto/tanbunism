@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from uuid import UUID
 
 from tanbun.feature.domain.types import Duplicable, to_uuid
-from tanbun.feature.entry.resource.repo.save import EdgeRel, rel2q
+from tanbun.feature.entry.resource.repo.save import EdgeRel, cypher_string, rel2q
 from tanbun.feature.parsing.primitive.term import Term
 from tanbun.feature.parsing.primitive.time import WhenNode
 from tanbun.feature.parsing.sysnet import SysNet
@@ -88,9 +88,9 @@ def insert_term_q(
         raise TypeError
     s = new2old_sent.get(df.sentence, df.sentence)
     var = varnames[s]
-    q = f"CREATE ({var})<-[:DEF]-(:Term {{val: '{term.names[0]}'}})"
+    q = f"CREATE ({var})<-[:DEF]-(:Term {{val: {cypher_string(term.names[0])}}})"
     for name in term.names[1:]:
-        q += f"-[:ALIAS]->(:Term {{val: '{name}'}})"
+        q += f"-[:ALIAS]->(:Term {{val: {cypher_string(name)}}})"
     return q
 
 
@@ -106,7 +106,7 @@ def update_sentence_q(
     #     q = f"CREATE ({var}:Sentence {{val: '{new}'}})"
     # else:  # 既存更新
     #     q = f"SET {var}.val = '{new}'"
-    return f"SET {var}.val = '{new}'"
+    return f"SET {var}.val = {cypher_string(new)}"
 
 
 def merge_edge_q(
