@@ -22,6 +22,7 @@ from tanbun.feature.entry.namespace.test_namespace import files  # noqa: F401
 from tanbun.feature.entry.resource.limits import DEFAULT_RESOURCE_UPLOAD_LIMITS
 from tanbun.feature.entry.resource.usecase import save_text
 from tanbun.feature.entry.router.fixture import fixture_txt
+from tanbun.feature.quiz.learning.study_plan.repo import list_study_plans
 from tanbun.feature.user.label import LUser
 from tanbun.feature.user.routers.repo.client import (
     AuthPost,
@@ -105,6 +106,11 @@ async def test_fetch_resource_detail(files: tuple[Anchor, list[Path]]):  # noqa:
     )
     assert unchanged.is_success
     assert unchanged.json() == {"resource_id": uid, "changed": False}
+
+    plans = await list_study_plans(user.uid)
+    assert len(plans) == 1
+    assert plans[0].name == "# title"
+    assert [resource_id.hex for resource_id in plans[0].resource_ids] == [uid]
 
     res = client.get(f"/resource/{uid}")
     assert res.is_success

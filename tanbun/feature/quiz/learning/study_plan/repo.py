@@ -130,6 +130,49 @@ async def create_study_plan(
     return plan
 
 
+async def ensure_default_resource_study_plan(
+    user_id: UUIDy,
+    resource_id: UUIDy,
+    resource_name: str,
+) -> StudyPlan:
+    """Resourceごとの既定StudyPlanを重複なく用意する."""
+    plan_id = uuid4()
+    now = datetime.now(tz=TZ)
+    q = """
+        MATCH (user:User {uid: $user_id})
+        MATCH (resource:Resource {uid: $resource_id})
+        MERGE (plan:StudyPlan {auto_resource_uid: $resource_id})
+        ON CREATE SET
+            plan.uid = $plan_id,
+            plan.name = $resource_name,
+            plan.quiz_types = ['TERM2SENT'],
+            plan.n_quiz = 5,
+            plan.n_option = 4,
+            plan.created = datetime($now)
+        MERGE (plan)-[:OWNED]->(user)
+        MERGE (plan)-[:STUDY {position: 0}]->(resource)
+        RETURN plan.uid
+    """
+    rows, _ = await adb.cypher_query(
+        q,
+        params={
+            "plan_id": plan_id.hex,
+            "user_id": to_uuid(user_id).hex,
+            "resource_id": to_uuid(resource_id).hex,
+            "resource_name": resource_name,
+            "now": now.isoformat(),
+        },
+    )
+    if not rows:
+        msg = "Resourceの既定StudyPlanを作成できません"
+        raise StudyPlanCreateError(msg)
+    plan = await fetch_study_plan(rows[0][0], user_id)
+    if plan is None:
+        msg = "Resourceの既定StudyPlanを復元できません"
+        raise StudyPlanCreateError(msg)
+    return plan
+
+
 async def update_study_plan(
     plan_id: UUIDy,
     user_id: UUIDy,
@@ -149,6 +192,7 @@ async def update_study_plan(
             plan.quiz_types = $quiz_types,
             plan.n_quiz = $n_quiz,
             plan.n_option = $n_option
+        REMOVE plan.auto_resource_uid
         WITH plan
         OPTIONAL MATCH (plan)-[old:STUDY]->()
         DELETE old

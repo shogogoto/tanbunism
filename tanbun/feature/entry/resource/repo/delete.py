@@ -27,7 +27,8 @@ async def delete_resource_tops(resource_uid: UUIDy):
         MATCH (r:Resource {uid: $uid})
         OPTIONAL MATCH (r)-[:BELOW|SIBLING]->*(h:Head)
         OPTIONAL MATCH (r)-[:STATS]->(s:ResourceStatsCache)
-        DETACH DELETE r, h, s
+        OPTIONAL MATCH (plan:StudyPlan {auto_resource_uid: $uid})
+        DETACH DELETE r, h, s, plan
     """
     _rows, _ = await AsyncDatabase().cypher_query(
         q,
