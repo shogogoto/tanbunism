@@ -131,3 +131,62 @@ async def test_identical_resource_text_has_no_diff(ac: AsyncClient) -> None:
         "terms_removed": 0,
         "terms_updated": 0,
     }
+
+
+@mark_async_test()
+async def test_clear_legacy_identity_matches_are_migrated_once(
+    ac: AsyncClient,
+) -> None:
+    """旧parser由来の明確な複数候補は自動対応し、次回から変更なしになる."""
+    headers = await async_auth_header()
+    old_text = r"""# legacy identity migration test
+  $ eg(P \land eg P)$
+  $P \lor eg P$
+"""
+    current_text = r"""# legacy identity migration test
+  $\neg(P \land \neg P)$
+  $P \lor \neg P$
+"""
+    path = ["legacy-identity.kn"]
+    created = await ac.post(
+        "/resource-text",
+        headers=headers,
+        json={"txt": old_text, "path": path},
+    )
+    assert created.is_success
+
+    preview = await ac.post(
+        "/resource-text/preview",
+        headers=headers,
+        json={"txt": current_text, "path": path},
+    )
+    assert preview.is_success
+    assert preview.json()["sentences_updated"] == 2  # noqa: PLR2004
+
+    migrated = await ac.post(
+        "/resource-text",
+        headers=headers,
+        json={"txt": current_text, "path": path},
+    )
+    assert migrated.is_success
+
+    clean_preview = await ac.post(
+        "/resource-text/preview",
+        headers=headers,
+        json={"txt": current_text, "path": path},
+    )
+    assert clean_preview.is_success
+    assert (
+        sum(
+            clean_preview.json()[key]
+            for key in (
+                "sentences_added",
+                "sentences_removed",
+                "sentences_updated",
+                "terms_added",
+                "terms_removed",
+                "terms_updated",
+            )
+        )
+        == 0
+    )
