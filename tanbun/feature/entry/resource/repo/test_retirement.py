@@ -11,6 +11,7 @@ from tanbun.feature.entry.resource.repo.delete import delete_resource
 from tanbun.feature.entry.resource.repo.diff_update.repo import update_resource_diff
 from tanbun.feature.entry.resource.usecase import save_text
 from tanbun.feature.parsing.tree2net import parse2net
+from tanbun.feature.quiz.domain.parts import QuizType
 from tanbun.feature.quiz.management.errors import QuizNotFoundError
 from tanbun.feature.quiz.management.repo import list_broken_created_quiz_references
 from tanbun.feature.quiz.management.usecase import delete_quiz, repair_quiz_reference
@@ -131,13 +132,17 @@ async def test_reattach_retired_sentence_moves_quiz_edges(u: LUser) -> None:
             val: 'replacement destination'
         })
         MATCH (user:User {uid: $user_uid})
-        CREATE (user)-[:CREATE]->(quiz:Quiz {uid: $quiz_uid})
+        CREATE (user)-[:CREATE]->(quiz:Quiz {
+            uid: $quiz_uid,
+            quiz_type: $quiz_type
+        })
         CREATE (quiz)-[:QUIZ_TARGET]->(source)
         RETURN source.uid, replacement.uid
         """,
         params={
             "resource_uid": resource.uid.hex,
             "quiz_uid": quiz_uid,
+            "quiz_type": QuizType.TERM2SENT.name,
             "user_uid": to_uuid(u.uid).hex,
         },
     )
@@ -147,6 +152,7 @@ async def test_reattach_retired_sentence_moves_quiz_edges(u: LUser) -> None:
 
     [broken] = await list_broken_created_quiz_references(u.uid)
     assert broken.quiz_id.hex == quiz_uid
+    assert broken.quiz_type is QuizType.TERM2SENT
     assert broken.retired_sentence_id.hex == retired_uid
     assert broken.roles == ["QUIZ_TARGET"]
 
