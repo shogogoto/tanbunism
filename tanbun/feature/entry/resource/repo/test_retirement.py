@@ -154,6 +154,7 @@ async def test_reattach_retired_sentence_moves_quiz_edges(u: LUser) -> None:
     assert broken.quiz_id.hex == quiz_uid
     assert broken.quiz_type is QuizType.TERM2SENT
     assert broken.retired_sentence_id.hex == retired_uid
+    assert broken.resource_name == "# reattach target"
     assert broken.roles == ["QUIZ_TARGET"]
 
     other = await LUser(email="retirement-other@gmail.com").save()

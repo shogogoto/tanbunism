@@ -21,8 +21,10 @@ async def list_broken_created_quiz_references(
         MATCH (:User {uid: $user_id})-[:CREATE]->(quiz:Quiz)
             -[:BROKEN_BY]->(retired:RetiredSentence)
         MATCH (quiz)-[source:QUIZ_TARGET|QUIZ_OPTION|CORRECT]->(retired)
+        OPTIONAL MATCH (resource:Resource {uid: retired.resource_uid})
         RETURN quiz.uid, quiz.quiz_type, retired.uid, retired.val,
             retired.resource_uid,
+            coalesce(retired.resource_name, resource.title) AS resource_name,
             collect(DISTINCT type(source)) AS roles, retired.retired_at
         ORDER BY retired.retired_at DESC, quiz.uid, retired.uid
     """
@@ -37,6 +39,7 @@ async def list_broken_created_quiz_references(
             retired_sentence_id=retired_id,
             retired_value=retired_value,
             resource_id=resource_id,
+            resource_name=resource_name,
             roles=roles,
             retired_at=retired_at,
         )
@@ -46,6 +49,7 @@ async def list_broken_created_quiz_references(
             retired_id,
             retired_value,
             resource_id,
+            resource_name,
             roles,
             retired_at,
         ) in rows

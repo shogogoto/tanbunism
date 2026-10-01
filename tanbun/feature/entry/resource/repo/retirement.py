@@ -25,7 +25,7 @@ def retire_or_delete_sentence_qs(
         result_var = f"retired_{var}"
         queries.append(
             f"""
-            CALL ({var}) {{
+            CALL ({var}, root) {{
                 OPTIONAL MATCH (quiz:Quiz)-[:{QUIZ_SENTENCE_RELS}]->({var})
                 WITH {var}, [q IN collect(DISTINCT quiz) WHERE q IS NOT NULL]
                     AS quizzes
@@ -34,7 +34,9 @@ def retire_or_delete_sentence_qs(
                 )
                 FOREACH (_ IN CASE WHEN size(quizzes) > 0 THEN [1] ELSE [] END |
                     REMOVE {var}:Sentence
-                    SET {var}:RetiredSentence, {var}.retired_at = datetime()
+                    SET {var}:RetiredSentence,
+                        {var}.retired_at = datetime(),
+                        {var}.resource_name = root.title
                 )
                 FOREACH (_ IN CASE WHEN size(quizzes) = 0 THEN [1] ELSE [] END |
                     DETACH DELETE {var}
@@ -49,6 +51,7 @@ def retire_or_delete_sentence_qs(
 async def retire_referenced_sentences(resource_uid: UUIDy) -> None:
     """Resource削除前に、Quizや回答から参照される単文だけを退役させる."""
     query = f"""
+        MATCH (resource:Resource {{uid: $uid}})
         MATCH (sentence:Sentence {{resource_uid: $uid}})
         WHERE EXISTS {{
             MATCH (:Quiz)-[:{QUIZ_SENTENCE_RELS}]->(sentence)
@@ -62,7 +65,9 @@ async def retire_referenced_sentences(resource_uid: UUIDy) -> None:
             MERGE (quiz)-[:BROKEN_BY]->(sentence)
         )
         REMOVE sentence:Sentence
-        SET sentence:RetiredSentence, sentence.retired_at = datetime()
+        SET sentence:RetiredSentence,
+            sentence.retired_at = datetime(),
+            sentence.resource_name = resource.title
     """
     await adb.cypher_query(query, params={"uid": to_uuid(resource_uid).hex})
 

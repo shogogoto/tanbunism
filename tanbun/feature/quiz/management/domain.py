@@ -60,6 +60,7 @@ class BrokenQuizReference(BaseModel, frozen=True):
     retired_sentence_id: UUID
     retired_value: str
     resource_id: UUID
+    resource_name: str | None
     roles: list[str]
     retired_at: Neo4jDateTime
 
