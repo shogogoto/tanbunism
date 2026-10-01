@@ -202,7 +202,7 @@ def test_quiz_pair2rel_shows_graph_direction(sn: SysNet):
         sn=sn,
         qt=QuizType.PAIR2REL,
         target_stc="ccc",
-        source_stcs=["ccc", "to", "cccb"],
+        source_stcs=["ccc", "to", "cccb", "ccc1"],
         correct_stcs=["to"],
     )
 
@@ -212,13 +212,17 @@ def test_quiz_pair2rel_shows_graph_direction(sn: SysNet):
         "subject": "ccc",
         "subject_terms": ["C"],
         "object": "to",
-        "object_terms": ["TO"],
+        "object_terms": [],
         "relations": [{"name": None, "is_forward": True}],
         "answer_kind": "relation",
     }
 
     premise = source.model_copy(update={"correct_ids": ["3"]}).to_readable()
     assert premise.statement == "'cccb'-[]->'ccc'\n[]に入る関係はどれ?"
+
+    detail = source.model_copy(update={"correct_ids": ["4"]}).to_readable()
+    assert detail.prompt.object == "ccc1"
+    assert detail.prompt.object_terms == ["T1"]
 
     assert QuizType.from_statemet(conclusion.statement) is QuizType.PAIR2REL
     assert QuizType.from_statemet(premise.statement) is QuizType.PAIR2REL
