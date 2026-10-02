@@ -144,6 +144,36 @@ async def test_list_and_delete_created_quizzes_api(ac: AsyncClient, u: LUser):
 
 
 @mark_async_test()
+async def test_search_created_quizzes_by_text(ac: AsyncClient, u: LUser):
+    """問題文は大文字小文字を区別せず部分一致で検索できる."""
+    target = await LSentence.nodes.first(val="ccc")
+    quiz = await generate_quiz(
+        QuizType.TERM2SENT,
+        CandidateType.ALL,
+        target.uid,
+        3,
+        u.uid,
+    )
+    headers = await aauth_header(email=u.email)
+
+    response = await ac.get(
+        "/quiz/created/search",
+        params={"q": "CCC"},
+        headers=headers,
+    )
+    searched = ManagedQuizResult.model_validate(response.json())
+    assert [item.quiz.quiz_id for item in searched.data] == [quiz.quiz_id]
+
+    response = await ac.get(
+        "/quiz/created/search",
+        params={"q": "not found in any quiz"},
+        headers=headers,
+    )
+    searched = ManagedQuizResult.model_validate(response.json())
+    assert searched.total == 0
+
+
+@mark_async_test()
 async def test_bulk_delete_only_own_created_quizzes(ac: AsyncClient, u: LUser):
     """一括削除は本人のQuizだけを削除し、他人のQuizは読み飛ばす."""
     target = await LSentence.nodes.first(val="ccc")

@@ -126,6 +126,7 @@ async def list_created_quiz_resources(
 async def search_created_quizzes_api(
     user: ActiveUser,
     *,
+    q: Annotated[str | None, Query(max_length=200)] = None,
     quiz_types: Annotated[list[QuizType] | None, Query()] = None,
     answered: bool | None = None,
     created_from: datetime | None = None,
@@ -137,10 +138,11 @@ async def search_created_quizzes_api(
     page: Annotated[int, Query(gt=0)] = 1,
     size: Annotated[int, Query(gt=0)] = 100,
 ) -> ManagedQuizResult:
-    """作成Quizを形式・回答状態・日時・正答率で検索."""
+    """作成Quizを文字列・形式・回答状態・日時・正答率で検索."""
     return await search_created_quizzes(
         user.uid,
         Paging(page=page, size=size),
+        query=q,
         resource_id=resource_id,
         sentence_id=sentence_id,
         quiz_types=quiz_types,

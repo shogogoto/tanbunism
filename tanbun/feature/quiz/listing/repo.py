@@ -85,6 +85,7 @@ async def search_created_quizzes(
     user_id: UUIDy,
     paging: Paging = Paging(),
     *,
+    query: str | None = None,
     resource_id: UUIDy | None = None,
     sentence_id: UUIDy | None = None,
     quiz_types: Iterable[QuizType] | None = None,
@@ -94,7 +95,7 @@ async def search_created_quizzes(
     min_accuracy: float | None = None,
     max_accuracy: float | None = None,
 ) -> ManagedQuizResult:
-    """作成Quizを回答状況・作成日時・正答率で検索."""
+    """作成Quizを文字列・回答状況・作成日時・正答率で検索."""
     q = f"""
         MATCH (:User {{uid: $user_id}})-[:CREATE]->(quiz: Quiz)
         MATCH (quiz)-[:QUIZ_TARGET]->(target: Sentence)
@@ -113,6 +114,14 @@ async def search_created_quizzes(
           AND ($resource_id IS NULL OR target.resource_uid = $resource_id)
           AND ($sentence_id IS NULL OR target.uid = $sentence_id)
           AND ($quiz_types IS NULL OR quiz.quiz_type IN $quiz_types)
+          AND (
+            $query IS NULL
+            OR toLower(target.val) CONTAINS $query
+            OR EXISTS {{
+                MATCH (quiz)-[:QUIZ_OPTION]->(search_option: Sentence)
+                WHERE toLower(search_option.val) CONTAINS $query
+            }}
+          )
           AND ($created_from IS NULL OR quiz.created >= datetime($created_from))
           AND ($created_to IS NULL OR quiz.created <= datetime($created_to))
         OPTIONAL MATCH (:User {{uid: $user_id}})-[:ANSWER]->(answer: Answer)
@@ -148,6 +157,7 @@ async def search_created_quizzes(
         q,
         params={
             "user_id": to_uuid(user_id).hex,
+            "query": query.strip().lower() if query and query.strip() else None,
             "resource_id": to_uuid(resource_id).hex if resource_id else None,
             "sentence_id": to_uuid(sentence_id).hex if sentence_id else None,
             "quiz_types": (
