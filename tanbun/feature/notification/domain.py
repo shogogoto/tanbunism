@@ -12,6 +12,7 @@ class NotificationKind(StrEnum):
     """通知の種類."""
 
     QUIZ_PREPARATION_COMPLETE = "quiz_preparation_complete"
+    QUIZ_ISSUE_REPORTED = "quiz_issue_reported"
 
 
 class NewNotification(BaseModel, frozen=True):

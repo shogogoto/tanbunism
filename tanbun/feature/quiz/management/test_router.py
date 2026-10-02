@@ -299,3 +299,9 @@ async def test_report_quiz_issue_and_list_for_creator(ac: AsyncClient, u: LUser)
     assert reports.json()[0]["reason"] == "incorrect"
     assert reports.json()[0]["detail"] == "正解がおかしい"
     assert reports.json()[0]["report_count"] == 1
+    notifications = await ac.get("/notifications", headers=creator_headers)
+    assert notifications.status_code == status.HTTP_200_OK
+    feed = notifications.json()
+    assert feed["unread_count"] == 1
+    assert feed["notifications"][0]["kind"] == "quiz_issue_reported"
+    assert feed["notifications"][0]["href"] == ("/dashboard?view=quiz-management")

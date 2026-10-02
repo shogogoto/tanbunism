@@ -21,18 +21,22 @@ async def report_quiz_issue(
     quiz_id: UUIDy,
     reason: QuizReportReason,
     detail: str | None,
-) -> bool:
+) -> tuple[UUIDy, bool] | None:
     """同じユーザーから同じQuizへの報告をupsertする."""
     query = """
         MATCH (user:User {uid: $user_id})
-        MATCH (quiz:Quiz {uid: $quiz_id})
+        MATCH (creator:User)-[:CREATE]->(quiz:Quiz {uid: $quiz_id})
+        OPTIONAL MATCH (:User {uid: $user_id})-[:REPORT]->(
+            existing:QuizReport {key: $key}
+        )-[:REPORT_OF]->(quiz)
+        WITH user, creator, quiz, existing IS NULL AS created
         MERGE (user)-[:REPORT]->(report:QuizReport {key: $key})
             -[:REPORT_OF]->(quiz)
         ON CREATE SET report.uid = randomUUID(), report.created = datetime()
         SET report.reason = $reason,
             report.detail = $detail,
             report.updated = datetime()
-        RETURN report.uid
+        RETURN creator.uid, created
     """
     rows, _ = await adb.cypher_query(
         query,
@@ -44,7 +48,9 @@ async def report_quiz_issue(
             "detail": detail.strip() if detail else None,
         },
     )
-    return bool(rows)
+    if not rows:
+        return None
+    return to_uuid(rows[0][0]), rows[0][1]
 
 
 async def list_reported_created_quizzes(user_id: UUIDy) -> list[QuizReport]:

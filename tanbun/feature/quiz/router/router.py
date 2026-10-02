@@ -8,6 +8,8 @@ from fastapi import APIRouter, Query, Response, status
 
 from tanbun.feature.entry.errors import NotOwnerError
 from tanbun.feature.entry.resource.repo.owner import check_entry_owner
+from tanbun.feature.notification.domain import NewNotification, NotificationKind
+from tanbun.feature.notification.usecase import notify_user
 from tanbun.feature.quiz.answering.usecase import answer_quiz_as_chain
 from tanbun.feature.quiz.chain.domain import QuizChain
 from tanbun.feature.quiz.chain.router import quiz_chain_router
@@ -213,13 +215,25 @@ async def report_quiz_issue_api(
     user: ActiveUser,
 ) -> Response:
     """自他を問わず、表示できたQuizの不備を報告する."""
-    if not await report_quiz_issue(
+    receipt = await report_quiz_issue(
         user.uid,
         quiz_id,
         param.reason,
         param.detail,
-    ):
+    )
+    if receipt is None:
         return Response(status_code=status.HTTP_404_NOT_FOUND)
+    creator_id, created = receipt
+    if created and creator_id != user.uid:
+        await notify_user(
+            creator_id,
+            NewNotification(
+                kind=NotificationKind.QUIZ_ISSUE_REPORTED,
+                title="作成したクイズに不備報告が届きました",
+                description=param.detail or "クイズの内容を確認してください。",
+                href="/dashboard?view=quiz-management",
+            ),
+        )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

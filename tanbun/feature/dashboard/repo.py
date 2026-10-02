@@ -12,6 +12,24 @@ from tanbun.feature.tanbun.repo.cypher import q_location, q_stats
 from .domain import PersonalTanbunItem, TanbunExposureResult
 
 
+async def count_tanbun_exposures(user_id: UUIDy, seen_on: date) -> int:
+    """指定日にユーザーが閲覧記録を付けた単文数を返す."""
+    rows, _ = await adb.cypher_query(
+        """
+        MATCH (exposure:TanbunExposure {
+            user_id: $user_id,
+            seen_on: date($seen_on)
+        })
+        RETURN count(exposure)
+        """,
+        params={
+            "user_id": to_uuid(user_id).hex,
+            "seen_on": seen_on.isoformat(),
+        },
+    )
+    return rows[0][0] if rows else 0
+
+
 async def list_personal_tanbuns(
     user_id: UUIDy,
     seen_on: date,

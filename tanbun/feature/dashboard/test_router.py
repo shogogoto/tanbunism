@@ -10,7 +10,11 @@ from tanbun.conftest import mark_async_test
 from tanbun.feature.entry.resource.usecase import save_text
 from tanbun.feature.user.testing import aauth_header, aregister
 
-from .domain import PersonalTanbunItem, TanbunExposureResult
+from .domain import (
+    PersonalTanbunItem,
+    TanbunExposureResult,
+    TodayTanbunExposureCount,
+)
 
 
 @mark_async_test()
@@ -51,6 +55,10 @@ async def test_personal_tanbun_timeline_and_daily_exposure(ac: AsyncClient) -> N
     assert first_result.recorded
     assert not second_result.recorded
     assert second_result.exposure_count == 1
+
+    today = await ac.get("/dashboard/tanbuns/exposures/today", headers=headers)
+    assert today.status_code == status.HTTP_200_OK
+    assert TodayTanbunExposureCount.model_validate(today.json()).count == 1
 
     refreshed = await ac.get("/dashboard/tanbuns", headers=headers)
     refreshed_items = [

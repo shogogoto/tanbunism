@@ -29,3 +29,10 @@ class TanbunExposureResult(BaseModel, frozen=True):
     seen_on: date
     exposure_count: int
     recorded: bool
+
+
+class TodayTanbunExposureCount(BaseModel, frozen=True):
+    """今日「見たよ」を記録した単文数."""
+
+    seen_on: date
+    count: int

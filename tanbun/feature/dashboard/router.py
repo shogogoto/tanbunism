@@ -9,8 +9,16 @@ from fastapi import APIRouter, HTTPException, Query, status
 from tanbun.feature.domain.datetime import TZ
 from tanbun.feature.user.router_util import ActiveUser
 
-from .domain import PersonalTanbunItem, TanbunExposureResult
-from .repo import list_personal_tanbuns, record_tanbun_exposure
+from .domain import (
+    PersonalTanbunItem,
+    TanbunExposureResult,
+    TodayTanbunExposureCount,
+)
+from .repo import (
+    count_tanbun_exposures,
+    list_personal_tanbuns,
+    record_tanbun_exposure,
+)
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -25,6 +33,18 @@ async def get_personal_tanbuns(
         user.uid,
         datetime.now(TZ).date(),
         limit=limit,
+    )
+
+
+@router.get("/tanbuns/exposures/today")
+async def get_today_tanbun_exposure_count(
+    user: ActiveUser,
+) -> TodayTanbunExposureCount:
+    """今日「見たよ」を記録した単文数を取得."""
+    seen_on = datetime.now(TZ).date()
+    return TodayTanbunExposureCount(
+        seen_on=seen_on,
+        count=await count_tanbun_exposures(user.uid, seen_on),
     )
 
 
