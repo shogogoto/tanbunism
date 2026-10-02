@@ -7,7 +7,7 @@ from lark import Token
 from neomodel import adb
 
 from tanbun.feature.domain.graph.edge_type import EdgeType
-from tanbun.feature.domain.types import Duplicable, UUIDy, to_uuid
+from tanbun.feature.domain.types import UUIDy, to_uuid
 from tanbun.feature.entry.resource.repo.save import q_create_node, rel2q
 from tanbun.feature.parsing.primitive.quoterm.domain import Quoterm
 from tanbun.feature.parsing.sysnet import SysNet
@@ -15,8 +15,8 @@ from tanbun.feature.parsing.sysnet.sysnode import KNode
 
 
 def _node_key(node: KNode) -> tuple[type, str]:
-    """新旧の重複可能ノードを対応させるキー."""
-    kind = type(node) if isinstance(node, (Duplicable, Quoterm)) else str
+    """保存時に通常文字列へ復元される単文も本文中の表記で対応させる."""
+    kind = Quoterm if isinstance(node, Quoterm) else str
     return kind, str(node)
 
 
@@ -28,10 +28,13 @@ async def rebuild_resource_structure(
 ) -> None:
     """単文のuidを維持して見出しと本文の階層関係を再生成."""
     resource_uid = to_uuid(resource_id)
+    metadata = set(source.meta)
     structural_edges = [
         (start, end, attr["type"])
         for start, end, attr in source.g.edges(data=True)
         if attr["type"] in {EdgeType.BELOW, EdgeType.SIBLING}
+        and start not in metadata
+        and end not in metadata
     ]
     structural_nodes = {node for edge in structural_edges for node in edge[:2]} - {
         source.root,

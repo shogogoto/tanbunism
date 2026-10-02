@@ -189,10 +189,12 @@ async def test_reimport_repairs_missing_root_and_headings(u: LUser) -> None:
 async def test_reimport_repairs_partially_disconnected_headings(u: LUser) -> None:
     """先頭章が残っていても途中から切れた本文構造を再生成する."""
     text = """# partially disconnected resource
+  @author test author
 ## first
   first sentence
 ## second
-  second sentence
+  パケット: packet
+  説明: {パケット}
 ## third
   third sentence
 """
@@ -213,10 +215,12 @@ async def test_reimport_repairs_partially_disconnected_headings(u: LUser) -> Non
     assert changed is True
     assert set(restored.sentences) == {
         "first sentence",
-        "second sentence",
+        "packet",
+        "{パケット}",
         "third sentence",
     }
-    assert repaired_uids["second sentence"] == before_uids["second sentence"]
+    definition = "{パケット}"
+    assert repaired_uids[definition] == before_uids[definition]
     assert {str(node) for node in restored.g if str(node).startswith("#")} == {
         "# partially disconnected resource",
         "## first",
