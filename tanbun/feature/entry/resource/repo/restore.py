@@ -82,18 +82,62 @@ async def restore_tops(resource_uid: UUIDy) -> tuple[nx.DiGraph, dict[UUID, KNod
     g = nx.MultiDiGraph()
     # 詳細が空の場合に何も返さないのを阻止
     title = Token(type="H1", value=rsc.title)
-    g.add_node(title)
+    g.add_node(ruid)
     uids: dict[UUID, KNode] = {ruid: title}
+    has_root_edge = False
     for row in rows:
         r, s_, e_ = row
         if r is None:
             continue
+        has_root_edge = True
         suid = to_uuid(s_.get("uid"))
         euid = to_uuid(e_.get("uid"))
         uids[suid] = to_tanbun(s_)
         uids[euid] = to_tanbun(e_)
         EdgeType(r.type.lower()).add_edge(g, suid, euid)
+    if not has_root_edge:
+        await _restore_detached_tops(ruid, g, uids)
     return g, uids
+
+
+async def _restore_detached_tops(
+    resource_uid: UUID,
+    graph: nx.MultiDiGraph,
+    uids: dict[UUID, KNode],
+) -> None:
+    """Resourceとの接続を失った最上位の本文ツリーを復元."""
+    q = """
+        MATCH (anchor:Sentence {resource_uid: $uid})
+        MATCH (top:Head|Sentence)-[:BELOW|SIBLING*0..]->(anchor)
+        WHERE NOT EXISTS {
+            MATCH (:Head|Sentence)-[:BELOW|SIBLING]->(top)
+        }
+        WITH top, count(DISTINCT anchor) AS descendants
+        ORDER BY descendants DESC
+        LIMIT 1
+        OPTIONAL MATCH (top)-[:BELOW|SIBLING*0..]->(s:Head)
+        OPTIONAL MATCH (s)-[r:BELOW|SIBLING]->(e:Head|Sentence|Quoterm)
+        RETURN top, r, s, e
+    """
+    rows, _ = await AsyncDatabase().cypher_query(
+        q,
+        params={"uid": resource_uid.hex},
+    )
+    if not rows:
+        return
+
+    top = rows[0][0]
+    top_uid = to_uuid(top.get("uid"))
+    uids[top_uid] = to_tanbun(top)
+    EdgeType.BELOW.add_edge(graph, resource_uid, top_uid)
+    for _top, relation, start, end in rows:
+        if relation is None:
+            continue
+        start_uid = to_uuid(start.get("uid"))
+        end_uid = to_uuid(end.get("uid"))
+        uids[start_uid] = to_tanbun(start)
+        uids[end_uid] = to_tanbun(end)
+        EdgeType(relation.type.lower()).add_edge(graph, start_uid, end_uid)
 
 
 async def restore_undersentnet(  # noqa: PLR0914

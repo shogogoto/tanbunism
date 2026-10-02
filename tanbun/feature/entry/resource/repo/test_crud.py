@@ -114,6 +114,36 @@ async def test_restore_interval_with_missing_open_endpoint(u: LUser) -> None:
     assert restored.whens[0].end is not None
 
 
+@mark_async_test()
+async def test_restore_detail_with_detached_resource_root(u: LUser) -> None:
+    """Resource直下の接続を失った既存本文を復元できる."""
+    original, resource = await save_text(
+        u.uid,
+        """# title
+## first
+  first sentence
+## second
+  second sentence
+""",
+    )
+    await adb.cypher_query(
+        """
+        MATCH (:Resource {uid: $uid})-[root:BELOW]->()
+        DELETE root
+        """,
+        params={"uid": resource.uid.hex},
+    )
+
+    restored, _uids = await restore_sysnet(resource.uid)
+
+    assert set(restored.sentences) == set(original.sentences)
+    assert {str(node) for node in restored.g if str(node).startswith("#")} == {
+        "# title",
+        "## first",
+        "## second",
+    }
+
+
 @async_fixture()
 async def u() -> LUser:  # noqa: D103
     return await LUser(email="one@gmail.com").save()
