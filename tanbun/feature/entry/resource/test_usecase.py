@@ -3,6 +3,8 @@
 cache 有無 / resource 有無 でテスト
 """
 
+from neomodel import adb
+
 from tanbun.conftest import async_fixture, mark_async_test
 from tanbun.feature.domain.types import to_uuid
 from tanbun.feature.entry.domain import ResourceMeta
@@ -144,3 +146,40 @@ async def test_save_identical_resource_is_noop(u: LUser) -> None:
     assert second.updated == first.updated
     assert first_changed is True
     assert second_changed is False
+
+
+@mark_async_test()
+async def test_reimport_repairs_missing_root_and_headings(u: LUser) -> None:
+    """同一本文の再importで欠損した本文構造を再生成する."""
+    text = """# structured resource
+## first
+  first sentence
+## second
+  second sentence
+"""
+    ns = await fetch_namespace(u.uid)
+    resource, _, _changed = await save_resource_with_detail(ns, text)
+    _before, before_uids = await restore_sysnet(resource.uid)
+    await adb.cypher_query(
+        """
+        MATCH (:Resource {uid: $uid})-[:BELOW|SIBLING*]->(head:Head)
+        DETACH DELETE head
+        """,
+        params={"uid": resource.uid.hex},
+    )
+
+    ns = await fetch_namespace(u.uid)
+    preview = await preview_resource_update(ns, text)
+    repaired, _, changed = await save_resource_with_detail(ns, text)
+    restored, repaired_uids = await restore_sysnet(repaired.uid)
+
+    assert preview.sentences_added == 0
+    assert changed is True
+    assert set(restored.sentences) == {"first sentence", "second sentence"}
+    assert repaired_uids["first sentence"] == before_uids["first sentence"]
+    assert repaired_uids["second sentence"] == before_uids["second sentence"]
+    assert {str(node) for node in restored.g if str(node).startswith("#")} == {
+        "# structured resource",
+        "## first",
+        "## second",
+    }

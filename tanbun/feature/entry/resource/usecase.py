@@ -1,6 +1,7 @@
 """usecase."""
 
 import asyncio
+from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 from weakref import WeakValueDictionary
@@ -23,9 +24,16 @@ from tanbun.feature.entry.resource.repo.diff_update.repo import (
     prepare_resource_diff,
     update_resource_diff,
 )
-from tanbun.feature.entry.resource.repo.save import sn2db
+from tanbun.feature.entry.resource.repo.repair import rebuild_resource_structure
+from tanbun.feature.entry.resource.repo.restore import restore_sysnet
+from tanbun.feature.entry.resource.repo.save import (
+    has_persisted_root,
+    repair_persisted_root,
+    sn2db,
+)
 from tanbun.feature.parsing.domain import try_parse2net
 from tanbun.feature.parsing.sysnet import SysNet
+from tanbun.feature.parsing.sysnet.sysnode import KNode
 
 from .stats.repo import save_resource_stats_cache
 
@@ -42,6 +50,118 @@ def _resource_save_lock(user_id: UUID, title: str) -> asyncio.Lock:
     return lock
 
 
+async def _structure_missing(ns: NameSpace, resource: MResource | None) -> bool:
+    """本文統計があるのにResource直下が切れているか."""
+    if resource is None:
+        return False
+    stats = ns.stats.get(resource.uid.hex)
+    return (
+        stats is not None
+        and stats.n_sentence > 0
+        and not await has_persisted_root(resource.uid)
+    )
+
+
+@dataclass(frozen=True)
+class _DetailChange:
+    """本文の保存に必要な変更状態."""
+
+    content_changed: bool
+    cache_missing: bool
+    structure_missing: bool
+    network: SysNet | None
+    plan: ResourceDiffPlan | None
+    structure_state: tuple[SysNet, dict[KNode, UUID]] | None
+
+    @property
+    def needed(self) -> bool:
+        """本文またはその付随データの更新が必要か."""
+        return self.content_changed or self.cache_missing or self.structure_missing
+
+
+async def _prepare_detail_change(
+    ns: NameSpace,
+    existing: MResource | None,
+    meta: ResourceMeta,
+    txt: str,
+    *,
+    identity_resolutions: dict[str, str | None] | None,
+    term_identity_resolutions: dict[str, str | None] | None,
+) -> _DetailChange:
+    """本文の差分更新または構造修復を準備."""
+    content_changed = existing is None or existing.txt_hash != meta.txt_hash
+    cache_missing = existing is not None and existing.uid.hex not in ns.stats
+    structure_missing = await _structure_missing(ns, existing)
+    needed = content_changed or cache_missing or structure_missing
+    network = try_parse2net(txt) if needed else None
+    plan: ResourceDiffPlan | None = None
+    structure_state: tuple[SysNet, dict[KNode, UUID]] | None = None
+    if existing is not None and needed:
+        if structure_missing:
+            await repair_persisted_root(existing.uid)
+            if not content_changed and not cache_missing:
+                structure_state = await restore_sysnet(existing.uid)
+        if structure_state is None and network is not None:
+            plan = await prepare_resource_diff(
+                existing.uid,
+                network,
+                identity_resolutions,
+                term_identity_resolutions,
+            )
+    return _DetailChange(
+        content_changed,
+        cache_missing,
+        structure_missing,
+        network,
+        plan,
+        structure_state,
+    )
+
+
+async def _persist_detail_change(
+    *,
+    cache_exists: bool,
+    existing: MResource | None,
+    resource_id: UUIDy,
+    txt: str,
+    change: _DetailChange,
+    do_print: bool,
+    identity_resolutions: dict[str, str | None] | None,
+    term_identity_resolutions: dict[str, str | None] | None,
+) -> SysNet | None:
+    """準備した本文の変更をDBへ保存."""
+    network = change.network
+    if not cache_exists:
+        network = network or try_parse2net(txt)
+        if existing is None:
+            await sn2db(network, resource_id, do_print)
+        else:
+            await update_resource_diff(
+                resource_id,
+                network,
+                identity_resolutions=identity_resolutions,
+                term_identity_resolutions=term_identity_resolutions,
+                plan=change.plan,
+            )
+        return network
+    if change.structure_state is not None:
+        network = network or try_parse2net(txt)
+        current, current_uids = change.structure_state
+        await rebuild_resource_structure(resource_id, current, current_uids, network)
+        return network
+    if change.content_changed or change.structure_missing:
+        network = network or try_parse2net(txt)
+        await update_resource_diff(
+            resource_id,
+            network,
+            identity_resolutions=identity_resolutions,
+            term_identity_resolutions=term_identity_resolutions,
+            plan=change.plan,
+        )
+        return network
+    return None
+
+
 async def preview_resource_update(
     ns: NameSpace,
     txt: str,
@@ -56,10 +176,12 @@ async def preview_resource_update(
         meta.title,
     )
     cache_missing = existing is not None and existing.uid.hex not in ns.stats
+    structure_missing = await _structure_missing(ns, existing)
     if (
         existing is not None
         and existing.txt_hash == meta.txt_hash
         and not cache_missing
+        and not structure_missing
     ):
         return ResourceDiffPreview.unchanged(existing.uid)
     network = try_parse2net(txt)
@@ -125,25 +247,22 @@ async def _save_resource_with_detail(
         ns.user_id,
         meta.title,
     )
-    content_changed = existing is None or existing.txt_hash != meta.txt_hash
-    cache_missing = existing is not None and existing.uid.hex not in ns.stats
-    sn = try_parse2net(txt) if content_changed or cache_missing else None
-    diff_plan: ResourceDiffPlan | None = None
-    if existing is not None and (content_changed or cache_missing):
-        if sn is None:
-            sn = try_parse2net(txt)
-        diff_plan = await prepare_resource_diff(
-            existing.uid,
-            sn,
-            identity_resolutions,
-            term_identity_resolutions,
-        )
+    change = await _prepare_detail_change(
+        ns,
+        existing,
+        meta,
+        txt,
+        identity_resolutions=identity_resolutions,
+        term_identity_resolutions=term_identity_resolutions,
+    )
     same_location = existing is not None and (
         ns.roots_.get(meta.title) == existing
         if meta.path is None
         else ns.get_or_none(*meta.names) == existing
     )
-    resource_unchanged = existing is not None and not content_changed and same_location
+    resource_unchanged = (
+        existing is not None and not change.content_changed and same_location
+    )
     lb = (
         await LResource.nodes.get(uid=existing.uid.hex)
         if resource_unchanged
@@ -162,33 +281,21 @@ async def _save_resource_with_detail(
 
     dbmeta = MResource.freeze_dict(lb.__properties__)
     cache = await r.cached_stats.get_or_none()
-    if cache is None:  # 新規作成、または過去に本文保存が中断したResourceの修復
-        if sn is None:
-            sn = try_parse2net(txt)
-        if existing is None:
-            await sn2db(sn, lb.uid, do_print)
-        else:
-            await update_resource_diff(
-                lb.uid,
-                sn,
-                identity_resolutions=identity_resolutions,
-                term_identity_resolutions=term_identity_resolutions,
-                plan=diff_plan,
-            )
-        await save_resource_stats_cache(dbmeta.uid, sn)
-    if cache is not None and content_changed:  # 差分更新
-        if sn is None:
-            sn = try_parse2net(txt)
-        await update_resource_diff(
-            lb.uid,
-            sn,
-            identity_resolutions=identity_resolutions,
-            term_identity_resolutions=term_identity_resolutions,
-            plan=diff_plan,
-        )
-        await save_resource_stats_cache(dbmeta.uid, sn)
+    saved_network = await _persist_detail_change(
+        cache_exists=cache is not None,
+        existing=existing,
+        resource_id=lb.uid,
+        txt=txt,
+        change=change,
+        do_print=do_print,
+        identity_resolutions=identity_resolutions,
+        term_identity_resolutions=term_identity_resolutions,
+    )
+    if saved_network is not None:
+        await save_resource_stats_cache(dbmeta.uid, saved_network)
 
-    return dbmeta, meta, not resource_unchanged or cache_missing
+    changed = not resource_unchanged or change.cache_missing or change.structure_missing
+    return dbmeta, meta, changed
 
 
 async def save_text(

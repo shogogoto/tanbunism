@@ -179,3 +179,37 @@ async def sn2db(sn: SysNet, resource_id: UUIDy, do_print: bool = False) -> None:
         print()  # noqa: T201
         print(q)  # noqa: T201
     await adb.cypher_query(q, params={"uid": to_uuid(resource_id).hex})
+
+
+async def has_persisted_root(resource_id: UUIDy) -> bool:
+    """Resourceから本文への永続化された接続があるか."""
+    rows, _ = await adb.cypher_query(
+        """
+        MATCH (root:Resource {uid: $uid})
+        RETURN EXISTS { MATCH (root)-[:BELOW]->() }
+        """,
+        params={"uid": to_uuid(resource_id).hex},
+    )
+    return bool(rows and rows[0][0])
+
+
+async def repair_persisted_root(resource_id: UUIDy) -> bool:
+    """Resourceから切れた最上位の本文へ一時的に再接続."""
+    rows, _ = await adb.cypher_query(
+        """
+        MATCH (root:Resource {uid: $uid})
+        WHERE NOT EXISTS { MATCH (root)-[:BELOW]->() }
+        MATCH (anchor:Sentence {resource_uid: $uid})
+        MATCH (top:Head|Sentence)-[:BELOW|SIBLING*0..]->(anchor)
+        WHERE NOT EXISTS {
+            MATCH (:Head|Sentence)-[:BELOW|SIBLING]->(top)
+        }
+        WITH root, top, count(DISTINCT anchor) AS descendants
+        ORDER BY descendants DESC
+        LIMIT 1
+        MERGE (root)-[:BELOW]->(top)
+        RETURN top
+        """,
+        params={"uid": to_uuid(resource_id).hex},
+    )
+    return bool(rows)
