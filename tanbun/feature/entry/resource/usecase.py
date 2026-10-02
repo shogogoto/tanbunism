@@ -65,7 +65,7 @@ async def _structure_missing(
         and stats.n_sentence > 0
         and not await has_complete_persisted_structure(
             resource.uid,
-            len(re.findall(r"^#{2,6}(?:\s|$)", txt, flags=re.MULTILINE)),
+            len(re.findall(r"^[ \t]*#{2,6}(?:\s|$)", txt, flags=re.MULTILINE)),
         )
     )
 
