@@ -46,7 +46,7 @@ def to_tanbun(n: neo4j.graph.Node) -> KNode:  # noqa: PLR0911
             d = dict(n)
             d["n"] = d.pop("val")
             for k in ("start", "end"):  # infはJSONに変換できない
-                if isinf(d[k]):
+                if k not in d or isinf(d[k]):
                     d[k] = None
             return WhenNode.model_validate(d)
         case "Quoterm":

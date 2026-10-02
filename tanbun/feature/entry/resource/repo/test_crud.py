@@ -2,6 +2,7 @@
 
 import networkx as nx
 import pytest
+from neomodel import adb
 from pytest_unordered import unordered
 
 from tanbun.conftest import async_fixture, mark_async_test
@@ -89,6 +90,28 @@ async def test_save_and_restore_apostrophes(u: LUser) -> None:
 
     assert set(original.terms) == set(restored.terms)
     assert set(original.sentences) == set(restored.sentences)
+
+
+@mark_async_test()
+async def test_restore_interval_with_missing_open_endpoint(u: LUser) -> None:
+    """Neo4j上で省略された期間の開放端を復元できる."""
+    _original, resource = await save_text(
+        u.uid,
+        "# title\n  sentence\n    when. ~ 1612\n",
+    )
+    await adb.cypher_query(
+        """
+        MATCH (:Sentence {resource_uid: $uid})-[:WHEN]->(interval:Interval)
+        REMOVE interval.start
+        """,
+        params={"uid": resource.uid.hex},
+    )
+
+    restored, _uids = await restore_sysnet(resource.uid)
+
+    assert len(restored.whens) == 1
+    assert restored.whens[0].start is None
+    assert restored.whens[0].end is not None
 
 
 @async_fixture()
