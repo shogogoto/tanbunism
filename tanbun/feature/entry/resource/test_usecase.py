@@ -183,3 +183,43 @@ async def test_reimport_repairs_missing_root_and_headings(u: LUser) -> None:
         "## first",
         "## second",
     }
+
+
+@mark_async_test()
+async def test_reimport_repairs_partially_disconnected_headings(u: LUser) -> None:
+    """先頭章が残っていても途中から切れた本文構造を再生成する."""
+    text = """# partially disconnected resource
+## first
+  first sentence
+## second
+  second sentence
+## third
+  third sentence
+"""
+    ns = await fetch_namespace(u.uid)
+    resource, _, _changed = await save_resource_with_detail(ns, text)
+    _before, before_uids = await restore_sysnet(resource.uid)
+    await adb.cypher_query(
+        """
+        MATCH ()-[relation:BELOW|SIBLING]->(head:Head {val: '## second'})
+        DELETE relation
+        """,
+    )
+
+    ns = await fetch_namespace(u.uid)
+    repaired, _, changed = await save_resource_with_detail(ns, text)
+    restored, repaired_uids = await restore_sysnet(repaired.uid)
+
+    assert changed is True
+    assert set(restored.sentences) == {
+        "first sentence",
+        "second sentence",
+        "third sentence",
+    }
+    assert repaired_uids["second sentence"] == before_uids["second sentence"]
+    assert {str(node) for node in restored.g if str(node).startswith("#")} == {
+        "# partially disconnected resource",
+        "## first",
+        "## second",
+        "## third",
+    }

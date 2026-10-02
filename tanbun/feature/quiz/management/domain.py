@@ -66,6 +66,15 @@ class BrokenQuizReference(BaseModel, frozen=True):
     retired_at: Neo4jDateTime
 
 
+class UnplannedQuiz(BaseModel, frozen=True):
+    """所有StudyPlanの対象範囲に含まれない作成済みQuiz."""
+
+    quiz_id: UUID
+    quiz_type: QuizType
+    resource_id: UUID
+    resource_name: str | None
+
+
 class QuizReattachmentResult(BaseModel, frozen=True):
     """1件のQuizで付け替えた関係数と退役単文の保持状態."""
 

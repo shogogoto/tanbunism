@@ -35,12 +35,14 @@ from tanbun.feature.quiz.management.domain import (
     QuizReportRequest,
     QuizResourceStatus,
     SentenceQuizStatus,
+    UnplannedQuiz,
 )
 from tanbun.feature.quiz.management.repo import (
     list_broken_created_quiz_references,
     list_created_quiz_resource_statuses,
     list_created_quiz_sentence_statuses,
     list_reported_created_quizzes,
+    list_unplanned_created_quizzes,
     report_quiz_issue,
 )
 from tanbun.feature.quiz.management.usecase import (
@@ -169,6 +171,14 @@ async def list_broken_created_quizzes(
 async def list_created_quiz_reports(user: ActiveUser) -> list[QuizReport]:
     """自分が作成したQuizへ届いた不備報告を取得."""
     return await list_reported_created_quizzes(user.uid)
+
+
+@_r.get("/created/unplanned")
+async def list_unplanned_created_quizzes_api(
+    user: ActiveUser,
+) -> list[UnplannedQuiz]:
+    """StudyPlanの対象外になっている自分のQuizを取得."""
+    return await list_unplanned_created_quizzes(user.uid)
 
 
 @_r.post("/created/delete")

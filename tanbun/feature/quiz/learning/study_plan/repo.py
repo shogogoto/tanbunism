@@ -145,10 +145,14 @@ async def ensure_default_resource_study_plan(
         ON CREATE SET
             plan.uid = $plan_id,
             plan.name = $resource_name,
-            plan.quiz_types = ['TERM2SENT'],
+            plan.quiz_types = $quiz_types,
             plan.n_quiz = 5,
             plan.n_option = 4,
             plan.created = datetime($now)
+        ON MATCH SET plan.quiz_types = CASE
+            WHEN plan.quiz_types = ['TERM2SENT'] THEN $quiz_types
+            ELSE plan.quiz_types
+        END
         MERGE (plan)-[:OWNED]->(user)
         MERGE (plan)-[:STUDY {position: 0}]->(resource)
         RETURN plan.uid
@@ -160,6 +164,7 @@ async def ensure_default_resource_study_plan(
             "user_id": to_uuid(user_id).hex,
             "resource_id": to_uuid(resource_id).hex,
             "resource_name": resource_name,
+            "quiz_types": [quiz_type.name for quiz_type in QuizType],
             "now": now.isoformat(),
         },
     )

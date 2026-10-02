@@ -11,6 +11,8 @@ from tanbun.feature.quiz.domain.collections import ReadableQuizResult
 from tanbun.feature.quiz.domain.parts import QuizType
 from tanbun.feature.quiz.fixture import fx_u
 from tanbun.feature.quiz.generation.repo import generate_quiz
+from tanbun.feature.quiz.learning.study_plan.domain import StudyPlanDraft
+from tanbun.feature.quiz.learning.study_plan.repo import create_study_plan
 from tanbun.feature.quiz.management.domain import ManagedQuizResult
 from tanbun.feature.tanbun.label import LSentence
 from tanbun.feature.user.label import LUser
@@ -187,6 +189,46 @@ async def test_bulk_delete_only_own_created_quizzes(ac: AsyncClient, u: LUser):
         headers=await aauth_header(email=other.email),
     )
     assert other_response.json()["total"] == 1
+
+
+@mark_async_test()
+async def test_list_quizzes_outside_owned_study_plans(ac: AsyncClient, u: LUser):
+    """ResourceとQuizTypeのどちらもPlan対象でなければ未所属として返す."""
+    target = await LSentence.nodes.first(val="ccc")
+    covered = await generate_quiz(
+        QuizType.TERM2SENT,
+        CandidateType.ALL,
+        target.uid,
+        3,
+        u.uid,
+    )
+    unplanned = await generate_quiz(
+        QuizType.SENT2TERM,
+        CandidateType.ALL,
+        target.uid,
+        3,
+        u.uid,
+    )
+    await create_study_plan(
+        u.uid,
+        StudyPlanDraft(
+            name="term only",
+            resource_ids=[target.resource_uid],
+            quiz_types=[QuizType.TERM2SENT],
+            n_quiz=1,
+            n_option=3,
+        ),
+    )
+
+    response = await ac.get(
+        "/quiz/created/unplanned",
+        headers=await aauth_header(email=u.email),
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    ids = {item["quiz_id"].replace("-", "") for item in response.json()}
+    assert unplanned.quiz_id.hex in ids
+    assert covered.quiz_id.hex not in ids
 
 
 @mark_async_test()

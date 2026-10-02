@@ -12,6 +12,7 @@ from tanbun.feature.quiz.management.domain import (
     QuizReportReason,
     QuizResourceStatus,
     SentenceQuizStatus,
+    UnplannedQuiz,
 )
 
 
@@ -128,6 +129,38 @@ async def list_broken_created_quiz_references(
             roles,
             retired_at,
         ) in rows
+    ]
+
+
+async def list_unplanned_created_quizzes(user_id: UUIDy) -> list[UnplannedQuiz]:
+    """どの所有StudyPlanにも対象として含まれないQuizを一覧する."""
+    query = """
+        MATCH (user:User {uid: $user_id})-[:CREATE]->(quiz:Quiz)
+            -[:QUIZ_TARGET]->(target:Sentence)
+        WHERE NOT EXISTS { MATCH (quiz)-[:BROKEN_BY]->() }
+          AND NOT EXISTS {
+            MATCH (plan:StudyPlan)-[:OWNED]->(user)
+            MATCH (plan)-[:STUDY]->(resource:Resource {
+                uid: target.resource_uid
+            })
+            WHERE quiz.quiz_type IN plan.quiz_types
+        }
+        OPTIONAL MATCH (resource:Resource {uid: target.resource_uid})
+        RETURN quiz.uid, quiz.quiz_type, target.resource_uid, resource.title
+        ORDER BY resource.title, quiz.created DESC, quiz.uid
+    """
+    rows, _ = await adb.cypher_query(
+        query,
+        params={"user_id": to_uuid(user_id).hex},
+    )
+    return [
+        UnplannedQuiz(
+            quiz_id=quiz_id,
+            quiz_type=QuizType(quiz_type.lower()),
+            resource_id=resource_id,
+            resource_name=resource_name,
+        )
+        for quiz_id, quiz_type, resource_id, resource_name in rows
     ]
 
 

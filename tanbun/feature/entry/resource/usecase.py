@@ -1,6 +1,7 @@
 """usecase."""
 
 import asyncio
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
@@ -27,7 +28,7 @@ from tanbun.feature.entry.resource.repo.diff_update.repo import (
 from tanbun.feature.entry.resource.repo.repair import rebuild_resource_structure
 from tanbun.feature.entry.resource.repo.restore import restore_sysnet
 from tanbun.feature.entry.resource.repo.save import (
-    has_persisted_root,
+    has_complete_persisted_structure,
     repair_persisted_root,
     sn2db,
 )
@@ -50,15 +51,22 @@ def _resource_save_lock(user_id: UUID, title: str) -> asyncio.Lock:
     return lock
 
 
-async def _structure_missing(ns: NameSpace, resource: MResource | None) -> bool:
-    """本文統計があるのにResource直下が切れているか."""
+async def _structure_missing(
+    ns: NameSpace,
+    resource: MResource | None,
+    txt: str,
+) -> bool:
+    """本文統計があるのにResourceから本文の一部または全部が切れているか."""
     if resource is None:
         return False
     stats = ns.stats.get(resource.uid.hex)
     return (
         stats is not None
         and stats.n_sentence > 0
-        and not await has_persisted_root(resource.uid)
+        and not await has_complete_persisted_structure(
+            resource.uid,
+            len(re.findall(r"^#{2,6}(?:\s|$)", txt, flags=re.MULTILINE)),
+        )
     )
 
 
@@ -91,7 +99,7 @@ async def _prepare_detail_change(
     """本文の差分更新または構造修復を準備."""
     content_changed = existing is None or existing.txt_hash != meta.txt_hash
     cache_missing = existing is not None and existing.uid.hex not in ns.stats
-    structure_missing = await _structure_missing(ns, existing)
+    structure_missing = await _structure_missing(ns, existing, txt)
     needed = content_changed or cache_missing or structure_missing
     network = try_parse2net(txt) if needed else None
     plan: ResourceDiffPlan | None = None
@@ -176,7 +184,7 @@ async def preview_resource_update(
         meta.title,
     )
     cache_missing = existing is not None and existing.uid.hex not in ns.stats
-    structure_missing = await _structure_missing(ns, existing)
+    structure_missing = await _structure_missing(ns, existing, txt)
     if (
         existing is not None
         and existing.txt_hash == meta.txt_hash

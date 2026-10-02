@@ -10,6 +10,7 @@ from tanbun.feature.quiz.learning.fixture import (
 from tanbun.feature.quiz.learning.study_plan.domain import StudyPlanDraft
 from tanbun.feature.quiz.learning.study_plan.repo import (
     create_study_plan,
+    ensure_default_resource_study_plan,
     fetch_study_plan,
 )
 from tanbun.feature.user.label import LUser
@@ -42,3 +43,23 @@ async def test_create_and_fetch_study_plan(u: LUser):
 
     other = await aregister(email="study-plan-other@ex.com")
     assert await fetch_study_plan(created.uid, other.uid) is None
+
+
+@mark_async_test()
+async def test_default_resource_plan_uses_all_quiz_types(u: LUser) -> None:
+    """自動作成Planは既存分も含めて全QuizTypeを対象にする."""
+    resource_id = await learning_resource_id(u.uid)
+
+    created = await ensure_default_resource_study_plan(
+        u.uid,
+        resource_id,
+        "自動Plan",
+    )
+    restored = await ensure_default_resource_study_plan(
+        u.uid,
+        resource_id,
+        "自動Plan",
+    )
+
+    assert created.uid == restored.uid
+    assert set(restored.quiz_types) == set(QuizType)

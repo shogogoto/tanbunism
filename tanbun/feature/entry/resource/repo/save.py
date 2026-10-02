@@ -193,6 +193,27 @@ async def has_persisted_root(resource_id: UUIDy) -> bool:
     return bool(rows and rows[0][0])
 
 
+async def has_complete_persisted_structure(
+    resource_id: UUIDy,
+    expected_heading_count: int,
+) -> bool:
+    """Resource直下とソースに含まれる見出しが全て到達可能か."""
+    rows, _ = await adb.cypher_query(
+        """
+        MATCH (root:Resource {uid: $uid})
+        OPTIONAL MATCH (root)-[:BELOW|SIBLING*1..]->(head:Head)
+        WITH root, count(DISTINCT head) AS connected_heading_count
+        RETURN EXISTS { MATCH (root)-[:BELOW]->() }
+            AND connected_heading_count = $expected_heading_count
+        """,
+        params={
+            "uid": to_uuid(resource_id).hex,
+            "expected_heading_count": expected_heading_count,
+        },
+    )
+    return bool(rows and rows[0][0])
+
+
 async def repair_persisted_root(resource_id: UUIDy) -> bool:
     """Resourceから切れた最上位の本文へ一時的に再接続."""
     rows, _ = await adb.cypher_query(
