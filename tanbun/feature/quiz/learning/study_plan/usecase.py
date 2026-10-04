@@ -1,5 +1,7 @@
 """StudyPlanのユースケース."""
 
+import logging
+
 from tanbun.feature.domain.types import UUIDy
 from tanbun.feature.entry.resource.repo.owner import check_entry_owner
 from tanbun.feature.notification.domain import NewNotification, NotificationKind
@@ -39,6 +41,8 @@ from tanbun.feature.quiz.learning.study_plan.repo import (
 from tanbun.feature.quiz.learning.study_plan.repo import (
     update_study_plan as update_study_plan_in_repo,
 )
+
+logger = logging.getLogger(__name__)
 
 
 async def _check_resource_ownership(
@@ -138,6 +142,8 @@ async def prepare_additional_study_plan_quizzes(
     plan_id: UUIDy,
     user_id: UUIDy,
     additional_count: int,
+    *,
+    send_notification: bool = True,
 ) -> PrepareStudyPlanResult:
     """Planの形式・Resourceへ未coverageのクイズを追加する."""
     plan = await get_study_plan(plan_id, user_id)
@@ -162,7 +168,7 @@ async def prepare_additional_study_plan_quizzes(
         )
     prepared = await count_prepared_quizzes(plan.uid, user_id)
     added = max(0, prepared - before)
-    if added > 0:
+    if added > 0 and send_notification:
         await notify_user(
             user_id,
             NewNotification(
@@ -181,6 +187,65 @@ async def prepare_additional_study_plan_quizzes(
         added_count=added,
         prepared_quiz_count=prepared,
     )
+
+
+async def validate_study_plans_for_preparation(
+    plan_ids: list[UUIDy],
+    user_id: UUIDy,
+) -> None:
+    """バックグラウンドへ渡す前に全Planの所有権を確認する."""
+    for plan_id in plan_ids:
+        await get_study_plan(plan_id, user_id)
+
+
+async def prepare_study_plans_in_background(
+    plan_ids: list[UUIDy],
+    user_id: UUIDy,
+) -> None:
+    """複数Planを順番に準備し、一つの完了通知へ集約する."""
+    completed = 0
+    failed = 0
+    added = 0
+    try:
+        for plan_id in plan_ids:
+            try:
+                plan = await get_study_plan(plan_id, user_id)
+                result = await prepare_additional_study_plan_quizzes(
+                    plan.uid,
+                    user_id,
+                    max(1, plan.n_quiz),
+                    send_notification=False,
+                )
+                completed += 1
+                added += result.added_count
+            except Exception:
+                failed += 1
+                logger.exception("StudyPlan quiz preparation failed: %s", plan_id)
+
+        if completed:
+            title = (
+                "クイズの一括準備完了" if failed == 0 else "クイズの一括準備が一部完了"
+            )
+            description = f"{completed}件の学習計画を処理し、{added}問追加しました。"
+            if failed:
+                description += f" {failed}件は準備できませんでした。"
+            kind = NotificationKind.QUIZ_PREPARATION_COMPLETE
+        else:
+            title = "クイズを準備できませんでした"
+            description = f"選択した{failed}件の学習計画を確認してください。"
+            kind = NotificationKind.QUIZ_PREPARATION_FAILED
+
+        await notify_user(
+            user_id,
+            NewNotification(
+                kind=kind,
+                title=title,
+                description=description,
+                href="/dashboard?view=study-plans",
+            ),
+        )
+    except Exception:
+        logger.exception("Failed to finish StudyPlan preparation notification")
 
 
 async def recommend_quizzes_for_study_plan(

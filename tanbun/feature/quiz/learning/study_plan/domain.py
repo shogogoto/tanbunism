@@ -12,6 +12,8 @@ from tanbun.feature.quiz.limits import (
     MAX_RESOURCES_PER_STUDY_PLAN,
 )
 
+MAX_STUDY_PLANS_PER_PREPARATION = 20
+
 
 class StudyPlanDraft(BaseModel, frozen=True):
     """StudyPlan作成時の設定."""
@@ -57,3 +59,24 @@ class PrepareStudyPlanResult(StudyPlanPreparationStatus, frozen=True):
 
     requested_count: int
     added_count: int
+
+
+class PrepareStudyPlansRequest(BaseModel, frozen=True):
+    """バックグラウンドでまとめて準備するStudyPlan."""
+
+    plan_ids: list[UUID] = Field(
+        min_length=1,
+        max_length=MAX_STUDY_PLANS_PER_PREPARATION,
+    )
+
+    @field_validator("plan_ids")
+    @classmethod
+    def unique_plan_ids(cls, items: list[UUID]) -> list[UUID]:
+        """入力順を維持して重複を除く."""
+        return list(dict.fromkeys(items))
+
+
+class PrepareStudyPlansAccepted(BaseModel, frozen=True):
+    """バックグラウンド準備の受付結果."""
+
+    accepted_count: int

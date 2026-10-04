@@ -2,12 +2,14 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, BackgroundTasks, Response, status
 
 from tanbun.feature.quiz.domain.parts import QuizType
 from tanbun.feature.quiz.learning.study_plan.domain import (
     PrepareStudyPlanRequest,
     PrepareStudyPlanResult,
+    PrepareStudyPlansAccepted,
+    PrepareStudyPlansRequest,
     StudyPlan,
     StudyPlanDraft,
     StudyPlanPreparationStatus,
@@ -23,8 +25,10 @@ from tanbun.feature.quiz.learning.study_plan.usecase import (
     get_study_plan_preparation_statuses,
     get_study_plans,
     prepare_additional_study_plan_quizzes,
+    prepare_study_plans_in_background,
     recommend_quizzes_for_study_plan,
     update_study_plan,
+    validate_study_plans_for_preparation,
 )
 from tanbun.feature.user.router_util import ActiveUser
 
@@ -52,6 +56,22 @@ async def list_study_plan_preparations_api(
 ) -> list[StudyPlanPreparationStatus]:
     """所有するStudyPlanの準備済み問題数を一括取得."""
     return await get_study_plan_preparation_statuses(user.uid)
+
+
+@_router.post("/prepare", status_code=status.HTTP_202_ACCEPTED)
+async def prepare_study_plans_api(
+    body: PrepareStudyPlansRequest,
+    background_tasks: BackgroundTasks,
+    user: ActiveUser,
+) -> PrepareStudyPlansAccepted:
+    """選択したStudyPlanのクイズ準備をバックグラウンドで開始する."""
+    await validate_study_plans_for_preparation(body.plan_ids, user.uid)
+    background_tasks.add_task(
+        prepare_study_plans_in_background,
+        body.plan_ids,
+        user.uid,
+    )
+    return PrepareStudyPlansAccepted(accepted_count=len(body.plan_ids))
 
 
 @_router.get("/{plan_id}")

@@ -1,5 +1,8 @@
 """StudyPlan APIのテスト."""
 
+from unittest.mock import AsyncMock
+
+import pytest
 from httpx import AsyncClient
 from starlette import status
 
@@ -227,6 +230,54 @@ async def test_add_questions_to_study_plan(ac: AsyncClient, u: LUser):
     assert notification_feed["notifications"][0]["kind"] == (
         "quiz_preparation_complete"
     )
+
+
+@mark_async_test()
+async def test_prepare_selected_study_plans_in_background(
+    ac: AsyncClient,
+    u: LUser,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """選択したPlanを受け付け、レスポンス後の一括処理へ渡す."""
+    resource_id = await learning_resource_id(u.uid)
+    first = await _create_plan_via_api(
+        ac,
+        u,
+        StudyPlanDraft(
+            name="一括準備1",
+            resource_ids=[resource_id],
+            quiz_types=[QuizType.TERM2SENT],
+            n_quiz=2,
+            n_option=3,
+        ),
+    )
+    second = await _create_plan_via_api(
+        ac,
+        u,
+        StudyPlanDraft(
+            name="一括準備2",
+            resource_ids=[resource_id],
+            quiz_types=[QuizType.SENT2TERM],
+            n_quiz=1,
+            n_option=3,
+        ),
+    )
+    prepare = AsyncMock()
+    monkeypatch.setattr(
+        "tanbun.feature.quiz.learning.study_plan.router."
+        "prepare_study_plans_in_background",
+        prepare,
+    )
+
+    response = await ac.post(
+        "/quiz/study-plans/prepare",
+        json={"plan_ids": [str(first.uid), str(second.uid)]},
+        headers=await aauth_header(email=u.email),
+    )
+
+    assert response.status_code == status.HTTP_202_ACCEPTED
+    assert response.json() == {"accepted_count": 2}
+    prepare.assert_awaited_once_with([first.uid, second.uid], u.uid)
 
 
 @mark_async_test()
