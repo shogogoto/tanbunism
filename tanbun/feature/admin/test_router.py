@@ -8,6 +8,7 @@ from starlette import status
 
 from tanbun.conftest import mark_async_test
 from tanbun.feature.domain.types import to_uuid
+from tanbun.feature.entry.resource.import_settings import ResourceImportSettings
 from tanbun.feature.entry.resource.usecase import save_text
 from tanbun.feature.quiz.learning.study_plan.preparation_settings import (
     QuizPreparationSettings,
@@ -50,6 +51,30 @@ async def test_admin_updates_quiz_preparation_settings(ac: AsyncClient) -> None:
 
     assert response.status_code == status.HTTP_200_OK
     assert QuizPreparationSettings.model_validate(response.json()) == updated
+
+
+@mark_async_test()
+async def test_admin_updates_resource_import_settings(ac: AsyncClient) -> None:
+    """adminはResource importの同時実行数を更新できる."""
+    headers = await _admin_headers("import-settings-admin@example.com")
+    updated = ResourceImportSettings(
+        max_concurrent_imports=2,
+        max_concurrent_imports_per_user=1,
+    )
+
+    response = await ac.put(
+        "/admin/settings/resource-import",
+        headers=headers,
+        json=updated.model_dump(),
+    )
+    fetched = await ac.get(
+        "/admin/settings/resource-import",
+        headers=headers,
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert ResourceImportSettings.model_validate(response.json()) == updated
+    assert ResourceImportSettings.model_validate(fetched.json()) == updated
 
 
 @mark_async_test()

@@ -26,6 +26,11 @@ from tanbun.feature.entry.namespace import (
     fetch_namespace,
     sync_namespace,
 )
+from tanbun.feature.entry.resource.import_control import resource_import_controller
+from tanbun.feature.entry.resource.import_settings import (
+    ResourceImportSettings,
+    get_resource_import_settings,
+)
 from tanbun.feature.entry.resource.limits import (
     DEFAULT_RESOURCE_UPLOAD_LIMITS,
     validate_batch_size,
@@ -54,6 +59,11 @@ from tanbun.feature.user.router_util import ActiveUser, TrackUser
 from tanbun.workflow.resource_import import prepare_imported_resource_learning
 
 router = APIRouter(tags=["entry"])
+
+
+async def _resource_import_settings() -> ResourceImportSettings:
+    """現在の同期import制限を返す."""
+    return await get_resource_import_settings()
 
 
 def entry_router() -> APIRouter:  # noqa: D103
@@ -94,15 +104,21 @@ async def post_text(
 ) -> ResourceTextSaveResult:
     """テキストからsysnetを読み取って永続化."""
     validate_resource_text(body.txt)
-    ns = await fetch_namespace(user.id)
-    m, _, changed = await save_resource_with_detail(
-        ns,
-        body.txt,
-        body.path,
-        identity_resolutions=body.resolution_map("sentence"),
-        term_identity_resolutions=body.resolution_map("term"),
-    )
-    await prepare_imported_resource_learning(user.id, m)
+    settings = await _resource_import_settings()
+    async with resource_import_controller.slot(
+        user.uid,
+        max_concurrent_imports=settings.max_concurrent_imports,
+        max_concurrent_imports_per_user=settings.max_concurrent_imports_per_user,
+    ):
+        ns = await fetch_namespace(user.id)
+        m, _, changed = await save_resource_with_detail(
+            ns,
+            body.txt,
+            body.path,
+            identity_resolutions=body.resolution_map("sentence"),
+            term_identity_resolutions=body.resolution_map("term"),
+        )
+        await prepare_imported_resource_learning(user.id, m)
     return ResourceTextSaveResult(resource_id=m.uid.hex, changed=changed)
 
 
@@ -116,14 +132,20 @@ async def preview_text_update(
 ) -> ResourceDiffPreview:
     """保存せずにResourceの差分と同一性競合を検証する."""
     validate_resource_text(body.txt)
-    ns = await fetch_namespace(user.id)
-    return await preview_resource_update(
-        ns,
-        body.txt,
-        body.path,
-        body.resolution_map("sentence"),
-        body.resolution_map("term"),
-    )
+    settings = await _resource_import_settings()
+    async with resource_import_controller.slot(
+        user.uid,
+        max_concurrent_imports=settings.max_concurrent_imports,
+        max_concurrent_imports_per_user=settings.max_concurrent_imports_per_user,
+    ):
+        ns = await fetch_namespace(user.id)
+        return await preview_resource_update(
+            ns,
+            body.txt,
+            body.path,
+            body.resolution_map("sentence"),
+            body.resolution_map("term"),
+        )
 
 
 @router.post("/resource")
@@ -151,17 +173,23 @@ async def post_files(
         validate_batch_size(total_size)
         resources.append((file, text))
 
+    settings = await _resource_import_settings()
     resource_ids: list[str] = []
-    for file, text in resources:
-        ns = await fetch_namespace(user.id)
-        resource, _, _changed = await save_resource_with_detail(
-            ns,
-            text,
-            path=file.filename.split("/") if file.filename else None,
-            updated=datetime.now(tz=TZ),
-        )
-        await prepare_imported_resource_learning(user.id, resource)
-        resource_ids.append(resource.uid.hex)
+    async with resource_import_controller.slot(
+        user.uid,
+        max_concurrent_imports=settings.max_concurrent_imports,
+        max_concurrent_imports_per_user=settings.max_concurrent_imports_per_user,
+    ):
+        for file, text in resources:
+            ns = await fetch_namespace(user.id)
+            resource, _, _changed = await save_resource_with_detail(
+                ns,
+                text,
+                path=file.filename.split("/") if file.filename else None,
+                updated=datetime.now(tz=TZ),
+            )
+            await prepare_imported_resource_learning(user.id, resource)
+            resource_ids.append(resource.uid.hex)
     return {"resource_ids": resource_ids}
 
 

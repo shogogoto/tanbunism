@@ -49,3 +49,9 @@ class ResourceUploadLimitError(DomainError):
     """同期的に保存できるResourceの負荷上限を超過."""
 
     status_code = status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+
+
+class ResourceImportBusyError(DomainError):
+    """同時import数が運用上限へ達している."""
+
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS

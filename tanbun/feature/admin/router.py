@@ -5,6 +5,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 
+from tanbun.feature.entry.resource.import_settings import (
+    ResourceImportSettings,
+    get_resource_import_settings,
+    update_resource_import_settings,
+)
 from tanbun.feature.quiz.learning.study_plan.preparation_settings import (
     QuizPreparationSettings,
     get_quiz_preparation_settings,
@@ -45,6 +50,23 @@ from .repo import (
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.get("/settings/resource-import")
+async def get_resource_import_limits(
+    _admin: AdminUser,
+) -> ResourceImportSettings:
+    """Resource importの同時実行制限を取得する."""
+    return await get_resource_import_settings()
+
+
+@router.put("/settings/resource-import")
+async def update_resource_import_limits(
+    body: ResourceImportSettings,
+    _admin: AdminUser,
+) -> ResourceImportSettings:
+    """Resource importの同時実行制限を更新する."""
+    return await update_resource_import_settings(body)
 
 
 @router.get("/settings/quiz-preparation")
