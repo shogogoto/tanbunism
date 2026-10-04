@@ -33,6 +33,7 @@ from tanbun.feature.quiz.management.domain import (
     BrokenQuizReference,
     DeleteQuizzesResult,
     ManagedQuizResult,
+    QuizIssueSummary,
     QuizReattachmentResult,
     QuizReport,
     QuizReportRequest,
@@ -41,6 +42,7 @@ from tanbun.feature.quiz.management.domain import (
     UnplannedQuiz,
 )
 from tanbun.feature.quiz.management.repo import (
+    count_created_quiz_issues,
     list_broken_created_quiz_references,
     list_created_quiz_resource_statuses,
     list_created_quiz_sentence_statuses,
@@ -180,6 +182,14 @@ async def list_broken_created_quizzes(
 ) -> list[BrokenQuizReference]:
     """自分が作成したQuizの修復待ち参照を取得."""
     return await list_broken_created_quiz_references(user.uid)
+
+
+@_r.get("/created/issues/summary")
+async def get_created_quiz_issue_summary(
+    user: ActiveUser,
+) -> QuizIssueSummary:
+    """要対応と整理候補のQuiz件数を取得."""
+    return await count_created_quiz_issues(user.uid)
 
 
 @_r.get("/created/reports")

@@ -75,6 +75,15 @@ class UnplannedQuiz(BaseModel, frozen=True):
     resource_name: str | None
 
 
+class QuizIssueSummary(BaseModel, frozen=True):
+    """作成者が確認すべきQuizと整理候補の件数."""
+
+    broken_count: int
+    reported_count: int
+    unplanned_count: int
+    total_count: int
+
+
 class QuizReattachmentResult(BaseModel, frozen=True):
     """1件のQuizで付け替えた関係数と退役単文の保持状態."""
 

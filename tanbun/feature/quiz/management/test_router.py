@@ -321,6 +321,10 @@ async def test_report_quiz_issue_and_list_for_creator(ac: AsyncClient, u: LUser)
         json={"reason": "incorrect", "detail": "正解がおかしい"},
     )
     reports = await ac.get("/quiz/created/reports", headers=creator_headers)
+    summary = await ac.get(
+        "/quiz/created/issues/summary",
+        headers=creator_headers,
+    )
 
     assert first.status_code == status.HTTP_204_NO_CONTENT
     assert second.status_code == status.HTTP_204_NO_CONTENT
@@ -328,6 +332,13 @@ async def test_report_quiz_issue_and_list_for_creator(ac: AsyncClient, u: LUser)
     assert reports.json()[0]["quiz_id"].replace("-", "") == created.quiz_id.hex
     assert reports.json()[0]["reason"] == "incorrect"
     assert reports.json()[0]["detail"] == "正解がおかしい"
+    assert summary.status_code == status.HTTP_200_OK
+    assert summary.json() == {
+        "broken_count": 0,
+        "reported_count": 1,
+        "unplanned_count": 1,
+        "total_count": 1,
+    }
     assert reports.json()[0]["report_count"] == 1
     notifications = await ac.get("/notifications", headers=creator_headers)
     assert notifications.status_code == status.HTTP_200_OK

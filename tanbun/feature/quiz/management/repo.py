@@ -7,6 +7,7 @@ from tanbun.feature.entry.mapper import MResource
 from tanbun.feature.quiz.domain.parts import QuizType
 from tanbun.feature.quiz.management.domain import (
     BrokenQuizReference,
+    QuizIssueSummary,
     QuizReattachmentResult,
     QuizReport,
     QuizReportReason,
@@ -14,6 +15,58 @@ from tanbun.feature.quiz.management.domain import (
     SentenceQuizStatus,
     UnplannedQuiz,
 )
+
+
+async def count_created_quiz_issues(user_id: UUIDy) -> QuizIssueSummary:
+    """要対応・整理候補を分類別と重複除外した合計で数える."""
+    query = """
+        MATCH (user:User {uid: $user_id})
+        CALL (user) {
+            MATCH (user)-[:CREATE]->(broken:Quiz)-[:BROKEN_BY]->()
+            RETURN collect(DISTINCT broken.uid) AS broken_ids
+        }
+        CALL (user) {
+            MATCH (user)-[:CREATE]->(reported:Quiz)
+            MATCH (:User)-[:REPORT]->(:QuizReport)-[:REPORT_OF]->(reported)
+            RETURN collect(DISTINCT reported.uid) AS reported_ids
+        }
+        CALL (user) {
+            MATCH (user)-[:CREATE]->(unplanned:Quiz)
+                -[:QUIZ_TARGET]->(target:Sentence)
+            WHERE NOT EXISTS { MATCH (unplanned)-[:BROKEN_BY]->() }
+              AND NOT EXISTS {
+                MATCH (plan:StudyPlan)-[:OWNED]->(user)
+                MATCH (plan)-[:STUDY]->(resource:Resource {
+                    uid: target.resource_uid
+                })
+                WHERE unplanned.quiz_type IN plan.quiz_types
+            }
+            RETURN collect(DISTINCT unplanned.uid) AS unplanned_ids
+        }
+        CALL (broken_ids, reported_ids, unplanned_ids) {
+            UNWIND broken_ids + reported_ids + unplanned_ids AS issue_id
+            RETURN collect(DISTINCT issue_id) AS issue_ids
+        }
+        RETURN size(broken_ids), size(reported_ids), size(unplanned_ids),
+            size(issue_ids)
+    """
+    rows, _ = await adb.cypher_query(
+        query,
+        params={"user_id": to_uuid(user_id).hex},
+    )
+    if not rows:
+        return QuizIssueSummary(
+            broken_count=0,
+            reported_count=0,
+            unplanned_count=0,
+            total_count=0,
+        )
+    return QuizIssueSummary(
+        broken_count=rows[0][0],
+        reported_count=rows[0][1],
+        unplanned_count=rows[0][2],
+        total_count=rows[0][3],
+    )
 
 
 async def report_quiz_issue(
