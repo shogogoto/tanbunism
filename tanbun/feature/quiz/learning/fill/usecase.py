@@ -69,17 +69,23 @@ async def generate_quizzes(  # noqa: PLR0917
         quiz_type,
         pool,
         order,
-        limit=n_quiz,
+        # 選択肢不足の候補を飛ばしても指定数へ近づけられるよう余分に取得する。
+        limit=max(n_quiz * 10, n_quiz),
         exclude_sent_ids=exclude_target_ids,
     )
     quizzes = []
     for target_id in target_ids:
-        quiz = await generate_quiz(
-            quiz_type,
-            candidate_type,
-            target_id,
-            n_option,
-            user_id,
-        )
+        try:
+            quiz = await generate_quiz(
+                quiz_type,
+                candidate_type,
+                target_id,
+                n_option,
+                user_id,
+            )
+        except InsufficientOptionsError:
+            continue
         quizzes.append(quiz)
+        if len(quizzes) == n_quiz:
+            break
     return quizzes

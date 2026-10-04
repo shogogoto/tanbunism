@@ -43,6 +43,7 @@ from tanbun.feature.quiz.learning.study_plan.repo import (
 )
 
 logger = logging.getLogger(__name__)
+MAX_FAILURE_DETAILS = 3
 
 
 async def _check_resource_ownership(
@@ -207,10 +208,13 @@ async def prepare_study_plans_in_background(
     completed = 0
     failed = 0
     added = 0
+    failure_details: list[str] = []
     try:
         for plan_id in plan_ids:
+            plan_name = str(plan_id)
             try:
                 plan = await get_study_plan(plan_id, user_id)
+                plan_name = plan.name
                 result = await prepare_additional_study_plan_quizzes(
                     plan.uid,
                     user_id,
@@ -219,8 +223,11 @@ async def prepare_study_plans_in_background(
                 )
                 completed += 1
                 added += result.added_count
-            except Exception:
+            except Exception as error:
                 failed += 1
+                if len(failure_details) < MAX_FAILURE_DETAILS:
+                    reason = str(error).strip() or type(error).__name__
+                    failure_details.append(f"「{plan_name}」: {reason}")
                 logger.exception("StudyPlan quiz preparation failed: %s", plan_id)
 
         if completed:
@@ -235,6 +242,10 @@ async def prepare_study_plans_in_background(
             title = "クイズを準備できませんでした"
             description = f"選択した{failed}件の学習計画を確認してください。"
             kind = NotificationKind.QUIZ_PREPARATION_FAILED
+
+        if failure_details:
+            description += " 原因: " + " / ".join(failure_details)
+            description = description[:500]
 
         await notify_user(
             user_id,
