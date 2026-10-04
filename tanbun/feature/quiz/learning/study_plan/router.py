@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Response, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Response, status
 
 from tanbun.feature.quiz.domain.parts import QuizType
 from tanbun.feature.quiz.learning.study_plan.domain import (
@@ -13,6 +13,13 @@ from tanbun.feature.quiz.learning.study_plan.domain import (
     StudyPlan,
     StudyPlanDraft,
     StudyPlanPreparationStatus,
+)
+from tanbun.feature.quiz.learning.study_plan.preparation_control import (
+    UserPreparationLimitError,
+    quiz_preparation_controller,
+)
+from tanbun.feature.quiz.learning.study_plan.preparation_settings import (
+    get_quiz_preparation_settings,
 )
 from tanbun.feature.quiz.learning.study_plan.schema import (
     QuizRecommendationResponse,
@@ -66,11 +73,31 @@ async def prepare_study_plans_api(
 ) -> PrepareStudyPlansAccepted:
     """選択したStudyPlanのクイズ準備をバックグラウンドで開始する."""
     await validate_study_plans_for_preparation(body.plan_ids, user.uid)
+    settings = await get_quiz_preparation_settings()
+    requested_quizzes = len(body.plan_ids) * body.additional_count
+    if requested_quizzes > settings.max_quizzes_per_job:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"一度に準備できるのは合計{settings.max_quizzes_per_job}問までです"
+            ),
+        )
+    try:
+        await quiz_preparation_controller.reserve(
+            user.uid,
+            max_jobs_per_user=settings.max_concurrent_jobs_per_user,
+        )
+    except UserPreparationLimitError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(error),
+        ) from error
     background_tasks.add_task(
-        prepare_study_plans_in_background,
-        body.plan_ids,
+        quiz_preparation_controller.execute,
         user.uid,
-        body.additional_count,
+        max_concurrent_jobs=settings.max_concurrent_jobs,
+        operation=prepare_study_plans_in_background,
+        args=(body.plan_ids, user.uid, body.additional_count),
     )
     return PrepareStudyPlansAccepted(accepted_count=len(body.plan_ids))
 

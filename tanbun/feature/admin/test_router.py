@@ -9,6 +9,9 @@ from starlette import status
 from tanbun.conftest import mark_async_test
 from tanbun.feature.domain.types import to_uuid
 from tanbun.feature.entry.resource.usecase import save_text
+from tanbun.feature.quiz.learning.study_plan.preparation_settings import (
+    QuizPreparationSettings,
+)
 from tanbun.feature.user.testing import aauth_header, aregister
 
 from .domain import DeleteOrphanedTanbunsResult, OrphanedTanbun
@@ -19,6 +22,34 @@ async def _admin_headers(email: str) -> dict[str, str]:
     user.is_superuser = True
     await user.save()
     return await aauth_header(email)
+
+
+@mark_async_test()
+async def test_admin_updates_quiz_preparation_settings(ac: AsyncClient) -> None:
+    """adminは一括クイズ準備の負荷上限を更新できる."""
+    headers = await _admin_headers("quiz-settings-admin@example.com")
+    defaults = await ac.get(
+        "/admin/settings/quiz-preparation",
+        headers=headers,
+    )
+    assert defaults.status_code == status.HTTP_200_OK
+    assert QuizPreparationSettings.model_validate(defaults.json()) == (
+        QuizPreparationSettings()
+    )
+
+    updated = QuizPreparationSettings(
+        max_concurrent_jobs=2,
+        max_concurrent_jobs_per_user=1,
+        max_quizzes_per_job=300,
+    )
+    response = await ac.put(
+        "/admin/settings/quiz-preparation",
+        headers=headers,
+        json=updated.model_dump(),
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert QuizPreparationSettings.model_validate(response.json()) == updated
 
 
 @mark_async_test()

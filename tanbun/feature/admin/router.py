@@ -5,6 +5,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 
+from tanbun.feature.quiz.learning.study_plan.preparation_settings import (
+    QuizPreparationSettings,
+    get_quiz_preparation_settings,
+    update_quiz_preparation_settings,
+)
 from tanbun.feature.user.manager import get_user_manager
 from tanbun.feature.user.router_util import AdminUser
 
@@ -40,6 +45,23 @@ from .repo import (
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.get("/settings/quiz-preparation")
+async def get_quiz_preparation_limits(
+    _admin: AdminUser,
+) -> QuizPreparationSettings:
+    """一括クイズ準備のサーバー制限を取得する."""
+    return await get_quiz_preparation_settings()
+
+
+@router.put("/settings/quiz-preparation")
+async def update_quiz_preparation_limits(
+    body: QuizPreparationSettings,
+    _admin: AdminUser,
+) -> QuizPreparationSettings:
+    """一括クイズ準備のサーバー制限を更新する."""
+    return await update_quiz_preparation_settings(body)
 
 
 @router.get("/orphaned-tanbuns")
