@@ -10,6 +10,7 @@ def test_calculate_learning_progress() -> None:
     progress = calculate_learning_progress(
         LearningActivityCounts(
             n_sentence=100,
+            n_tanbun_exposure=30,
             n_quiz_created=10,
             n_quiz_answered=20,
             n_quiz_correct=15,
@@ -18,6 +19,7 @@ def test_calculate_learning_progress() -> None:
 
     assert progress.xp.model_dump() == {
         "knowledge": 100,
+        "tanbun_exposure": 30,
         "quiz_creation": 10,
         "quiz_answer": 100,
         "correct_bonus": 30,
@@ -28,6 +30,12 @@ def test_calculate_learning_progress() -> None:
             "activity_count": 100,
             "xp_per_activity": 1,
             "earned_xp": 100,
+        },
+        {
+            "source": "tanbun_exposure",
+            "activity_count": 30,
+            "xp_per_activity": 1,
+            "earned_xp": 30,
         },
         {
             "source": "quiz_creation",
@@ -48,11 +56,11 @@ def test_calculate_learning_progress() -> None:
             "earned_xp": 30,
         },
     ]
-    assert progress.total_xp == 240  # noqa: PLR2004
+    assert progress.total_xp == 270  # noqa: PLR2004
     assert progress.level == 3  # noqa: PLR2004
-    assert progress.current_level_xp == 40  # noqa: PLR2004
+    assert progress.current_level_xp == 70  # noqa: PLR2004
     assert progress.xp_for_next_level == 250  # noqa: PLR2004
-    assert progress.xp_to_next_level == 210  # noqa: PLR2004
+    assert progress.xp_to_next_level == 180  # noqa: PLR2004
 
 
 def test_level_threshold_starts_at_zero() -> None:

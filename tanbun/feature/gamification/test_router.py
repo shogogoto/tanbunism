@@ -24,6 +24,12 @@ async def test_get_learning_progress_without_login(ac: AsyncClient) -> None:
             "earned_xp": 0,
         },
         {
+            "source": "tanbun_exposure",
+            "activity_count": 0,
+            "xp_per_activity": 1,
+            "earned_xp": 0,
+        },
+        {
             "source": "quiz_creation",
             "activity_count": 0,
             "xp_per_activity": 1,

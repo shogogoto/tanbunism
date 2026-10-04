@@ -26,6 +26,14 @@ async def test_fetch_learning_activity_counts() -> None:
             (quiz2:Quiz {uid: "activity-quiz-2"}),
             (correct:Answer {uid: "activity-answer-1", is_correct: true}),
             (incorrect:Answer {uid: "activity-answer-2", is_correct: false}),
+            (exposure1:TanbunExposure {
+                key: "activity-exposure-1",
+                user_id: $user_id
+            }),
+            (exposure2:TanbunExposure {
+                key: "activity-exposure-2",
+                user_id: $user_id
+            }),
             (resource)-[:OWNED]->(user),
             (resource)-[:STATS]->(stat),
             (user)-[:CREATE]->(quiz1),
@@ -43,6 +51,7 @@ async def test_fetch_learning_activity_counts() -> None:
 
     assert result.model_dump() == {
         "n_sentence": 12,
+        "n_tanbun_exposure": 2,
         "n_quiz_created": 2,
         "n_quiz_answered": 2,
         "n_quiz_correct": 1,

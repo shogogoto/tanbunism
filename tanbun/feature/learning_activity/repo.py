@@ -20,6 +20,13 @@ async def fetch_learning_activity_counts(
         """,
         params={"resource_key_prefix": f"{uid}:"},
     )
+    exposure_rows, _ = await adb.cypher_query(
+        """
+        MATCH (exposure:TanbunExposure {user_id: $user_id})
+        RETURN count(exposure)
+        """,
+        params={"user_id": uid},
+    )
     quiz_rows, _ = await adb.cypher_query(
         """
         MATCH (user:User {uid: $user_id})
@@ -33,9 +40,11 @@ async def fetch_learning_activity_counts(
         params={"user_id": uid},
     )
     n_sentence = knowledge_rows[0][0] if knowledge_rows else 0
+    n_tanbun_exposure = exposure_rows[0][0] if exposure_rows else 0
     quiz_counts = quiz_rows[0] if quiz_rows else (0, 0, 0)
     return LearningActivityCounts(
         n_sentence=n_sentence,
+        n_tanbun_exposure=n_tanbun_exposure,
         n_quiz_created=quiz_counts[0],
         n_quiz_answered=quiz_counts[1],
         n_quiz_correct=quiz_counts[2],
