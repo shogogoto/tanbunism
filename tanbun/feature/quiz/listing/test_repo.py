@@ -18,6 +18,7 @@ from tanbun.feature.quiz.listing.repo import (
     list_learning_quizzes,
     list_quiz_by_sentence_ids,
     list_quiz_by_user_ids,
+    list_quiz_feed,
 )
 from tanbun.feature.tanbun.label import LSentence
 from tanbun.feature.user.label import LUser
@@ -79,6 +80,22 @@ async def test_list_learning_quizzes(u: LUser):
     assert [quiz.quiz_id for quiz in result.data.root] == unordered(
         [*own_ids, assigned_id],
     )
+
+
+@mark_async_test()
+async def test_list_quiz_feed_includes_other_users_quizzes(u: LUser):
+    """全ユーザーTLには他ユーザーが作成したQuizも含める."""
+    other = await LUser(email="quiz-feed-other@ex.com").save()
+    own_ids = await _create_quiz_set(u.uid, "ccc")
+    other_ids = await _create_quiz_set(other.uid, "ccc")
+
+    result = await list_quiz_feed(u.uid)
+
+    assert result.total == len(own_ids) + len(other_ids)
+    assert [item.quiz.quiz_id for item in result.data] == unordered(
+        [*own_ids, *other_ids],
+    )
+    assert all(item.attempts == 0 for item in result.data)
 
 
 @mark_async_test()

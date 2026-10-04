@@ -26,6 +26,7 @@ from tanbun.feature.quiz.listing.repo import (
     list_answers,
     list_learning_quizzes,
     list_quiz_by_user_ids,
+    list_quiz_feed,
     search_created_quizzes,
 )
 from tanbun.feature.quiz.management.domain import (
@@ -112,6 +113,16 @@ async def list_created_quizzes(
         resource_ids=[resource_id] if resource_id is not None else None,
         sentence_ids=[sentence_id] if sentence_id is not None else None,
     )
+
+
+@_r.get("/feed")
+async def list_quiz_feed_api(
+    user: ActiveUser,
+    page: Annotated[int, Query(gt=0)] = 1,
+    size: Annotated[int, Query(gt=0, le=100)] = 20,
+) -> ManagedQuizResult:
+    """全ユーザーが作成したQuizを閲覧者の回答状況付きで取得."""
+    return await list_quiz_feed(user.uid, Paging(page=page, size=size))
 
 
 @_r.get("/created/resources")

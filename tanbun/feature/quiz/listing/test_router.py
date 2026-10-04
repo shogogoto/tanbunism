@@ -1,6 +1,7 @@
 """クイズ・回答一覧APIのテスト."""
 
 from httpx import AsyncClient
+from starlette import status
 
 from tanbun.conftest import async_fixture, mark_async_test
 from tanbun.feature.quiz.answering.repo import create_answer
@@ -49,6 +50,26 @@ async def test_list_learning_quizzes_api(ac: AsyncClient, u: LUser):
 
     assert result.total == len(quizzes)
     assert len(result.data.root) == page_size
+
+
+@mark_async_test()
+async def test_list_quiz_feed_api(ac: AsyncClient, u: LUser):
+    """全ユーザーQuiz TLを回答状況付きで取得."""
+    other = await LUser(email="quiz-feed-api-other@ex.com").save()
+    own = await _generate_quizzes(u, 1)
+    another = await _generate_quizzes(other, 1)
+
+    response = await ac.get(
+        "/quiz/feed",
+        headers=await aauth_header(email=u.email),
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["total"] == len(own) + len(another)
+    assert {item["quiz"]["quiz_id"] for item in response.json()["data"]} == {
+        str(own[0].quiz_id),
+        str(another[0].quiz_id),
+    }
 
 
 @mark_async_test()

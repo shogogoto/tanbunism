@@ -173,7 +173,72 @@ async def search_created_quizzes(
             **paging.params,
         },
     )
-    total, records = rows[0]
+    return await _to_managed_result(*rows[0])
+
+
+async def list_quiz_feed(
+    user_id: UUIDy,
+    paging: Paging = Paging(),
+) -> ManagedQuizResult:
+    """全ユーザーが作成した有効なQuizを閲覧者の回答状況付きで返す."""
+    q = f"""
+        MATCH (creator:User)-[:CREATE]->(quiz:Quiz)
+        MATCH (quiz)-[:QUIZ_TARGET]->(target:Sentence)
+        WHERE creator.is_active = true
+          AND NOT EXISTS {{
+            MATCH (quiz)-[:BROKEN_BY]->()
+          }}
+          AND (
+            NOT quiz.quiz_type IN ['TERM2SENT', 'SENT2TERM']
+            OR EXISTS {{ MATCH (:Term)-[:DEF]->(target) }}
+          )
+          AND NOT EXISTS {{
+            MATCH (quiz)-[:QUIZ_OPTION]->(invalid_option:Sentence)
+            WHERE quiz.quiz_type IN ['TERM2SENT', 'SENT2TERM']
+              AND NOT EXISTS {{ MATCH (:Term)-[:DEF]->(invalid_option) }}
+          }}
+        OPTIONAL MATCH (:User {{uid: $user_id}})-[:ANSWER]->(answer:Answer)
+            -[:ANSWER_OF]->(quiz)
+        WITH
+            quiz,
+            COUNT(answer) AS attempts,
+            COUNT(CASE WHEN answer.is_correct THEN 1 END) AS corrects,
+            MAX(answer.created) AS last_attempted_at
+        WITH
+            quiz,
+            attempts,
+            corrects,
+            last_attempted_at,
+            CASE
+                WHEN attempts = 0 THEN NULL
+                ELSE toFloat(corrects) / attempts
+            END AS accuracy
+        ORDER BY
+            CASE WHEN attempts = 0 THEN 0 ELSE 1 END,
+            accuracy ASC,
+            quiz.created DESC,
+            quiz.uid ASC
+        WITH COLLECT({{
+            quiz_id: quiz.uid,
+            attempts: attempts,
+            corrects: corrects,
+            accuracy: accuracy,
+            last_attempted_at: last_attempted_at
+        }}) AS records
+        {paging.return_stmt("records")}
+    """
+    rows, _ = await adb.cypher_query(
+        q,
+        params={"user_id": to_uuid(user_id).hex, **paging.params},
+    )
+    return await _to_managed_result(*rows[0])
+
+
+async def _to_managed_result(
+    total: int,
+    records: list[dict],
+) -> ManagedQuizResult:
+    """Quiz IDと回答集計を復元済みの管理表示へ変換する."""
     sources = await restore_quiz_sources([record["quiz_id"] for record in records])
     source_by_id = {source.quiz_id.hex: source for source in sources}
     return ManagedQuizResult(
