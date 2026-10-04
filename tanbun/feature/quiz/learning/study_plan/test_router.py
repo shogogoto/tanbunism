@@ -271,13 +271,16 @@ async def test_prepare_selected_study_plans_in_background(
 
     response = await ac.post(
         "/quiz/study-plans/prepare",
-        json={"plan_ids": [str(first.uid), str(second.uid)]},
+        json={
+            "plan_ids": [str(first.uid), str(second.uid)],
+            "additional_count": 7,
+        },
         headers=await aauth_header(email=u.email),
     )
 
     assert response.status_code == status.HTTP_202_ACCEPTED
     assert response.json() == {"accepted_count": 2}
-    prepare.assert_awaited_once_with([first.uid, second.uid], u.uid)
+    prepare.assert_awaited_once_with([first.uid, second.uid], u.uid, 7)
 
 
 @mark_async_test()

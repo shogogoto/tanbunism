@@ -201,6 +201,7 @@ async def validate_study_plans_for_preparation(
 async def prepare_study_plans_in_background(
     plan_ids: list[UUIDy],
     user_id: UUIDy,
+    additional_count: int,
 ) -> None:
     """複数Planを順番に準備し、一つの完了通知へ集約する."""
     completed = 0
@@ -213,7 +214,7 @@ async def prepare_study_plans_in_background(
                 result = await prepare_additional_study_plan_quizzes(
                     plan.uid,
                     user_id,
-                    max(1, plan.n_quiz),
+                    additional_count,
                     send_notification=False,
                 )
                 completed += 1

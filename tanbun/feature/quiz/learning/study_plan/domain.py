@@ -12,7 +12,7 @@ from tanbun.feature.quiz.limits import (
     MAX_RESOURCES_PER_STUDY_PLAN,
 )
 
-MAX_STUDY_PLANS_PER_PREPARATION = 20
+MAX_STUDY_PLANS_PER_PREPARATION = 100
 
 
 class StudyPlanDraft(BaseModel, frozen=True):
@@ -68,6 +68,7 @@ class PrepareStudyPlansRequest(BaseModel, frozen=True):
         min_length=1,
         max_length=MAX_STUDY_PLANS_PER_PREPARATION,
     )
+    additional_count: int = Field(ge=1, le=MAX_QUIZZES_PER_REQUEST)
 
     @field_validator("plan_ids")
     @classmethod

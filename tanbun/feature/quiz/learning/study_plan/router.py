@@ -70,6 +70,7 @@ async def prepare_study_plans_api(
         prepare_study_plans_in_background,
         body.plan_ids,
         user.uid,
+        body.additional_count,
     )
     return PrepareStudyPlansAccepted(accepted_count=len(body.plan_ids))
 
