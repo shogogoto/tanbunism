@@ -71,5 +71,5 @@ async def test_incomplete_resource_info_explains_reimport() -> None:
     user = await LUser(email="incomplete@gmail.com").save()
     resource = await create_resource(user.uid, "# incomplete")
 
-    with pytest.raises(ResourceIncompleteError, match="再import"):
+    with pytest.raises(ResourceIncompleteError, match="再インポート"):
         await fetch_info_by_resource_uid(resource.uid)

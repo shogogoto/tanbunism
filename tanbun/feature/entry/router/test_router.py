@@ -135,7 +135,7 @@ async def test_fetch_resource_detail(files: tuple[Anchor, list[Path]]):  # noqa:
 
 @mark_async_test()
 async def test_incomplete_resource_detail_requests_reimport() -> None:
-    """Resourceだけ残った場合は500でなく再import可能な409を返す."""
+    """Resourceだけ残った場合は500でなく再インポート可能な409を返す."""
     client, _headers = auth_header("incomplete-resource@example.com")
     user = await LUser.nodes.get(email="incomplete-resource@example.com")
     resource = await create_resource(user.uid, "# incomplete resource")
@@ -143,7 +143,7 @@ async def test_incomplete_resource_detail_requests_reimport() -> None:
     response = client.get(f"/resource/{resource.uid}")
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert "再import" in response.json()["detail"]["message"]
+    assert "再インポート" in response.json()["detail"]["message"]
 
 
 @mark_async_test()

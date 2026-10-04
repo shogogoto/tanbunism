@@ -362,8 +362,9 @@ async def fetch_info_by_resource_uid(resource_uid: UUIDy) -> ResourceInfo:
         raise NotFoundError(msg)
 
     # Resourceだけが作られ、本文や統計の保存に失敗した古いデータを
-    # KeyErrorによる500にしない。同じ読書メモの再importで修復できる。
-    msg = "Resourceの取り込みが完了していません。同じ読書メモを再importしてください。"
+    # KeyErrorによる500にしない。同じファイルの再インポートで修復できる。
+    msg = "Resourceの取り込みが完了していません。"
+    msg += "同じファイルを再インポートしてください。"
     raise ResourceIncompleteError(msg)
 
 
