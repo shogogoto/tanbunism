@@ -1,20 +1,26 @@
 """StudyPlanのユースケーステスト."""
 
+from datetime import datetime
+from unittest.mock import AsyncMock
+from uuid import uuid4
+
 import pytest
 
 from tanbun.conftest import async_fixture, mark_async_test
+from tanbun.feature.domain.datetime import TZ
 from tanbun.feature.quiz.domain.parts import QuizType
 from tanbun.feature.quiz.learning.fixture import (
     create_learning_test_resource,
     fx_learning,
     learning_resource_id,
 )
-from tanbun.feature.quiz.learning.study_plan.domain import StudyPlanDraft
+from tanbun.feature.quiz.learning.study_plan.domain import StudyPlan, StudyPlanDraft
 from tanbun.feature.quiz.learning.study_plan.errors import (
     StudyPlanNotFoundError,
 )
 from tanbun.feature.quiz.learning.study_plan.repo import create_study_plan
 from tanbun.feature.quiz.learning.study_plan.usecase import (
+    prepare_additional_study_plan_quizzes,
     recommend_quizzes_for_study_plan,
 )
 from tanbun.feature.user.label import LUser
@@ -22,6 +28,57 @@ from tanbun.feature.user.testing import aregister
 
 u = async_fixture()(fx_learning)
 MIN_RECOMMENDED_OPTIONS = 2
+
+
+@mark_async_test()
+async def test_prepare_redistributes_quizzes_from_unavailable_types(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """生成不能な形式の割当分を生成可能な形式で補う."""
+    requested_count = 5
+    plan = StudyPlan(
+        uid=uuid4(),
+        name="形式を補完",
+        resource_ids=[uuid4()],
+        quiz_types=[QuizType.TERM2SENT, QuizType.SENT2TERM],
+        n_quiz=requested_count,
+        n_option=4,
+        created=datetime.now(tz=TZ),
+    )
+    generated = 0
+
+    def generate(*args, **kwargs):
+        nonlocal generated
+        if args[2] is QuizType.TERM2SENT:
+            return []
+        quizzes = [object()] * kwargs["n_quiz"]
+        generated += len(quizzes)
+        return quizzes
+
+    count = AsyncMock(side_effect=[0, requested_count])
+    monkeypatch.setattr(
+        "tanbun.feature.quiz.learning.study_plan.usecase.get_study_plan",
+        AsyncMock(return_value=plan),
+    )
+    monkeypatch.setattr(
+        "tanbun.feature.quiz.learning.study_plan.usecase.count_prepared_quizzes",
+        count,
+    )
+    monkeypatch.setattr(
+        "tanbun.feature.quiz.learning.study_plan.usecase.generate_quizzes",
+        AsyncMock(side_effect=generate),
+    )
+
+    result = await prepare_additional_study_plan_quizzes(
+        plan.uid,
+        uuid4(),
+        requested_count,
+        send_notification=False,
+    )
+
+    assert generated == requested_count
+    assert result.added_count == requested_count
+    assert result.prepared_quiz_count == requested_count
 
 
 @mark_async_test()

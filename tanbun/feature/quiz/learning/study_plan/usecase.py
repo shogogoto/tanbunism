@@ -155,10 +155,11 @@ async def prepare_additional_study_plan_quizzes(
         for resource_id in plan.resource_ids
     ]
     counts = _allocate_counts(additional_count, len(targets))
+    generated_count = 0
     for (quiz_type, resource_id), count in zip(targets, counts, strict=True):
         if count == 0:
             continue
-        await generate_quizzes(
+        quizzes = await generate_quizzes(
             resource_id,
             user_id,
             quiz_type,
@@ -167,6 +168,24 @@ async def prepare_additional_study_plan_quizzes(
             n_quiz=count,
             n_option=plan.n_option,
         )
+        generated_count += len(quizzes)
+
+    # ある形式で候補が足りなくても、生成可能な別形式で指定数まで補う。
+    remaining = additional_count - generated_count
+    if remaining > 0:
+        for quiz_type, resource_id in targets:
+            quizzes = await generate_quizzes(
+                resource_id,
+                user_id,
+                quiz_type,
+                QuizFillStrategy.COVERAGE,
+                CandidateType.ALL,
+                n_quiz=remaining,
+                n_option=plan.n_option,
+            )
+            remaining -= len(quizzes)
+            if remaining == 0:
+                break
     prepared = await count_prepared_quizzes(plan.uid, user_id)
     added = max(0, prepared - before)
     if added > 0 and send_notification:
@@ -230,7 +249,7 @@ async def prepare_study_plans_in_background(
                     failure_details.append(f"「{plan_name}」: {reason}")
                 logger.exception("StudyPlan quiz preparation failed: %s", plan_id)
 
-        if completed:
+        if completed and added > 0:
             title = (
                 "クイズの一括準備完了" if failed == 0 else "クイズの一括準備が一部完了"
             )
@@ -238,6 +257,15 @@ async def prepare_study_plans_in_background(
             if failed:
                 description += f" {failed}件は準備できませんでした。"
             kind = NotificationKind.QUIZ_PREPARATION_COMPLETE
+        elif completed:
+            title = "追加できるクイズがありませんでした"
+            description = (
+                f"{completed}件の学習計画を確認しましたが、"
+                "未出題の候補または選択肢が不足しています。"
+            )
+            if failed:
+                description += f" {failed}件は処理に失敗しました。"
+            kind = NotificationKind.QUIZ_PREPARATION_FAILED
         else:
             title = "クイズを準備できませんでした"
             description = f"選択した{failed}件の学習計画を確認してください。"
