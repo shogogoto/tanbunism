@@ -359,6 +359,58 @@ async def test_report_quiz_issue_and_list_for_creator(ac: AsyncClient, u: LUser)
 
 
 @mark_async_test()
+async def test_dismiss_and_reopen_reported_quiz(ac: AsyncClient, u: LUser):
+    """問題なしで閉じた報告は一覧から外れ、再報告で要対応へ戻る."""
+    expected_notification_count = 2
+    target = await LSentence.nodes.first(val="ccc")
+    created = await generate_quiz(
+        QuizType.TERM2SENT,
+        CandidateType.ALL,
+        target.uid,
+        3,
+        u.uid,
+    )
+    reporter = await aregister(email="quiz-reopen-reporter@ex.com")
+    reporter_headers = await aauth_header(email=reporter.email)
+    creator_headers = await aauth_header(email=u.email)
+
+    assert (
+        await ac.post(
+            f"/quiz/{created.quiz_id}/reports",
+            headers=reporter_headers,
+            json={"reason": "undefined", "detail": "最初の報告"},
+        )
+    ).status_code == status.HTTP_204_NO_CONTENT
+    assert (
+        await ac.post(
+            f"/quiz/created/reports/{created.quiz_id}/dismiss",
+            headers=creator_headers,
+        )
+    ).status_code == status.HTTP_204_NO_CONTENT
+
+    assert (await ac.get("/quiz/created/reports", headers=creator_headers)).json() == []
+    assert (
+        await ac.get(
+            "/quiz/created/issues/summary",
+            headers=creator_headers,
+        )
+    ).json()["reported_count"] == 0
+
+    assert (
+        await ac.post(
+            f"/quiz/{created.quiz_id}/reports",
+            headers=reporter_headers,
+            json={"reason": "other", "detail": "再確認してほしい"},
+        )
+    ).status_code == status.HTTP_204_NO_CONTENT
+    reports = await ac.get("/quiz/created/reports", headers=creator_headers)
+    notifications = await ac.get("/notifications", headers=creator_headers)
+
+    assert reports.json()[0]["detail"] == "再確認してほしい"
+    assert notifications.json()["unread_count"] == expected_notification_count
+
+
+@mark_async_test()
 async def test_self_report_sends_web_push(
     ac: AsyncClient,
     u: LUser,

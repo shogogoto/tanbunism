@@ -28,7 +28,8 @@ async def count_created_quiz_issues(user_id: UUIDy) -> QuizIssueSummary:
         }
         CALL (user) {
             MATCH (user)-[:CREATE]->(reported:Quiz)
-            MATCH (:User)-[:REPORT]->(:QuizReport)-[:REPORT_OF]->(reported)
+            MATCH (:User)-[:REPORT]->(report:QuizReport)-[:REPORT_OF]->(reported)
+            WHERE report.resolved_at IS NULL
             RETURN collect(DISTINCT reported.uid) AS reported_ids
         }
         CALL (user) {
@@ -83,13 +84,16 @@ async def report_quiz_issue(
         OPTIONAL MATCH (:User {uid: $user_id})-[:REPORT]->(
             existing:QuizReport {key: $key}
         )-[:REPORT_OF]->(quiz)
-        WITH user, creator, quiz, existing IS NULL AS created
+        WITH user, creator, quiz,
+            existing IS NULL OR existing.resolved_at IS NOT NULL AS created
         MERGE (user)-[:REPORT]->(report:QuizReport {key: $key})
             -[:REPORT_OF]->(quiz)
         ON CREATE SET report.uid = randomUUID(), report.created = datetime()
         SET report.reason = $reason,
             report.detail = $detail,
-            report.updated = datetime()
+            report.updated = datetime(),
+            report.resolved_at = null,
+            report.resolution = null
         RETURN creator.uid, created
     """
     rows, _ = await adb.cypher_query(
@@ -112,6 +116,7 @@ async def list_reported_created_quizzes(user_id: UUIDy) -> list[QuizReport]:
     query = """
         MATCH (:User {uid: $user_id})-[:CREATE]->(quiz:Quiz)
         MATCH (:User)-[:REPORT]->(report:QuizReport)-[:REPORT_OF]->(quiz)
+        WHERE report.resolved_at IS NULL
         OPTIONAL MATCH (quiz)-[:QUIZ_TARGET]->(target)
         OPTIONAL MATCH (resource:Resource {uid: target.resource_uid})
         WITH quiz, target, resource, collect(report) AS reports
@@ -150,6 +155,25 @@ async def list_reported_created_quizzes(user_id: UUIDy) -> list[QuizReport]:
             updated_at,
         ) in rows
     ]
+
+
+async def dismiss_reported_quiz(user_id: UUIDy, quiz_id: UUIDy) -> int:
+    """所有Quizへの未対応報告を、Quizを変更せず対応済みにする."""
+    query = """
+        MATCH (:User {uid: $user_id})-[:CREATE]->(quiz:Quiz {uid: $quiz_id})
+        MATCH (:User)-[:REPORT]->(report:QuizReport)-[:REPORT_OF]->(quiz)
+        WHERE report.resolved_at IS NULL
+        SET report.resolved_at = datetime(), report.resolution = 'dismissed'
+        RETURN count(report)
+    """
+    rows, _ = await adb.cypher_query(
+        query,
+        params={
+            "user_id": to_uuid(user_id).hex,
+            "quiz_id": to_uuid(quiz_id).hex,
+        },
+    )
+    return rows[0][0] if rows else 0
 
 
 async def list_broken_created_quiz_references(

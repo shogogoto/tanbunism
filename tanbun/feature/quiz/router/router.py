@@ -43,6 +43,7 @@ from tanbun.feature.quiz.management.domain import (
 )
 from tanbun.feature.quiz.management.repo import (
     count_created_quiz_issues,
+    dismiss_reported_quiz,
     list_broken_created_quiz_references,
     list_created_quiz_resource_statuses,
     list_created_quiz_sentence_statuses,
@@ -196,6 +197,19 @@ async def get_created_quiz_issue_summary(
 async def list_created_quiz_reports(user: ActiveUser) -> list[QuizReport]:
     """自分が作成したQuizへ届いた不備報告を取得."""
     return await list_reported_created_quizzes(user.uid)
+
+
+@_r.post(
+    "/created/reports/{quiz_id}/dismiss",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def dismiss_created_quiz_reports(
+    quiz_id: UUID,
+    user: ActiveUser,
+) -> Response:
+    """Quizを変更せず、届いた不備報告を問題なしとして対応済みにする."""
+    await dismiss_reported_quiz(user.uid, quiz_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @_r.get("/created/unplanned")
