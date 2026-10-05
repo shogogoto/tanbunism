@@ -17,6 +17,13 @@ class OrphanReason(StrEnum):
     MISSING_LOCATION = auto()
 
 
+class TanbunIntegrityKind(StrEnum):
+    """管理画面で区別するTanbunの不整合種別."""
+
+    ORPHANED = auto()
+    MISPLACED = auto()
+
+
 class OrphanedTanbun(BaseModel, frozen=True):
     """Resource内の配置を失った現行単文."""
 
@@ -35,6 +42,7 @@ class DeleteOrphanedTanbunsRequest(BaseModel, frozen=True):
     """削除対象の孤立単文."""
 
     sentence_ids: list[str] = Field(min_length=1, max_length=500)
+    kind: TanbunIntegrityKind = TanbunIntegrityKind.ORPHANED
 
 
 class DeleteOrphanedTanbunsResult(BaseModel, frozen=True):

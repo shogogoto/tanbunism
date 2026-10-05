@@ -33,6 +33,7 @@ from .domain import (
     OrphanedTanbun,
     ResetUserPasswordRequest,
     ResourceDeletionImpact,
+    TanbunIntegrityKind,
     UpdateUserStatusRequest,
 )
 from .repo import (
@@ -89,10 +90,11 @@ async def update_quiz_preparation_limits(
 @router.get("/orphaned-tanbuns")
 async def get_orphaned_tanbuns(
     _admin: AdminUser,
+    kind: TanbunIntegrityKind = TanbunIntegrityKind.ORPHANED,
     limit: Annotated[int, Query(ge=1, le=500)] = 200,
 ) -> list[OrphanedTanbun]:
-    """配置を失った現行単文を一覧する."""
-    return await list_orphaned_tanbuns(limit=limit)
+    """孤立またはResource内の配置を失った現行単文を一覧する."""
+    return await list_orphaned_tanbuns(kind=kind, limit=limit)
 
 
 @router.post("/orphaned-tanbuns/delete")
@@ -101,7 +103,7 @@ async def remove_orphaned_tanbuns(
     _admin: AdminUser,
 ) -> DeleteOrphanedTanbunsResult:
     """選択された孤立単文を削除または退役させる."""
-    return await delete_orphaned_tanbuns(body.sentence_ids)
+    return await delete_orphaned_tanbuns(body.sentence_ids, body.kind)
 
 
 @router.get("/broken-quizzes")

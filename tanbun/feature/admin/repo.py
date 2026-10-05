@@ -21,6 +21,7 @@ from .domain import (
     OrphanedTanbun,
     OrphanReason,
     ResourceDeletionImpact,
+    TanbunIntegrityKind,
 )
 
 QUIZ_SENTENCE_RELS = "QUIZ_TARGET|QUIZ_OPTION|CORRECT"
@@ -28,15 +29,23 @@ LOCATION_RELS = f"{STREAM}"
 SEMANTIC_LOCATION_RELS = "TO|EXAMPLE|NUM|BY"
 
 
-def _orphan_predicate(sentence_var: str) -> str:
-    """詳細画面でResource上の位置を解決できないSentenceを絞る."""
+def _has_resource_owner(sentence_var: str) -> str:
+    """Resourceと所有者が存在する条件を返す."""
+    return f"""EXISTS {{
+        MATCH (resource:Resource {{uid: {sentence_var}.resource_uid}})
+        MATCH (resource)-[:PARENT|OWNED]->*(owner:User)
+    }}"""
+
+
+def _has_location(sentence_var: str) -> str:
+    """Resource本文からSentenceへ辿れる条件を返す."""
     return f"""
-        NOT EXISTS {{
+        EXISTS {{
             MATCH (resource:Resource {{uid: {sentence_var}.resource_uid}})
             MATCH (resource)-[:PARENT|OWNED]->*(owner:User)
             MATCH (resource)-[:{LOCATION_RELS}]->*({sentence_var})
         }}
-        AND NOT EXISTS {{
+        OR EXISTS {{
             MATCH (resource:Resource {{uid: {sentence_var}.resource_uid}})
             MATCH (resource)-[:PARENT|OWNED]->*(owner:User)
             MATCH (resource)-[:{LOCATION_RELS}]->*(upper:Sentence)
@@ -45,12 +54,24 @@ def _orphan_predicate(sentence_var: str) -> str:
     """
 
 
-async def list_orphaned_tanbuns(*, limit: int = 200) -> list[OrphanedTanbun]:
-    """配置を解決できない現行Sentenceを参照状況付きで返す."""
-    orphan_predicate = _orphan_predicate("sentence")
+def _integrity_predicate(sentence_var: str, kind: TanbunIntegrityKind) -> str:
+    """実体の孤立と、Resource内の配置切れを区別して絞る."""
+    has_owner = _has_resource_owner(sentence_var)
+    if kind is TanbunIntegrityKind.ORPHANED:
+        return f"NOT ({has_owner})"
+    return f"({has_owner}) AND NOT ({_has_location(sentence_var)})"
+
+
+async def list_orphaned_tanbuns(
+    *,
+    kind: TanbunIntegrityKind = TanbunIntegrityKind.ORPHANED,
+    limit: int = 200,
+) -> list[OrphanedTanbun]:
+    """孤立または配置切れの現行Sentenceを参照状況付きで返す."""
+    integrity_predicate = _integrity_predicate("sentence", kind)
     query = f"""
         MATCH (sentence:Sentence)
-        WHERE {orphan_predicate}
+        WHERE {integrity_predicate}
         OPTIONAL MATCH (resource:Resource {{uid: sentence.resource_uid}})
         OPTIONAL MATCH (resource)-[:PARENT|OWNED]->*(owner:User)
         CALL (sentence) {{
@@ -107,13 +128,14 @@ async def list_orphaned_tanbuns(*, limit: int = 200) -> list[OrphanedTanbun]:
 
 async def delete_orphaned_tanbuns(
     sentence_ids: list[str],
+    kind: TanbunIntegrityKind = TanbunIntegrityKind.ORPHANED,
 ) -> DeleteOrphanedTanbunsResult:
-    """まだ孤立している単文だけを削除し、履歴参照があれば退役させる."""
-    orphan_predicate = _orphan_predicate("sentence")
+    """指定種別の不整合が残る単文だけを削除または退役させる."""
+    integrity_predicate = _integrity_predicate("sentence", kind)
     query = f"""
         UNWIND $sentence_ids AS sentence_id
         OPTIONAL MATCH (sentence:Sentence {{uid: sentence_id}})
-        WHERE sentence IS NOT NULL AND {orphan_predicate}
+        WHERE sentence IS NOT NULL AND {integrity_predicate}
         CALL (sentence) {{
             OPTIONAL MATCH (quiz:Quiz)-[:{QUIZ_SENTENCE_RELS}]->(sentence)
             RETURN [item IN collect(DISTINCT quiz) WHERE item IS NOT NULL]

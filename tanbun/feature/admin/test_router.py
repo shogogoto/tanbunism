@@ -101,7 +101,10 @@ async def test_admin_lists_only_sentences_without_location(ac: AsyncClient) -> N
     )
     headers = await _admin_headers("orphan-admin@example.com")
 
-    response = await ac.get("/admin/orphaned-tanbuns", headers=headers)
+    response = await ac.get(
+        "/admin/orphaned-tanbuns?kind=misplaced",
+        headers=headers,
+    )
 
     assert response.status_code == status.HTTP_200_OK
     items = [OrphanedTanbun.model_validate(item) for item in response.json()]
@@ -111,6 +114,10 @@ async def test_admin_lists_only_sentences_without_location(ac: AsyncClient) -> N
     assert items[0].owner_email == owner.email
     assert items[0].reason == "missing_location"
     assert items[0].quiz_reference_count == 1
+
+    orphan_response = await ac.get("/admin/orphaned-tanbuns", headers=headers)
+    assert orphan_response.status_code == status.HTTP_200_OK
+    assert orphan_response.json() == []
 
 
 @mark_async_test()
@@ -149,7 +156,10 @@ async def test_admin_delete_retires_referenced_and_deletes_unreferenced(
     response = await ac.post(
         "/admin/orphaned-tanbuns/delete",
         headers=headers,
-        json={"sentence_ids": [disposable_uid, referenced_uid]},
+        json={
+            "sentence_ids": [disposable_uid, referenced_uid],
+            "kind": "misplaced",
+        },
     )
 
     assert response.status_code == status.HTTP_200_OK
