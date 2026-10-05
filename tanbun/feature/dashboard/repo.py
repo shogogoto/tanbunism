@@ -1,10 +1,17 @@
 """個人ダッシュボードのNeo4jアクセス."""
 
 from datetime import date
+from math import log1p
 
 from neomodel import adb
 
 from tanbun.feature.domain.types import UUIDy, to_uuid
+from tanbun.feature.recommendation.daily import (
+    Candidate,
+    load_daily,
+    save_daily,
+    select_daily,
+)
 from tanbun.feature.repo.cypher import q_call_term_names
 from tanbun.feature.tanbun.repo.clause import OrderBy
 from tanbun.feature.tanbun.repo.cypher import q_location, q_stats
@@ -36,98 +43,88 @@ async def list_personal_tanbuns(
     *,
     limit: int = 30,
 ) -> list[PersonalTanbunItem]:
-    """新着と未遭遇の古い単文を混ぜ、古い知識も再登場させる."""
-    recent_limit = max(1, (limit * 2 + 2) // 3)
-    recent = await _fetch_personal_tanbuns(
-        user_id,
-        seen_on,
-        limit=recent_limit,
-        rediscovery=False,
-    )
-    rediscovery = await _fetch_personal_tanbuns(
-        user_id,
-        seen_on,
-        limit=limit,
-        rediscovery=True,
-    )
-    combined: list[PersonalTanbunItem] = []
-    included = set()
-    recent_index = 0
-    rediscovery_index = 0
-    while len(combined) < limit:
-        added = False
-        for _ in range(2):
-            while recent_index < len(recent):
-                item = recent[recent_index]
-                recent_index += 1
-                if item.uid in included:
-                    continue
-                combined.append(item)
-                included.add(item.uid)
-                added = True
-                break
-        while rediscovery_index < len(rediscovery) and len(combined) < limit:
-            item = rediscovery[rediscovery_index]
-            rediscovery_index += 1
-            if item.uid in included:
-                continue
-            combined.append(item)
-            included.add(item.uid)
-            added = True
-            break
-        if not added:
-            break
-    return combined
+    """未遭遇・久しぶり・スコアを重みに、同日の推薦セットを返す."""
+    uid = to_uuid(user_id).hex
+    ids = await load_daily(uid, "tanbuns", seen_on)
+    if not ids:
+        rows, _ = await adb.cypher_query(
+            """
+            MATCH (resource:Resource)-[:PARENT*0..]->()-[:OWNED]->(:User {uid: $uid})
+            MATCH (sentence:Sentence {resource_uid: resource.uid})
+            WITH DISTINCT resource, sentence
+            OPTIONAL MATCH (exposure:TanbunExposure {
+                user_id: $uid, sentence_id: sentence.uid
+            })
+            RETURN sentence.uid, resource.uid, count(exposure), max(exposure.seen_on)
+            """,
+            params={"uid": uid},
+        )
+        weights: dict[str, float] = {}
+        candidates = []
+        for sentence_id, resource_id, count, last_seen in rows:
+            days = (seen_on - last_seen.to_native()).days if last_seen else 30
+            weight = (4 if count == 0 else 1 / (1 + count)) * max(
+                0.05,
+                min(days / 14, 1),
+            )
+            weights[sentence_id] = weight
+            candidates.append(Candidate(sentence_id, resource_id, weight))
+        seed = f"{uid}:{seen_on}"
+        # 高コストの位置・スコア取得は分散した候補に限定する。
+        pool = select_daily(candidates, seed, 150)
+        items = await _fetch_personal_tanbuns(user_id, seen_on, ids=pool)
+        ids = select_daily(
+            [
+                Candidate(
+                    item.uid.hex,
+                    item.resource_uid.hex,
+                    weights[item.uid.hex] * (1 + log1p(max(0, item.score))),
+                )
+                for item in items
+            ],
+            seed,
+            30,
+        )
+        ids = await save_daily(uid, "tanbuns", seen_on, ids)
+    return await _fetch_personal_tanbuns(user_id, seen_on, ids=ids[:limit])
 
 
 async def _fetch_personal_tanbuns(
     user_id: UUIDy,
     seen_on: date,
     *,
-    limit: int,
-    rediscovery: bool,
+    ids: list[str],
 ) -> list[PersonalTanbunItem]:
-    """新着順または、遭遇が少なく古い順で単文を取得."""
+    """推薦IDの順に、現行で所有する単文と最新の閲覧状況を復元."""
     location_query = q_location("sentence")
     term_names_query = q_call_term_names("sentence")
     stats_query = q_stats("sentence", OrderBy())
     query = (
         """
-        MATCH (resource:Resource)-[:PARENT*0..]->(owner_entry)
+        UNWIND range(0, size($ids) - 1) AS position
+        MATCH (sentence:Sentence {uid: $ids[position]})
+        MATCH (resource:Resource {uid: sentence.resource_uid})
+            -[:PARENT*0..]->(owner_entry)
             -[:OWNED]->(:User {uid: $user_id})
-        MATCH (sentence:Sentence {resource_uid: resource.uid})
+        WITH DISTINCT resource, sentence, position
         OPTIONAL MATCH (exposure:TanbunExposure {
             user_id: $user_id,
             sentence_id: sentence.uid
         })
-        WITH resource, sentence,
+        WITH resource, sentence, position,
             count(exposure) AS exposure_count,
             count(CASE WHEN exposure.seen_on = date($seen_on) THEN 1 END) > 0
                 AS seen_today
-        ORDER BY
-            seen_today ASC,
-            CASE WHEN $rediscovery THEN exposure_count END ASC,
-            CASE WHEN $rediscovery THEN resource.updated END ASC,
-            CASE WHEN NOT $rediscovery THEN resource.updated END DESC,
-            sentence.uid ASC
-        LIMIT $candidate_limit
         """
         + location_query
         + """
-        WITH resource, sentence, exposure_count, seen_today, location
+        WITH resource, sentence, position, exposure_count, seen_today, location
         WHERE location IS NOT NULL
         """
         + term_names_query
         + stats_query
         + """
-        ORDER BY
-            seen_today ASC,
-            CASE WHEN $rediscovery THEN exposure_count END ASC,
-            stats.score DESC,
-            CASE WHEN $rediscovery THEN resource.updated END ASC,
-            CASE WHEN NOT $rediscovery THEN resource.updated END DESC,
-            sentence.uid ASC
-        LIMIT $limit
+        ORDER BY position
         RETURN sentence.uid, sentence.val,
             coalesce([name IN names | name.val], []) AS term_names,
             resource.uid, resource.title, resource.updated, stats.score,
@@ -139,9 +136,7 @@ async def _fetch_personal_tanbuns(
         params={
             "user_id": to_uuid(user_id).hex,
             "seen_on": seen_on.isoformat(),
-            "limit": limit,
-            "candidate_limit": max(limit * 3, 30),
-            "rediscovery": rediscovery,
+            "ids": ids,
         },
     )
     return [

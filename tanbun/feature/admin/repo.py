@@ -392,6 +392,10 @@ async def delete_user_account(user_uid: UUIDy) -> DeleteUserResult | None:
         WITH user, quiz_count, answer_count,
             [item IN collect(DISTINCT exposure) WHERE item IS NOT NULL] AS exposures
         FOREACH (exposure IN exposures | DETACH DELETE exposure)
+        WITH user, quiz_count, answer_count
+        OPTIONAL MATCH (user)-[:RECOMMENDATIONS]->(s:DailyRecommendation)
+        WITH user, quiz_count, answer_count, collect(s) AS recommendations
+        FOREACH (item IN recommendations | DETACH DELETE item)
         DETACH DELETE user
         RETURN quiz_count, answer_count
         """,

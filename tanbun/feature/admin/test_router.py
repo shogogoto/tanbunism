@@ -363,6 +363,9 @@ async def test_admin_deletes_regular_user_and_owned_data(ac: AsyncClient) -> Non
         """
         MATCH (user:User {uid: $user_uid})
         MATCH (sentence:Sentence {resource_uid: $resource_uid})
+        CREATE (user)-[:RECOMMENDATIONS]->(:DailyRecommendation {
+            scope: 'tanbuns', ids: []
+        })
         CREATE (user)-[:CREATE]->(quiz:Quiz {
             uid: $quiz_uid,
             quiz_type: 'TERM_TO_SENTENCE'
@@ -400,6 +403,10 @@ async def test_admin_deletes_regular_user_and_owned_data(ac: AsyncClient) -> Non
     }
     denied = await ac.get("/user/me", headers=target_headers)
     assert denied.status_code == status.HTTP_401_UNAUTHORIZED
+    snapshots, _ = await adb.cypher_query(
+        "MATCH (s:DailyRecommendation) RETURN count(s)",
+    )
+    assert snapshots[0][0] == 0
     rows, _ = await adb.cypher_query(
         """
         OPTIONAL MATCH (user:User {uid: $user_uid})

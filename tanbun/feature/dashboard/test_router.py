@@ -110,10 +110,10 @@ async def test_personal_tanbun_timeline_excludes_sentence_without_location(
 
 
 @mark_async_test()
-async def test_personal_tanbun_timeline_includes_rediscovery_slot(
+async def test_personal_tanbun_timeline_keeps_daily_set(
     ac: AsyncClient,
 ) -> None:
-    """件数を絞っても、新着だけでなく古い未遭遇単文を再表示する."""
+    """Resourceを分散し、見たよを記録しても同日の順序を維持する."""
     user = await aregister("dashboard-rediscovery@example.com")
     for index in range(4):
         await save_text(
@@ -134,8 +134,7 @@ async def test_personal_tanbun_timeline_includes_rediscovery_slot(
     assert response.status_code == status.HTTP_200_OK
     items = [PersonalTanbunItem.model_validate(item) for item in response.json()]
     assert len(items) == request_limit
-    assert items[0].updated_at >= items[1].updated_at
-    assert items[2].updated_at <= items[1].updated_at
+    assert len({item.resource_uid for item in items}) == request_limit
 
     await ac.post(
         f"/dashboard/tanbuns/{items[0].uid}/exposures",
@@ -148,4 +147,18 @@ async def test_personal_tanbun_timeline_includes_rediscovery_slot(
     refreshed_items = [
         PersonalTanbunItem.model_validate(item) for item in refreshed.json()
     ]
-    assert refreshed_items[0].uid != items[0].uid
+    assert [item.uid for item in refreshed_items] == [item.uid for item in items]
+    assert refreshed_items[0].seen_today
+
+
+@mark_async_test()
+async def test_empty_daily_timeline_can_be_populated(ac: AsyncClient) -> None:
+    """空セットの閲覧後に取り込んだ知識は、その日にも表示できる."""
+    user = await aregister("dashboard-empty-daily@example.com")
+    headers = await aauth_header(user.email)
+    first = await ac.get("/dashboard/tanbuns", headers=headers)
+    assert first.json() == []
+    await save_text(user.uid, "# 初めての読書メモ\n  初めて出会う知識\n")
+    populated = await ac.get("/dashboard/tanbuns", headers=headers)
+    assert populated.status_code == status.HTTP_200_OK
+    assert populated.json()

@@ -10,6 +10,7 @@ from datetime import datetime
 
 from neomodel import adb
 
+from tanbun.feature.domain.datetime import TZ
 from tanbun.feature.domain.types import UUIDy, to_uuid
 from tanbun.feature.quiz.domain.answer import (
     Answer,
@@ -27,7 +28,15 @@ from tanbun.feature.quiz.management.domain import (
     ManagedQuizResult,
 )
 from tanbun.feature.quiz.repo.restore import restore_quiz_sources
+from tanbun.feature.recommendation.daily import (
+    Candidate,
+    load_daily,
+    save_daily,
+    select_daily,
+)
 from tanbun.feature.repo.cypher import Paging
+
+REVIEW_ACCURACY_THRESHOLD = 0.8
 
 
 async def _to_result(total: int, ids: list[str]) -> ReadableQuizResult:
@@ -179,12 +188,26 @@ async def search_created_quizzes(
 async def list_quiz_feed(
     user_id: UUIDy,
     paging: Paging = Paging(),
+    *,
+    daily: bool = False,
+    personal: bool = False,
 ) -> ManagedQuizResult:
     """全ユーザーが作成した有効なQuizを閲覧者の回答状況付きで返す."""
+    day = datetime.now(TZ).date()
+    uid = to_uuid(user_id).hex
+    scope = "personal-quizzes" if personal else "global-quizzes"
+    selected = await load_daily(uid, scope, day) if daily else None
+    if selected == []:
+        selected = None
+    return_stmt = (
+        "RETURN size(records), records" if daily else paging.return_stmt("records")
+    )
     q = f"""
         MATCH (creator:User)-[:CREATE]->(quiz:Quiz)
         MATCH (quiz)-[:QUIZ_TARGET]->(target:Sentence)
         WHERE creator.is_active = true
+          AND (NOT $personal OR creator.uid = $user_id)
+          AND ($selected IS NULL OR quiz.uid IN $selected)
           AND NOT EXISTS {{
             MATCH (quiz)-[:BROKEN_BY]->()
           }}
@@ -199,16 +222,20 @@ async def list_quiz_feed(
           }}
         OPTIONAL MATCH (:User {{uid: $user_id}})-[:ANSWER]->(answer:Answer)
             -[:ANSWER_OF]->(quiz)
+        WITH quiz, target, answer
+        ORDER BY answer.created DESC
         WITH
-            quiz,
+            quiz, target.resource_uid AS resource_id,
             COUNT(answer) AS attempts,
             COUNT(CASE WHEN answer.is_correct THEN 1 END) AS corrects,
             MAX(answer.created) AS last_attempted_at
+            , head(collect(answer.is_correct)) AS last_correct
         WITH
-            quiz,
+            quiz, resource_id,
             attempts,
             corrects,
             last_attempted_at,
+            last_correct,
             CASE
                 WHEN attempts = 0 THEN NULL
                 ELSE toFloat(corrects) / attempts
@@ -224,14 +251,62 @@ async def list_quiz_feed(
             corrects: corrects,
             accuracy: accuracy,
             last_attempted_at: last_attempted_at
+            , resource_id: resource_id
+            , last_correct: last_correct
         }}) AS records
-        {paging.return_stmt("records")}
+        {return_stmt}
     """
     rows, _ = await adb.cypher_query(
         q,
-        params={"user_id": to_uuid(user_id).hex, **paging.params},
+        params={
+            "user_id": uid,
+            "personal": personal,
+            "selected": selected,
+            **paging.params,
+        },
     )
-    return await _to_managed_result(*rows[0])
+    total, records = rows[0]
+    if daily:
+        if selected is None:
+            selected = await save_daily(
+                uid,
+                scope,
+                day,
+                select_daily(
+                    _daily_quiz_candidates(records),
+                    f"{uid}:{scope}:{day}",
+                    20,
+                ),
+            )
+        by_id = {record["quiz_id"]: record for record in records}
+        records = [by_id[key] for key in selected if key in by_id]
+        for record in records:
+            last = record["last_attempted_at"]
+            record["answered_today"] = bool(
+                last and last.to_native().astimezone(TZ).date() == day,
+            )
+        total = len(records)
+    return await _to_managed_result(total, records)
+
+
+def _daily_quiz_candidates(records: list[dict]) -> list[Candidate]:
+    """未回答・直近不正解を優先し、最近の正解はしばらく控える."""
+    candidates = []
+    now = datetime.now(TZ)
+    for record in records:
+        last = record["last_attempted_at"]
+        days = (now - last.to_native()).total_seconds() / 86400 if last else 30
+        interval = 1 if record["last_correct"] is False else 7
+        weight = (
+            4
+            if record["attempts"] == 0
+            else 3
+            if record["last_correct"] is False
+            or record["accuracy"] < REVIEW_ACCURACY_THRESHOLD
+            else 1
+        ) * max(0.05, min(days / interval, 1))
+        candidates.append(Candidate(record["quiz_id"], record["resource_id"], weight))
+    return candidates
 
 
 async def _to_managed_result(
@@ -250,6 +325,7 @@ async def _to_managed_result(
                 corrects=record["corrects"],
                 accuracy=record["accuracy"],
                 last_attempted_at=record["last_attempted_at"],
+                answered_today=record.get("answered_today", False),
             )
             for record in records
         ],

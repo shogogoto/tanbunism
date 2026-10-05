@@ -73,6 +73,49 @@ async def test_list_quiz_feed_api(ac: AsyncClient, u: LUser):
 
 
 @mark_async_test()
+async def test_daily_quizzes_scope_and_progress(ac: AsyncClient, u: LUser):
+    """個人と全体を分離し、回答後の再取得でも同じ推薦セットを維持する."""
+    own = await _generate_quizzes(u, 3)
+    other = await LUser(email="daily-api-other@ex.com").save()
+    await _generate_quizzes(other, 1)
+    headers = await aauth_header(email=u.email)
+    response = await ac.get("/quiz/daily", headers=headers)
+    assert response.status_code == status.HTTP_200_OK
+    items = response.json()["data"]
+    expected = [item["quiz"]["quiz_id"] for item in items]
+    assert set(expected) == {str(quiz.quiz_id) for quiz in own}
+    assert not any(item["answered_today"] for item in items)
+    selected = next(quiz for quiz in own if str(quiz.quiz_id) == expected[0])
+    await create_answer(selected.quiz_id, selected.to_readable().correct, u.uid)
+    refreshed = await ac.get("/quiz/daily", headers=headers)
+    assert [item["quiz"]["quiz_id"] for item in refreshed.json()["data"]] == expected
+    assert refreshed.json()["data"][0]["answered_today"]
+    global_response = await ac.get("/quiz/daily?personal=false", headers=headers)
+    assert global_response.json()["total"] == len(own) + 1
+
+
+@mark_async_test()
+async def test_daily_quizzes_excludes_newly_broken_quiz(ac: AsyncClient, u: LUser):
+    """同日のセットに含まれていても、参照切れになったQuizは除外する."""
+    from neomodel import adb  # noqa: PLC0415
+
+    await _generate_quizzes(u, 2)
+    headers = await aauth_header(email=u.email)
+    first = await ac.get("/quiz/daily", headers=headers)
+    removed = first.json()["data"][0]["quiz"]["quiz_id"].replace("-", "")
+    await adb.cypher_query(
+        """
+        MATCH (quiz:Quiz {uid: $uid})
+        CREATE (quiz)-[:BROKEN_BY]->(:RetiredSentence {uid: 'retired-daily'})
+        """,
+        params={"uid": removed},
+    )
+    refreshed = await ac.get("/quiz/daily", headers=headers)
+    assert refreshed.status_code == status.HTTP_200_OK
+    assert refreshed.json()["total"] == 1
+
+
+@mark_async_test()
 async def test_list_own_answers_api(ac: AsyncClient, u: LUser):
     """指定クイズに対する認証ユーザー自身の回答を取得."""
     quiz = (await _generate_quizzes(u, 1))[0].to_readable()

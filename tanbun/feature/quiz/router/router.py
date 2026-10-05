@@ -128,6 +128,16 @@ async def list_quiz_feed_api(
     return await list_quiz_feed(user.uid, Paging(page=page, size=size))
 
 
+@_r.get("/daily")
+async def list_daily_quizzes_api(
+    user: ActiveUser,
+    *,
+    personal: bool = True,
+) -> ManagedQuizResult:
+    """作成時期によらず、既存クイズから同日の推薦セットを取得."""
+    return await list_quiz_feed(user.uid, daily=True, personal=personal)
+
+
 @_r.get("/created/resources")
 async def list_created_quiz_resources(
     user: ActiveUser,
