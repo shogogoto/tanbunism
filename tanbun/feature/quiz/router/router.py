@@ -29,6 +29,7 @@ from tanbun.feature.quiz.listing.repo import (
     list_quiz_feed,
     search_created_quizzes,
 )
+from tanbun.feature.quiz.listing.search import QuizSearchResult, search_public_quizzes
 from tanbun.feature.quiz.management.domain import (
     BrokenQuizReference,
     DeleteQuizzesResult,
@@ -66,6 +67,16 @@ from tanbun.feature.repo.cypher import Paging
 from tanbun.feature.user.router_util import ActiveUser
 
 _r = APIRouter(prefix="/quiz", tags=["quiz"])
+
+
+@_r.get("/search")
+async def search_quizzes(
+    q: str = "",
+    page: Annotated[int, Query(gt=0)] = 1,
+    size: Annotated[int, Query(gt=0, le=100)] = 20,
+) -> QuizSearchResult:
+    """全ユーザーの有効クイズを知識スコア順で検索する."""
+    return await search_public_quizzes(q, Paging(page=page, size=size))
 
 
 @_r.post("")
