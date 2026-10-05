@@ -335,6 +335,9 @@ async def test_report_quiz_issue_and_list_for_creator(ac: AsyncClient, u: LUser)
     assert second.status_code == status.HTTP_204_NO_CONTENT
     assert reports.status_code == status.HTTP_200_OK
     assert reports.json()[0]["quiz_id"].replace("-", "") == created.quiz_id.hex
+    assert reports.json()[0]["quiz"]["statement"]
+    assert reports.json()[0]["quiz"]["options"]
+    assert reports.json()[0]["quiz"]["correct"]
     assert reports.json()[0]["reason"] == "incorrect"
     assert reports.json()[0]["detail"] == "正解がおかしい"
     assert summary.status_code == status.HTTP_200_OK

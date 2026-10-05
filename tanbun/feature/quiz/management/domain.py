@@ -112,6 +112,7 @@ class QuizReport(BaseModel, frozen=True):
     """作成者が確認するQuiz不備報告."""
 
     quiz_id: UUID
+    quiz: ReadableQuiz
     reason: QuizReportReason
     detail: str | None
     report_count: int

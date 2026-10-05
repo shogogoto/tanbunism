@@ -15,6 +15,7 @@ from tanbun.feature.quiz.management.domain import (
     SentenceQuizStatus,
     UnplannedQuiz,
 )
+from tanbun.feature.quiz.repo.restore import restore_quiz_sources
 
 
 async def count_created_quiz_issues(user_id: UUIDy) -> QuizIssueSummary:
@@ -126,9 +127,12 @@ async def list_reported_created_quizzes(user_id: UUIDy) -> list[QuizReport]:
         query,
         params={"user_id": to_uuid(user_id).hex},
     )
+    sources = await restore_quiz_sources(row[0] for row in rows)
+    quiz_by_id = {source.quiz_id.hex: source.to_readable() for source in sources}
     return [
         QuizReport(
             quiz_id=quiz_id,
+            quiz=quiz_by_id[to_uuid(quiz_id).hex],
             reason=QuizReportReason(reason),
             detail=detail,
             report_count=report_count,
