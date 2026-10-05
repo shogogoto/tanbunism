@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
@@ -21,6 +22,7 @@ from tanbun.feature.entry.namespace.sync import Anchor
 from tanbun.feature.entry.namespace.test_namespace import files  # noqa: F401
 from tanbun.feature.entry.resource.limits import DEFAULT_RESOURCE_UPLOAD_LIMITS
 from tanbun.feature.entry.resource.usecase import save_text
+from tanbun.feature.entry.router import save_resource_with_detail
 from tanbun.feature.entry.router.fixture import fixture_txt
 from tanbun.feature.quiz.learning.study_plan.repo import list_study_plans
 from tanbun.feature.user.label import LUser
@@ -221,7 +223,11 @@ def reqfile(s: str, fname: str, p: Path):  # noqa: D103
 
 
 @mark_async_test()
-async def test_post_resource_locking_new(ac: AsyncClient, tmp_path: Path):
+async def test_post_resource_locking_new(
+    ac: AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
     """リソース作成が同時に起きないようにロック."""
     h = await async_auth_header()
 
@@ -229,22 +235,18 @@ async def test_post_resource_locking_new(ac: AsyncClient, tmp_path: Path):
         # title1
             aaa
     """
-    task1 = ac.post("/resource", headers=h, files=reqfile(s, "a.txt", tmp_path))
-    task2 = ac.post("/resource", headers=h, files=reqfile(s, "b.txt", tmp_path))
-
-    results = await asyncio.gather(
-        task1,
-        task2,
-    )
-
-    assert status.HTTP_409_CONFLICT in [r.status_code for r in results]
+    await _assert_concurrent_import_rejected(ac, h, s, tmp_path, monkeypatch)
     user = await LUser.nodes.get(email="one@gmail.com")
     ns = await fetch_namespace(user.uid)
     assert [resource.name for resource in ns.resources] == ["# title1"]
 
 
 @mark_async_test()
-async def test_post_resource_locking_upd(ac: AsyncClient, tmp_path: Path):
+async def test_post_resource_locking_upd(
+    ac: AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
     """リソース更新が同時に起きないようにロック."""
     h = await async_auth_header()
 
@@ -263,14 +265,58 @@ async def test_post_resource_locking_upd(ac: AsyncClient, tmp_path: Path):
             ccc
     """
 
-    task1 = ac.post("/resource", headers=h, files=reqfile(upd, "a.txt", tmp_path))
-    task2 = ac.post("/resource", headers=h, files=reqfile(upd, "b.txt", tmp_path))
+    await _assert_concurrent_import_rejected(ac, h, upd, tmp_path, monkeypatch)
 
-    results = await asyncio.gather(
-        task1,
-        task2,
+
+async def _assert_concurrent_import_rejected(
+    ac: AsyncClient,
+    headers: dict[str, str],
+    text: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """最初のimportが枠を保持する間に2件目を送り、429と枠の解放を確認."""
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def held_save(*args, **kwargs):
+        started.set()
+        await release.wait()
+        return await save_resource_with_detail(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "tanbun.feature.entry.router.save_resource_with_detail",
+        held_save,
     )
-    assert status.HTTP_409_CONFLICT in [r.status_code for r in results]
+    first = asyncio.create_task(
+        ac.post(
+            "/resource",
+            headers=headers,
+            files=reqfile(text, "a.txt", tmp_path),
+        ),
+    )
+    try:
+        await asyncio.wait_for(started.wait(), timeout=30)
+        rejected = await asyncio.wait_for(
+            ac.post(
+                "/resource",
+                headers=headers,
+                files=reqfile(text, "b.txt", tmp_path),
+            ),
+            timeout=30,
+        )
+        assert rejected.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert rejected.headers["Retry-After"] == "5"
+    finally:
+        release.set()
+        accepted = await asyncio.wait_for(first, timeout=30)
+    assert accepted.status_code == status.HTTP_200_OK
+    retry = await ac.post(
+        "/resource",
+        headers=headers,
+        files=reqfile(text, "a.txt", tmp_path),
+    )
+    assert retry.status_code == status.HTTP_200_OK
 
 
 @mark_async_test()

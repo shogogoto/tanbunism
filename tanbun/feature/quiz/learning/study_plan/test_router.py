@@ -7,6 +7,7 @@ from httpx import AsyncClient
 from starlette import status
 
 from tanbun.conftest import async_fixture, mark_async_test
+from tanbun.feature.domain.types import to_uuid
 from tanbun.feature.quiz.chain.domain import QuizChain
 from tanbun.feature.quiz.domain.parts import QuizType
 from tanbun.feature.quiz.learning.fixture import (
@@ -280,7 +281,7 @@ async def test_prepare_selected_study_plans_in_background(
 
     assert response.status_code == status.HTTP_202_ACCEPTED
     assert response.json() == {"accepted_count": 2}
-    prepare.assert_awaited_once_with([first.uid, second.uid], u.uid, 7)
+    prepare.assert_awaited_once_with([first.uid, second.uid], to_uuid(u.uid), 7)
 
 
 @mark_async_test()
