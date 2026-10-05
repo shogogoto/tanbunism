@@ -1,11 +1,16 @@
 """Quiz管理APIのテスト."""
 
+from unittest.mock import AsyncMock
+
+import pytest
 from fastapi import status
 from httpx import AsyncClient
 from neomodel import adb
 
 from tanbun.conftest import async_fixture, mark_async_test
 from tanbun.feature.domain.types import to_uuid
+from tanbun.feature.notification.domain import PushSubscriptionDraft
+from tanbun.feature.notification.repo import save_push_subscription
 from tanbun.feature.quiz.candidate.types import CandidateType
 from tanbun.feature.quiz.domain.collections import ReadableQuizResult
 from tanbun.feature.quiz.domain.parts import QuizType
@@ -348,3 +353,43 @@ async def test_report_quiz_issue_and_list_for_creator(ac: AsyncClient, u: LUser)
     assert feed["notifications"][0]["href"] == (
         "/dashboard?view=quiz-management&quizMode=issues"
     )
+
+
+@mark_async_test()
+async def test_self_report_sends_web_push(
+    ac: AsyncClient,
+    u: LUser,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """自作Quizの要対応報告も、初回なら本人の端末へPushする."""
+    target = await LSentence.nodes.first(val="ccc")
+    created = await generate_quiz(
+        QuizType.TERM2SENT,
+        CandidateType.ALL,
+        target.uid,
+        3,
+        u.uid,
+    )
+    await save_push_subscription(
+        u.uid,
+        PushSubscriptionDraft(
+            endpoint="https://push.example.test/quiz-self-report",
+            keys={"p256dh": "browser-public-key", "auth": "browser-auth-secret"},
+        ),
+    )
+    send = AsyncMock()
+    monkeypatch.setattr(
+        "tanbun.feature.notification.usecase.webpush_async",
+        send,
+    )
+    monkeypatch.setenv("VAPID_PUBLIC_KEY", "application-server-key")
+    monkeypatch.setenv("VAPID_PRIVATE_KEY", "private-key")
+
+    response = await ac.post(
+        f"/quiz/{created.quiz_id}/reports",
+        headers=await aauth_header(email=u.email),
+        json={"reason": "incorrect", "detail": "正解を確認したい"},
+    )
+
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+    send.assert_awaited_once()

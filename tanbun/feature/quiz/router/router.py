@@ -247,7 +247,7 @@ async def report_quiz_issue_api(
     if receipt is None:
         return Response(status_code=status.HTTP_404_NOT_FOUND)
     creator_id, created = receipt
-    if created and creator_id != user.uid:
+    if created:
         await notify_user(
             creator_id,
             NewNotification(
