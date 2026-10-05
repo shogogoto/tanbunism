@@ -254,7 +254,7 @@ async def report_quiz_issue_api(
                 kind=NotificationKind.QUIZ_ISSUE_REPORTED,
                 title="作成したクイズに不備報告が届きました",
                 description=param.detail or "クイズの内容を確認してください。",
-                href="/dashboard?view=quiz-management",
+                href="/dashboard?view=quiz-management&quizMode=issues",
             ),
         )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

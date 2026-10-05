@@ -345,4 +345,6 @@ async def test_report_quiz_issue_and_list_for_creator(ac: AsyncClient, u: LUser)
     feed = notifications.json()
     assert feed["unread_count"] == 1
     assert feed["notifications"][0]["kind"] == "quiz_issue_reported"
-    assert feed["notifications"][0]["href"] == ("/dashboard?view=quiz-management")
+    assert feed["notifications"][0]["href"] == (
+        "/dashboard?view=quiz-management&quizMode=issues"
+    )
