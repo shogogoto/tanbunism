@@ -27,7 +27,11 @@ def select_daily(candidates: list[Candidate], seed: str, limit: int) -> list[str
         return -log(uniform) / max(candidate.weight, 0.001)
 
     groups: dict[str, list[Candidate]] = defaultdict(list)
-    for candidate in sorted(candidates, key=rank):
+    seen: set[str] = set()
+    for candidate in sorted(candidates, key=lambda c: (rank(c), c.uid, c.resource_id)):
+        if candidate.uid in seen:
+            continue
+        seen.add(candidate.uid)
         groups[candidate.resource_id].append(candidate)
     result: list[str] = []
     while groups and len(result) < limit:
@@ -78,6 +82,37 @@ async def save_daily(
             "scope": scope,
             "day": day.isoformat(),
             "ids": ids,
+        },
+    )
+    return rows[0][0] if rows else []
+
+
+async def append_daily(
+    user_id: str,
+    scope: str,
+    day: date,
+    ids: list[str],
+) -> list[str]:
+    """追加復習では既存の順序を残し、重複せず最大500件まで追加する."""
+    rows, _ = await adb.cypher_query(
+        """
+        MATCH (user:User {uid:$user_id})
+        SET user.review_settings_revision=coalesce(user.review_settings_revision, 0)+1
+        WITH user
+        MERGE (user)-[:RECOMMENDATIONS]->(s:DailyRecommendation {scope:$scope})
+        ON CREATE SET s.day=date($day), s.ids=[]
+        WITH s
+        FOREACH (_ IN CASE WHEN s.day < date($day) THEN [1] ELSE [] END |
+            SET s.day=date($day), s.ids=[])
+        WITH s WHERE s.day=date($day)
+        SET s.ids=(s.ids + [id IN $ids WHERE NOT id IN s.ids])[0..500]
+        RETURN s.ids
+        """,
+        params={
+            "user_id": user_id,
+            "scope": scope,
+            "day": day.isoformat(),
+            "ids": list(dict.fromkeys(ids)),
         },
     )
     return rows[0][0] if rows else []

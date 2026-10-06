@@ -144,9 +144,30 @@ async def list_daily_quizzes_api(
     user: ActiveUser,
     *,
     personal: bool = True,
+    profile: Annotated[str, Query(max_length=64)] = "default",
 ) -> ManagedQuizResult:
     """作成時期によらず、既存クイズから同日の推薦セットを取得."""
-    return await list_quiz_feed(user.uid, daily=True, personal=personal)
+    return await list_quiz_feed(
+        user.uid,
+        daily=True,
+        personal=personal,
+        profile_id=profile,
+    )
+
+
+@_r.post("/daily/more")
+async def add_daily_quizzes_api(
+    user: ActiveUser,
+    profile: Annotated[str, Query(max_length=64)] = "default",
+) -> ManagedQuizResult:
+    """生成せず、今日のセットの末尾へ追加の既存クイズを選ぶ."""
+    return await list_quiz_feed(
+        user.uid,
+        daily=True,
+        personal=True,
+        profile_id=profile,
+        more=True,
+    )
 
 
 @_r.get("/created/resources")

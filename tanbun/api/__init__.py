@@ -23,6 +23,7 @@ from tanbun.feature.gamification import gamification_router
 from tanbun.feature.language_service.router import language_router
 from tanbun.feature.notification import notification_router
 from tanbun.feature.quiz.router.router import quiz_router
+from tanbun.feature.recommendation.router import router as review_settings_router
 from tanbun.feature.tanbun.router import tanbun_router
 from tanbun.feature.user import PREFIX_USER
 from tanbun.feature.user.routers import auth_router, user_router
@@ -69,6 +70,7 @@ api.include_router(
 api.include_router(entry_router())
 api.include_router(dashboard_router())
 api.include_router(gamification_router())
+api.include_router(review_settings_router)
 api.include_router(language_router())
 api.include_router(notification_router())
 api.include_router(tanbun_router(), prefix="/tanbun", tags=["tanbun"])

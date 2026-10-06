@@ -400,6 +400,10 @@ async def delete_user_account(user_uid: UUIDy) -> DeleteUserResult | None:
         OPTIONAL MATCH (user)-[:RECOMMENDATIONS]->(s:DailyRecommendation)
         WITH user, quiz_count, answer_count, collect(s) AS recommendations
         FOREACH (item IN recommendations | DETACH DELETE item)
+        WITH user, quiz_count, answer_count
+        OPTIONAL MATCH (user)-[:REVIEW_SETTINGS|REVIEW_DAY]->(setting)
+        WITH user, quiz_count, answer_count, collect(setting) AS settings
+        FOREACH (item IN settings | DETACH DELETE item)
         DETACH DELETE user
         RETURN quiz_count, answer_count
         """,

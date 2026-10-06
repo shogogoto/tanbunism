@@ -30,11 +30,19 @@ from tanbun.feature.quiz.management.domain import (
 from tanbun.feature.quiz.repo.restore import restore_quiz_sources
 from tanbun.feature.recommendation.daily import (
     Candidate,
+    append_daily,
     load_daily,
     save_daily,
     select_daily,
 )
+from tanbun.feature.recommendation.settings import (
+    ReviewPriority,
+    settings_scope,
+    today_settings,
+)
 from tanbun.feature.repo.cypher import Paging
+from tanbun.feature.tanbun.repo.clause import OrderBy
+from tanbun.feature.tanbun.repo.cypher import q_stats
 
 REVIEW_ACCURACY_THRESHOLD = 0.8
 
@@ -191,13 +199,23 @@ async def list_quiz_feed(
     *,
     daily: bool = False,
     personal: bool = False,
+    profile_id: str = "default",
+    more: bool = False,
 ) -> ManagedQuizResult:
     """全ユーザーが作成した有効なQuizを閲覧者の回答状況付きで返す."""
     day = datetime.now(TZ).date()
     uid = to_uuid(user_id).hex
     scope = "personal-quizzes" if personal else "global-quizzes"
+    settings = (
+        await today_settings(user_id, profile_id, day) if daily and personal else None
+    )
+    if settings:
+        scope = settings_scope(profile_id, "quizzes")
     selected = await load_daily(uid, scope, day) if daily else None
     if selected == []:
+        selected = None
+    previous_ids = selected or []
+    if more:
         selected = None
     return_stmt = (
         "RETURN size(records), records" if daily else paging.return_stmt("records")
@@ -207,6 +225,7 @@ async def list_quiz_feed(
         MATCH (quiz)-[:QUIZ_TARGET]->(target:Sentence)
         WHERE creator.is_active = true
           AND (NOT $personal OR creator.uid = $user_id)
+          AND ($resource_ids IS NULL OR target.resource_uid IN $resource_ids)
           AND ($selected IS NULL OR quiz.uid IN $selected)
           AND NOT EXISTS {{
             MATCH (quiz)-[:BROKEN_BY]->()
@@ -262,20 +281,31 @@ async def list_quiz_feed(
             "user_id": uid,
             "personal": personal,
             "selected": selected,
+            "resource_ids": (
+                [r.hex for r in settings.resource_ids]
+                if settings and settings.resource_ids
+                else None
+            ),
             **paging.params,
         },
     )
     total, records = rows[0]
     if daily:
         if selected is None:
-            selected = await save_daily(
+            candidates = [r for r in records if r["quiz_id"] not in previous_ids]
+            if settings and settings.priority == ReviewPriority.SCORE:
+                candidates = await _score_quiz_pool(candidates, f"{uid}:{scope}:{day}")
+            selected = await (append_daily if more else save_daily)(
                 uid,
                 scope,
                 day,
                 select_daily(
-                    _daily_quiz_candidates(records),
+                    _daily_quiz_candidates(
+                        candidates,
+                        settings.priority if settings else ReviewPriority.BALANCED,
+                    ),
                     f"{uid}:{scope}:{day}",
-                    20,
+                    settings.quiz_count if settings else 20,
                 ),
             )
         by_id = {record["quiz_id"]: record for record in records}
@@ -289,7 +319,10 @@ async def list_quiz_feed(
     return await _to_managed_result(total, records)
 
 
-def _daily_quiz_candidates(records: list[dict]) -> list[Candidate]:
+def _daily_quiz_candidates(
+    records: list[dict],
+    priority: ReviewPriority = ReviewPriority.BALANCED,
+) -> list[Candidate]:
     """未回答・直近不正解を優先し、最近の正解はしばらく控える."""
     candidates = []
     now = datetime.now(TZ)
@@ -305,8 +338,43 @@ def _daily_quiz_candidates(records: list[dict]) -> list[Candidate]:
             or record["accuracy"] < REVIEW_ACCURACY_THRESHOLD
             else 1
         ) * max(0.05, min(days / interval, 1))
+        if priority == ReviewPriority.UNSEEN:
+            weight *= 5 if record["attempts"] == 0 else 1
+        elif priority == ReviewPriority.WEAK:
+            weight *= (
+                5
+                if record["attempts"] > 0
+                and (
+                    record["last_correct"] is False
+                    or record["accuracy"] < REVIEW_ACCURACY_THRESHOLD
+                )
+                else 1
+            )
+        elif priority == ReviewPriority.SCORE:
+            weight = 1 + max(0, record.get("score", 0))
         candidates.append(Candidate(record["quiz_id"], record["resource_id"], weight))
     return candidates
+
+
+async def _score_quiz_pool(records: list[dict], seed: str) -> list[dict]:
+    """高コストな単文スコア計算は、Resourceを分散した最大150候補に限定する."""
+    ids = select_daily(
+        [Candidate(r["quiz_id"], r["resource_id"]) for r in records],
+        seed,
+        150,
+    )
+    rows, _ = await adb.cypher_query(
+        "MATCH (quiz:Quiz)-[:QUIZ_TARGET]->(s:Sentence) WHERE quiz.uid IN $ids "
+        + q_stats("s", OrderBy())
+        + " RETURN quiz.uid, max(stats.score)",
+        params={"ids": ids},
+    )
+    scores = dict(rows)
+    return [
+        {**r, "score": scores.get(r["quiz_id"], 0)}
+        for r in records
+        if r["quiz_id"] in ids
+    ]
 
 
 async def _to_managed_result(

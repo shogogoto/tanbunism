@@ -9,9 +9,15 @@ from tanbun.feature.domain.types import UUIDy, to_uuid
 from tanbun.feature.gamification.resource import record_exposure_xp
 from tanbun.feature.recommendation.daily import (
     Candidate,
+    append_daily,
     load_daily,
     save_daily,
     select_daily,
+)
+from tanbun.feature.recommendation.settings import (
+    ReviewPriority,
+    settings_scope,
+    today_settings,
 )
 from tanbun.feature.repo.cypher import q_call_term_names
 from tanbun.feature.tanbun.repo.clause import OrderBy
@@ -43,38 +49,59 @@ async def list_personal_tanbuns(
     seen_on: date,
     *,
     limit: int = 30,
+    profile_id: str = "default",
+    more: bool = False,
 ) -> list[PersonalTanbunItem]:
     """未遭遇・久しぶり・スコアを重みに、同日の推薦セットを返す."""
     uid = to_uuid(user_id).hex
-    ids = await load_daily(uid, "tanbuns", seen_on)
-    if not ids:
+    settings = await today_settings(user_id, profile_id, seen_on)
+    scope = settings_scope(profile_id, "tanbuns")
+    ids = await load_daily(uid, scope, seen_on)
+    if more or not ids:
         rows, _ = await adb.cypher_query(
             """
             MATCH (resource:Resource)-[:PARENT*0..]->()-[:OWNED]->(:User {uid: $uid})
             MATCH (sentence:Sentence {resource_uid: resource.uid})
+            WHERE $resource_ids IS NULL OR resource.uid IN $resource_ids
             WITH DISTINCT resource, sentence
             OPTIONAL MATCH (exposure:TanbunExposure {
                 user_id: $uid, sentence_id: sentence.uid
             })
             RETURN sentence.uid, resource.uid, count(exposure), max(exposure.seen_on)
             """,
-            params={"uid": uid},
+            params={
+                "uid": uid,
+                "resource_ids": (
+                    [r.hex for r in settings.resource_ids]
+                    if settings.resource_ids
+                    else None
+                ),
+            },
         )
         weights: dict[str, float] = {}
         candidates = []
         for sentence_id, resource_id, count, last_seen in rows:
+            if ids and sentence_id in ids:
+                continue
             days = (seen_on - last_seen.to_native()).days if last_seen else 30
             weight = (4 if count == 0 else 1 / (1 + count)) * max(
                 0.05,
                 min(days / 14, 1),
             )
+            if settings.priority == ReviewPriority.UNSEEN:
+                weight *= 5 if count == 0 else 1
+            elif settings.priority == ReviewPriority.WEAK:
+                # 単文では正誤がないため、接触が少なく間隔の空いたものを優先する。
+                weight *= max(1, days) / (1 + count)
+            elif settings.priority == ReviewPriority.SCORE:
+                weight = 1
             weights[sentence_id] = weight
             candidates.append(Candidate(sentence_id, resource_id, weight))
-        seed = f"{uid}:{seen_on}"
+        seed = f"{uid}:{scope}:{seen_on}"
         # 高コストの位置・スコア取得は分散した候補に限定する。
         pool = select_daily(candidates, seed, 150)
         items = await _fetch_personal_tanbuns(user_id, seen_on, ids=pool)
-        ids = select_daily(
+        additions = select_daily(
             [
                 Candidate(
                     item.uid.hex,
@@ -84,9 +111,13 @@ async def list_personal_tanbuns(
                 for item in items
             ],
             seed,
-            30,
+            settings.tanbun_count,
         )
-        ids = await save_daily(uid, "tanbuns", seen_on, ids)
+        ids = await (
+            append_daily(uid, scope, seen_on, additions)
+            if more
+            else save_daily(uid, scope, seen_on, additions)
+        )
     return await _fetch_personal_tanbuns(user_id, seen_on, ids=ids[:limit])
 
 

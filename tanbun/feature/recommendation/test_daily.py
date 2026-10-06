@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from tanbun.conftest import mark_async_test
 from tanbun.feature.user.label import LUser
 
-from .daily import Candidate, load_daily, save_daily, select_daily
+from .daily import Candidate, append_daily, load_daily, save_daily, select_daily
 
 
 def test_daily_selection_is_stable_and_rotates() -> None:
@@ -38,6 +38,18 @@ def test_daily_selection_respects_weights() -> None:
     assert select_daily([], "today", 30) == []
 
 
+def test_daily_selection_deduplicates_cross_resource_targets() -> None:
+    """複数Resourceに跨る同じクイズも一度だけ選ぶ."""
+    candidates = [
+        Candidate("same", "a"),
+        Candidate("same", "b"),
+        Candidate("other", "b"),
+    ]
+    assert len(select_daily(candidates, "today", 20)) == len({
+        c.uid for c in candidates
+    })
+
+
 @mark_async_test()
 async def test_daily_set_persistence() -> None:
     """同日の最初のセットを保持し、翌日には置換. 用途・ユーザーは分離."""
@@ -67,3 +79,21 @@ async def test_concurrent_daily_sets_keep_first_winner() -> None:
         ),
     )
     assert all(result == results[0] for result in results)
+
+
+@mark_async_test()
+async def test_append_preserves_order_and_resets_next_day() -> None:
+    """追加も同時実行で重複せず、翌日は前日のIDを引き継がない."""
+    user = await LUser(email="append-daily@example.com").save()
+    day = date(2026, 10, 6)
+    await save_daily(user.uid, "test", day, ["first"])
+    results = await gather(
+        *(append_daily(user.uid, "test", day, ["second", "second"]) for _ in range(5)),
+    )
+    assert all(result == ["first", "second"] for result in results)
+    assert await append_daily(
+        user.uid,
+        "test",
+        day + timedelta(days=1),
+        ["new-day"],
+    ) == ["new-day"]

@@ -26,13 +26,31 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 @router.get("/tanbuns")
 async def get_personal_tanbuns(
     user: ActiveUser,
-    limit: Annotated[int, Query(ge=1, le=100)] = 30,
+    limit: Annotated[int, Query(ge=1, le=500)] = 500,
+    profile: Annotated[str, Query(max_length=64)] = "default",
 ) -> list[PersonalTanbunItem]:
     """所有する単文の個人TLを取得."""
     return await list_personal_tanbuns(
         user.uid,
         datetime.now(TZ).date(),
         limit=limit,
+        profile_id=profile,
+    )
+
+
+@router.post("/tanbuns/more")
+async def add_personal_tanbuns(
+    user: ActiveUser,
+    profile: Annotated[str, Query(max_length=64)] = "default",
+) -> list[PersonalTanbunItem]:
+    """今日の順序を維持して、同じ設定で追加の復習候補を選ぶ."""
+    day = datetime.now(TZ).date()
+    return await list_personal_tanbuns(
+        user.uid,
+        day,
+        profile_id=profile,
+        limit=500,
+        more=True,
     )
 
 
