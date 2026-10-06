@@ -38,6 +38,10 @@ class ResourceGrowth(BaseModel):
     logic_count: int
     reference_count: int
     recent_xp: list[ResourceXpLog]
+    last_reviewed_on: str | None = None
+    exposure_xp: int = 0
+    answer_xp: int = 0
+    correct_bonus_xp: int = 0
 
 
 class ResourceGrowthRules(BaseModel):
@@ -157,16 +161,20 @@ async def record_exposure_xp(user_id: UUIDy, sentence_id: UUIDy, day: str) -> No
         )
 
 
-async def fetch_resource_growth(user_id: UUIDy) -> list[ResourceGrowth]:
+async def fetch_resource_growth(
+    user_id: UUIDy,
+    *,
+    owned_only: bool = False,
+) -> list[ResourceGrowth]:
     """現在の構造は再計算し、XPは保存した実績だけを集計する."""
     rows, _ = await adb.cypher_query(
         """
         MATCH (resource:Resource)
         WHERE EXISTS {
             MATCH (resource)-[:PARENT*0..]->()-[:OWNED]->(:User {uid: $user_id})
-        } OR EXISTS {
+        } OR (NOT $owned_only AND EXISTS {
             MATCH (:ResourceXpEvent {user_id: $user_id, resource_id: resource.uid})
-        }
+        })
         WITH DISTINCT resource
         CALL (resource) {
             MATCH (source:Sentence|Quoterm {resource_uid: resource.uid})
@@ -184,13 +192,29 @@ async def fetch_resource_growth(user_id: UUIDy) -> list[ResourceGrowth]:
         WITH resource, logic_count, reference_count, event
         ORDER BY event.earned_on DESC, event.key
         RETURN resource.uid, resource.title, logic_count, reference_count,
-            coalesce(sum(event.xp), 0), collect(event)[0..10]
+            coalesce(sum(event.xp), 0), collect(event)[0..10],
+            coalesce(sum(CASE WHEN event.source = 'tanbun_exposure'
+                THEN event.xp ELSE 0 END), 0),
+            coalesce(sum(CASE WHEN event.source = 'quiz_answer'
+                THEN event.xp ELSE 0 END), 0),
+            coalesce(sum(CASE WHEN event.source = 'correct_bonus'
+                THEN event.xp ELSE 0 END), 0)
         ORDER BY resource.title
     """,
-        params={"user_id": to_uuid(user_id).hex},
+        params={"user_id": to_uuid(user_id).hex, "owned_only": owned_only},
     )
     result = []
-    for resource_id, name, logic, reference, xp, events in rows:
+    for (
+        resource_id,
+        name,
+        logic,
+        reference,
+        xp,
+        events,
+        exposure,
+        answer,
+        bonus,
+    ) in rows:
         level = isqrt(xp // LEVEL_CURVE) + 1
         result.append(
             ResourceGrowth(
@@ -203,6 +227,10 @@ async def fetch_resource_growth(user_id: UUIDy) -> list[ResourceGrowth]:
                 power=logic + reference,
                 logic_count=logic,
                 reference_count=reference,
+                last_reviewed_on=events[0]["earned_on"] if events else None,
+                exposure_xp=exposure,
+                answer_xp=answer,
+                correct_bonus_xp=bonus,
                 recent_xp=[
                     ResourceXpLog(
                         source=e["source"],

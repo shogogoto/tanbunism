@@ -28,6 +28,18 @@ async def get_learning_progress(user_id: UUID) -> LearningProgress:
     return await fetch_learning_progress(user_id)
 
 
+@router.get("/{user_id}/resource-growth")
+async def get_public_resource_growth(user_id: UUID) -> ResourceGrowthResult:
+    """公開本棚には所有リソースの成長集計だけを返す."""
+    resources = await fetch_resource_growth(user_id, owned_only=True)
+    return ResourceGrowthResult(
+        resources=[
+            resource.model_copy(update={"recent_xp": []}) for resource in resources
+        ],
+        rules=ResourceGrowthRules(),
+    )
+
+
 def gamification_router() -> APIRouter:
     """ゲーム要素のrouterを返す."""
     return router

@@ -119,6 +119,46 @@ async def test_resource_growth_api_private_and_import_has_no_xp(
 
 
 @mark_async_test()
+async def test_public_shelf_excludes_borrowed_resources_and_private_logs(
+    ac: AsyncClient,
+    u: LUser,
+):
+    """公開本棚は所有本だけで、活動の本文は本人向けAPIに限定する."""
+    [own] = await fetch_resource_growth(u.uid)
+    other = await aregister("shelf-other@example.com")
+    _, foreign = await save_text(other.uid, "# borrowed book\n  other sentence\n")
+    for resource_id, name in [
+        (own.resource_id, own.resource_name),
+        (foreign.uid, "borrowed book"),
+    ]:
+        await record_resource_xp(
+            u.uid,
+            resource_id,
+            name,
+            subject_id=str(resource_id),
+            subject="private activity",
+            day="2026-10-06",
+            source="quiz_answer",
+            xp=5,
+        )
+    response = await ac.get(f"/user/{u.uid}/resource-growth")
+    assert response.is_success
+    [book] = response.json()["resources"]
+    assert book["resource_id"] == str(own.resource_id)
+    assert book["total_xp"] == book["answer_xp"] == 5  # noqa: PLR2004
+    assert book["exposure_xp"] == book["correct_bonus_xp"] == 0
+    assert book["last_reviewed_on"] == "2026-10-06"
+    assert book["recent_xp"] == []
+    assert "private activity" not in response.text
+    private = await ac.get(
+        "/user/me/resource-growth",
+        headers=await aauth_header(u.email),
+    )
+    assert len(private.json()["resources"]) == 2  # noqa: PLR2004
+    assert "private activity" in private.text
+
+
+@mark_async_test()
 async def test_xp_failure_rolls_back_exposure(
     u: LUser,
     monkeypatch: pytest.MonkeyPatch,

@@ -32,3 +32,11 @@ activity whose original resource can no longer be resolved.
 
 The normal schema installation command (`poetry run task schema-install`, also
 part of `task start`) installs the event indexes and unique key constraint.
+
+## Profile bookshelf
+
+`GET /user/{user_id}/resource-growth` exposes owned resources only, with cumulative
+XP by activity, Power and the last reviewed day. It omits activity subjects and
+the recent XP log; those remain available only via the authenticated `me` route.
+Both endpoints share the same calculation. Profiles keep the existing user Lv
+and explain its legacy XP breakdown separately from the resource review ledger.
