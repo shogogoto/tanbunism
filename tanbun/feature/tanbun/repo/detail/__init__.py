@@ -28,7 +28,6 @@ from tanbun.feature.tanbun.label import LQuoterm, LSentence
 from tanbun.feature.tanbun.repo.clause import OrderBy
 from tanbun.feature.tanbun.repo.cypher import (
     build_location_res,
-    q_chain,
     q_location,
     q_quote_locations,
     q_stats,
@@ -199,19 +198,19 @@ async def tanbun_upper(uid: UUID) -> LSentence:
     return LSentence(**rows[0][0]._properties)  # noqa: SLF001
 
 
-async def fetch_tanbun_chains(
+async def fetch_tanbun_chains(  # noqa: PLR0914
     uids: Iterable[UUIDy],
     do_print: bool = False,  # noqa: FBT001, FBT002
 ) -> TanbunChains:
     """単文の依存chain全てを含めた詳細."""
-    q = f"""
+    q = """
         UNWIND $uids AS uid
-        MATCH (s: Sentence {{uid: uid}})
+        MATCH (s: Sentence {uid: uid})
         OPTIONAL MATCH (s)<-[:QUOTERM]-(qt: Quoterm)
         WITH COLLECT(qt) AS qts, s
         UNWIND [s] + qts AS sent
         WITH DISTINCT sent, s
-        CALL (sent) {{
+        CALL (sent) {
             // detail がない場合にsentが返らなくなるのを防ぐ
             RETURN (sent) as start, null as end, null as type
             UNION
@@ -223,15 +222,8 @@ async def fetch_tanbun_chains(
                 -[rs:SIBLING|BELOW]->*(:Sentence|Quoterm)
             UNWIND rs as r
             RETURN startNode(r) as start, endNode(r) as end, type(r) as type
-            UNION
-            // Logic Chain
-            {q_chain("sent", EdgeType.TO, indent_len=4)}
-            UNION
-            {q_chain("sent", EdgeType.RESOLVED, indent_len=4)}
-            UNION
-            {q_chain("sent", EdgeType.EXAMPLE, indent_len=4)}
-        }}
-        RETURN s.uid, start, end, type
+        }
+        RETURN DISTINCT s.uid, sent.uid, start, end, type
     """
     uids = [to_uuid(uid).hex for uid in uids]
     if do_print:
@@ -239,8 +231,10 @@ async def fetch_tanbun_chains(
 
     rows, _ = await adb.cypher_query(q, params={"uids": uids}, resolve_objects=True)
     g_dict = {uid: nx.MultiDiGraph() for uid in uids}
+    seeds: dict[str, set[str]] = defaultdict(set)
     for row in rows:
-        tgt_uid, start, end, type_ = row
+        tgt_uid, seed_uid, start, end, type_ = row
+        seeds[tgt_uid].add(seed_uid)
         g = g_dict[tgt_uid]
         start = tgt_uid if isinstance(start, LQuoterm) else start.uid
         if type_ is None:
@@ -249,6 +243,8 @@ async def fetch_tanbun_chains(
         end = tgt_uid if isinstance(end, LQuoterm) else end.uid
         t: EdgeType = getattr(EdgeType, type_)
         t.add_edge(g, start, end)
+
+    await _expand_relation_chains(g_dict, seeds)
 
     for g in g_dict.values():
         if len(g.nodes) == 0:
@@ -268,3 +264,54 @@ async def fetch_tanbun_chains(
             for uid in uids
         ],
     )
+
+
+async def _expand_relation_chains(
+    graphs: dict[str, nx.MultiDiGraph],
+    seeds: dict[str, set[str]],
+) -> None:
+    """同一関係の連結成分を取得し、各ノードを一度だけ探索する.
+
+    全経路の列挙は、合流・循環があるだけで結果が爆発する。
+    探索済み集合を関係別・対象別に持ち、辺の方向と全範囲は維持する。
+    """
+    visited = {
+        (uid, relation): set(nodes)
+        for uid, nodes in seeds.items()
+        for relation in (EdgeType.TO, EdgeType.RESOLVED, EdgeType.EXAMPLE)
+    }
+    frontier = {key: set(nodes) for key, nodes in visited.items()}
+    seen_edges: set[tuple[str, EdgeType, str, str]] = set()
+    query = """
+        UNWIND $tasks AS task
+        UNWIND task.uids AS uid
+        MATCH (node:Sentence|Quoterm {uid: uid})
+        MATCH (node)-[edge:TO|RESOLVED|EXAMPLE]-(neighbor:Sentence|Quoterm)
+        WHERE type(edge) = task.relation
+        RETURN DISTINCT task.root, type(edge),
+            startNode(edge), endNode(edge)
+    """
+    while frontier:
+        tasks = [
+            {"root": uid, "relation": relation.name, "uids": list(nodes)}
+            for (uid, relation), nodes in frontier.items()
+        ]
+        rows, _ = await adb.cypher_query(
+            query,
+            params={"tasks": tasks},
+            resolve_objects=True,
+        )
+        frontier = defaultdict(set)
+        for root, relation_name, start, end in rows:
+            relation = EdgeType[relation_name]
+            key = (root, relation)
+            for node in (start, end):
+                if node.uid not in visited[key]:
+                    visited[key].add(node.uid)
+                    frontier[key].add(node.uid)
+            start_uid = root if isinstance(start, LQuoterm) else start.uid
+            end_uid = root if isinstance(end, LQuoterm) else end.uid
+            edge_key = (root, relation, start_uid, end_uid)
+            if edge_key not in seen_edges:
+                seen_edges.add(edge_key)
+                relation.add_edge(graphs[root], start_uid, end_uid)

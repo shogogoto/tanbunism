@@ -3,6 +3,7 @@
 from uuid import UUID
 
 import pytest
+from neomodel import adb
 from pytest_unordered import unordered
 
 from tanbun.conftest import async_fixture, mark_async_test
@@ -14,6 +15,60 @@ from tanbun.feature.tanbun.label import LSentence
 from tanbun.feature.user.label import LUser
 
 from . import fetch_tanbun_chains, tanbun_upper
+
+
+@mark_async_test()
+async def test_dense_relation_chains_visit_each_node_once(u: LUser, mocker):
+    """合流が多くても全経路を列挙せず、全辺を重複なく返す."""
+    _, resource = await save_text(
+        u.uid,
+        "# dense\n" + "".join(f"  sentence {i}\n" for i in range(10)),
+    )
+    rows, _ = await adb.cypher_query(
+        """
+        MATCH (a:Sentence {resource_uid: $resource})
+        MATCH (b:Sentence {resource_uid: $resource})
+        WHERE a.val < b.val
+        CREATE (a)-[:TO]->(b)
+        RETURN DISTINCT a.uid
+        """,
+        params={"resource": resource.uid.hex},
+    )
+    target = await LSentence.nodes.get(val="sentence 0")
+    spy = mocker.spy(adb, "cypher_query")
+
+    chain = (await fetch_tanbun_chains([target.uid])).root[0]
+
+    assert len(chain.g.nodes) == 10  # noqa: PLR2004
+    assert EdgeType.TO.subgraph(chain.g).number_of_edges() == 45  # noqa: PLR2004
+    assert chain.location.resource.uid == resource.uid
+    seen = set()
+    for call in spy.call_args_list:
+        for task in call.kwargs.get("params", {}).get("tasks", []):
+            for uid in task["uids"]:
+                key = (task["root"], task["relation"], uid)
+                assert key not in seen
+                seen.add(key)
+    assert rows
+
+
+@mark_async_test()
+async def test_relation_cycle_preserves_edges(u: LUser):
+    """循環を含む関係でも探索が終了し、方向を保持する."""
+    _, resource = await save_text(u.uid, "# cycle\n  a\n  b\n  c\n")
+    await adb.cypher_query(
+        """
+        MATCH (a:Sentence {resource_uid: $resource, val: 'a'})
+        MATCH (b:Sentence {resource_uid: $resource, val: 'b'})
+        MATCH (c:Sentence {resource_uid: $resource, val: 'c'})
+        CREATE (a)-[:TO]->(b), (b)-[:TO]->(c), (c)-[:TO]->(a)
+        """,
+        params={"resource": resource.uid.hex},
+    )
+    target = await LSentence.nodes.get(val="a")
+    chain = (await fetch_tanbun_chains([target.uid])).root[0]
+    assert EdgeType.TO.subgraph(chain.g).number_of_edges() == 3  # noqa: PLR2004
+    assert [node.sentence for node in chain.succ("a", EdgeType.TO)] == ["b"]
 
 
 @async_fixture()

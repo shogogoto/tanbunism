@@ -7,7 +7,6 @@ from typing import Any, Final
 from more_itertools import first_true
 from neo4j.graph import Path
 
-from tanbun.feature.domain.graph.edge_type import EdgeType
 from tanbun.feature.domain.types import UUIDy
 from tanbun.feature.entry.mapper import MResource
 from tanbun.feature.repo.cypher import q_call_term_names
@@ -42,35 +41,27 @@ def q_root_path(tgt: str, var: str, t: str) -> str:
 
 
 def q_stats(tgt: str, order_by: OrderBy | None = None) -> str:
-    """関係統計の取得cypher."""
-    # // {q_leaf_path(tgt, "p_leaf", EdgeType.TO.name)}
-    # // {q_root_path(tgt, "p_axiom", EdgeType.TO.name)}
-    # {q_adjacency_uids("tgts", all_chain=True)}
+    """関係別に集計し、異なる関係同士の直積を作らない."""
+    counts = [
+        f"""
+            CALL ({tgt}) {{
+                OPTIONAL MATCH ({tgt})<-[:QUOTERM]-(qt:Quoterm)
+                WITH {tgt}, collect(qt) AS quotes
+                UNWIND [{tgt}] + quotes AS tgts
+                WITH DISTINCT tgts
+                {adjacency.match("tgts", None)}
+                RETURN count(DISTINCT {adjacency.value}) AS n_{adjacency.value}
+            }}
+        """
+        for adjacency in AdjType.location_types()
+    ]
     return f"""
         // q_stats
         CALL ({tgt}) {{
-            OPTIONAL MATCH p = ({tgt})<-[:QUOTERM]-(qt: Quoterm)
-            WITH COLLECT(qt) AS qts, {tgt}
-            UNWIND [{tgt}] + qts AS tgts
-            WITH DISTINCT tgts
-                , {tgt}
-
-            {q_adjacency_uids("tgts", tgt)}
-            WITH
-              SIZE(premises) AS n_premise
-            , SIZE(conclusions) AS n_conclusion
-            //, MAX(coalesce(length(p_axiom), 0)) AS dist_axiom
-            //, MAX(coalesce(length(p_leaf), 0)) AS dist_leaf
-            , SIZE(referreds) AS n_referred
-            , SIZE(refers) AS n_refer
-            , SIZE(details) AS n_detail
-            , SIZE(abstracts) AS n_abstract
-            , SIZE(examples) AS n_example
+            {"".join(counts)}
             RETURN {{
                 n_premise: n_premise
                 , n_conclusion: n_conclusion
-                // , dist_axiom: dist_axiom
-                // , dist_leaf: dist_leaf
                 , n_referred: n_referred
                 , n_refer: n_refer
                 , n_detail: n_detail
@@ -80,17 +71,6 @@ def q_stats(tgt: str, order_by: OrderBy | None = None) -> str:
             }} AS stats
         }}
         """
-
-
-def q_chain(var: str, et: EdgeType, indent_len: int = 0) -> str:
-    """同一関係パスによるstart,end,type."""
-    s = f"""
-        // {et.name} Chain
-        MATCH (:Sentence|Quoterm)-[r:{et.name}]-(:Sentence|Quoterm)
-            -[:{et.name}]-*({var})
-        RETURN startNode(r) as start, endNode(r) as end, type(r) as type
-    """
-    return indent(s, " " * indent_len)
 
 
 def q_where_tanbun(p: WherePhrase = WherePhrase.CONTAINS) -> str:
@@ -179,12 +159,19 @@ def q_upper(sent_var: str) -> str:
     complex_ = "TO|EXAMPLE"  # resourceに近づくとは限らない方向
     return f"""
         CALL ({sent_var}) {{
+            MATCH (r:Resource {{uid: {sent_var}.resource_uid}})
+            WHERE EXISTS {{ MATCH (r)-[:{STREAM}]->*({sent_var}) }}
+            RETURN {sent_var} AS upper, r AS resource
+            UNION
             // Resource直下でも許容
             MATCH (r:Resource {{uid: {sent_var}.resource_uid}})
+            WHERE NOT EXISTS {{ MATCH (r)-[:{STREAM}]->*({sent_var}) }}
             OPTIONAL MATCH p = (r)-[:{STREAM}]->*
                 (_upper:Sentence|Head)-[:{STREAM}]->
                 (up:Sentence)
-                , (up)-[:{complex_}|NUM|BY]-*({sent_var})
+            WHERE EXISTS {{
+                MATCH ANY SHORTEST (up)-[:{complex_}|NUM|BY]-*({sent_var})
+            }}
             WITH p, LENGTH(p) as len, up, _upper, r
             ORDER BY len ASC // 最短
             LIMIT 1
