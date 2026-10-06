@@ -90,10 +90,18 @@ async def test_budgets_are_isolated_between_tasks():
 
 
 @pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan")])
-def test_settings_reject_unbounded_deadlines(timeout):
+@pytest.mark.parametrize(
+    "field",
+    [
+        "NEO4J_READ_TIMEOUT_SECONDS",
+        "NEO4J_WRITE_TIMEOUT_SECONDS",
+        "NEO4J_SCHEMA_TIMEOUT_SECONDS",
+    ],
+)
+def test_settings_reject_unbounded_deadlines(timeout, field):
     """環境変数でも期限なしにはできない."""
     with pytest.raises(ValidationError):
-        Settings(NEO4J_READ_TIMEOUT_SECONDS=timeout)
+        Settings(**{field: timeout})
 
 
 @mark_async_test()

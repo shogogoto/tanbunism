@@ -77,6 +77,7 @@ OPTIONSは30秒、それ以外は120秒が初期値。環境変数で変更で�
 ```text
 NEO4J_READ_TIMEOUT_SECONDS=30
 NEO4J_WRITE_TIMEOUT_SECONDS=120
+NEO4J_SCHEMA_TIMEOUT_SECONDS=300
 ```
 
 通常のCypher・ORM・明示トランザクションに適用し、HTTP処理ではなくDB側で
@@ -84,6 +85,13 @@ NEO4J_WRITE_TIMEOUT_SECONDS=120
 上限で、複数クエリを実行してもリセットしない。APIでは504を返し、自動再試行
 しない。暗黙トランザクションは各クエリに上限が適用されるため、バックグラウンド
 ジョブ全体の終了期限ではない。API以外の既定値はREAD側の設定を使う。
+
+`task start`は起動前に`task schema-install`を実行する。スキーマ登録だけは
+`NEO4J_SCHEMA_TIMEOUT_SECONDS`を使う（各DBトランザクションの上限）。
+一意制約は`IF NOT EXISTS`で再実行可能にし、登録後にラベル・プロパティ・
+制約の種類を確認する。同名の別制約や未完成のインデックスを成功扱いにせず、
+自動削除もしない。異常時は`SHOW INDEXES`と`SHOW CONSTRAINTS`で確認して
+手動修復する。DB切断などで構築が中断された場合の残存まで完全には防げない。
 
 Auraの`SHOW TRANSACTIONS`の`metaData`に`app`と`operation`が表示される。
 期限設定は新しく開始するトランザクションに適用され、既存の暴走処理は別途停止が必要。

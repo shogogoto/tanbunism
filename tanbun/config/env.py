@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     NEO4J_URL: str
     NEO4J_READ_TIMEOUT_SECONDS: float = Field(default=30, gt=0, allow_inf_nan=False)
     NEO4J_WRITE_TIMEOUT_SECONDS: float = Field(default=120, gt=0, allow_inf_nan=False)
+    NEO4J_SCHEMA_TIMEOUT_SECONDS: float = Field(default=300, gt=0, allow_inf_nan=False)
     GOOGLE_CLIENT_ID: str
     GOOGLE_CLIENT_SECRET: str
     KNOWDE_URL: str = "https://knowde.onrender.com/"
