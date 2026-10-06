@@ -111,12 +111,16 @@ async def report_quiz_issue(
     return to_uuid(rows[0][0]), rows[0][1]
 
 
-async def list_reported_created_quizzes(user_id: UUIDy) -> list[QuizReport]:
+async def list_reported_created_quizzes(
+    user_id: UUIDy,
+    *,
+    resolved: bool = False,
+) -> list[QuizReport]:
     """自分が作成したQuizに届いた不備報告を集約する."""
     query = """
         MATCH (:User {uid: $user_id})-[:CREATE]->(quiz:Quiz)
         MATCH (:User)-[:REPORT]->(report:QuizReport)-[:REPORT_OF]->(quiz)
-        WHERE report.resolved_at IS NULL
+        WHERE $resolved = (report.resolved_at IS NOT NULL)
         OPTIONAL MATCH (quiz)-[:QUIZ_TARGET]->(target)
         OPTIONAL MATCH (resource:Resource {uid: target.resource_uid})
         WITH quiz, target, resource, collect(report) AS reports
@@ -130,7 +134,7 @@ async def list_reported_created_quizzes(user_id: UUIDy) -> list[QuizReport]:
     """
     rows, _ = await adb.cypher_query(
         query,
-        params={"user_id": to_uuid(user_id).hex},
+        params={"user_id": to_uuid(user_id).hex, "resolved": resolved},
     )
     sources = await restore_quiz_sources(row[0] for row in rows)
     quiz_by_id = {source.quiz_id.hex: source.to_readable() for source in sources}

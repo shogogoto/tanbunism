@@ -1,7 +1,7 @@
 """quiz router."""
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Response, status
@@ -236,9 +236,18 @@ async def get_created_quiz_issue_summary(
 
 
 @_r.get("/created/reports")
-async def list_created_quiz_reports(user: ActiveUser) -> list[QuizReport]:
+async def list_created_quiz_reports(
+    user: ActiveUser,
+    report_status: Annotated[
+        Literal["open", "resolved"],
+        Query(alias="status"),
+    ] = "open",
+) -> list[QuizReport]:
     """自分が作成したQuizへ届いた不備報告を取得."""
-    return await list_reported_created_quizzes(user.uid)
+    return await list_reported_created_quizzes(
+        user.uid,
+        resolved=report_status == "resolved",
+    )
 
 
 @_r.post(

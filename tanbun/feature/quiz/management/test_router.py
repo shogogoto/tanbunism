@@ -389,6 +389,31 @@ async def test_dismiss_and_reopen_reported_quiz(ac: AsyncClient, u: LUser):
     ).status_code == status.HTTP_204_NO_CONTENT
 
     assert (await ac.get("/quiz/created/reports", headers=creator_headers)).json() == []
+    resolved_reports = await ac.get(
+        "/quiz/created/reports",
+        params={"status": "resolved"},
+        headers=creator_headers,
+    )
+    assert resolved_reports.status_code == status.HTTP_200_OK
+    [resolved_report] = resolved_reports.json()
+    assert resolved_report["quiz_id"] == str(created.quiz_id)
+    assert resolved_report["detail"] == "最初の報告"
+    assert resolved_report["quiz"]["options"]
+    assert resolved_report["quiz"]["correct"]
+    assert (
+        await ac.get(
+            "/quiz/created/reports",
+            params={"status": "resolved"},
+            headers=reporter_headers,
+        )
+    ).json() == []
+    assert (
+        await ac.get(
+            "/quiz/created/reports",
+            params={"status": "invalid"},
+            headers=creator_headers,
+        )
+    ).status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
     assert (
         await ac.get(
             "/quiz/created/issues/summary",
@@ -407,6 +432,13 @@ async def test_dismiss_and_reopen_reported_quiz(ac: AsyncClient, u: LUser):
     notifications = await ac.get("/notifications", headers=creator_headers)
 
     assert reports.json()[0]["detail"] == "再確認してほしい"
+    assert (
+        await ac.get(
+            "/quiz/created/reports",
+            params={"status": "resolved"},
+            headers=creator_headers,
+        )
+    ).json() == []
     assert notifications.json()["unread_count"] == expected_notification_count
 
 
