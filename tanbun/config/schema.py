@@ -15,6 +15,7 @@ from tanbun.feature.entry.label import (
     LResource,
     LResourceStatsCache,
 )
+from tanbun.feature.gamification.label import LResourceXpEvent
 from tanbun.feature.quiz.label import LAnswer, LQuiz
 from tanbun.feature.tanbun.label import LInterval, LQuoterm, LSentence, LTerm
 from tanbun.feature.user.label import LAccount, LUser
@@ -34,6 +35,7 @@ ASYNC_LABELS = (
     LTerm,
     LQuoterm,
     LInterval,
+    LResourceXpEvent,
 )
 
 

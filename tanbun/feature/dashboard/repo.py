@@ -6,6 +6,7 @@ from math import log1p
 from neomodel import adb
 
 from tanbun.feature.domain.types import UUIDy, to_uuid
+from tanbun.feature.gamification.resource import record_exposure_xp
 from tanbun.feature.recommendation.daily import (
     Candidate,
     load_daily,
@@ -192,17 +193,19 @@ async def record_tanbun_exposure(
         RETURN recorded, count(all_exposures)
         """
     )
-    rows, _ = await adb.cypher_query(
-        query,
-        params={
-            "user_id": uid,
-            "sentence_id": sentence_uid,
-            "seen_on": seen_on.isoformat(),
-            "key": f"{uid}:{sentence_uid}:{seen_on.isoformat()}",
-        },
-    )
-    if not rows:
-        return None
+    async with adb.transaction:
+        rows, _ = await adb.cypher_query(
+            query,
+            params={
+                "user_id": uid,
+                "sentence_id": sentence_uid,
+                "seen_on": seen_on.isoformat(),
+                "key": f"{uid}:{sentence_uid}:{seen_on.isoformat()}",
+            },
+        )
+        if not rows:
+            return None
+        await record_exposure_xp(user_id, sentence_id, seen_on.isoformat())
     return TanbunExposureResult(
         sentence_id=sentence_id,
         seen_on=seen_on,

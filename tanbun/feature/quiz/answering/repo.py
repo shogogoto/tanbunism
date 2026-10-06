@@ -7,6 +7,7 @@ from neomodel import adb
 
 from tanbun.feature.domain.datetime import TZ
 from tanbun.feature.domain.types import UUIDy, to_uuid
+from tanbun.feature.gamification.resource import record_answer_xp
 from tanbun.feature.quiz.domain.answer import Answer
 from tanbun.feature.quiz.errors import AnswerFailedError
 from tanbun.feature.quiz.repo.restore import restore_quiz_sources
@@ -45,17 +46,20 @@ async def create_answer(
     """
 
     is_correct = await fetch_is_correct(quiz_uid, selected_uids)
-    rows, _ = await adb.cypher_query(
-        q,
-        params={
-            "quiz_uid": quiz_uid.hex,
-            "selected_uids": [to_uuid(u).hex for u in selected_uids],
-            "answer_uid": answer_uid.hex,
-            "now": now.isoformat(),
-            "is_correct": is_correct,
-            "user_uid": to_uuid(user_uid).hex,
-        },
-    )
+    async with adb.transaction:
+        rows, _ = await adb.cypher_query(
+            q,
+            params={
+                "quiz_uid": quiz_uid.hex,
+                "selected_uids": [to_uuid(u).hex for u in selected_uids],
+                "answer_uid": answer_uid.hex,
+                "now": now.isoformat(),
+                "is_correct": is_correct,
+                "user_uid": to_uuid(user_uid).hex,
+            },
+        )
+        if rows:
+            await record_answer_xp(user_uid, answer_uid)
 
     for row in rows:
         _, u = row
