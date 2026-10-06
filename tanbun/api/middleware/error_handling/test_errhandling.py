@@ -2,6 +2,7 @@
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from neo4j.exceptions import Neo4jError
 
 from tanbun.feature.domain.errors import DomainError
 
@@ -32,6 +33,23 @@ def for_test2() -> None:  # noqa: D103
 
 
 client = TestClient(app)
+
+
+@app.get("/database-timeout")
+def database_timeout() -> None:
+    """サーバー期限超過を再現する."""
+    raise Neo4jError._hydrate_neo4j(  # noqa: SLF001
+        code="Neo.ClientError.Transaction.TransactionTimedOutClientConfiguration",
+        message="Transaction timed out",
+    )
+
+
+def test_database_timeout_returns_504() -> None:
+    """実行エラーもcommitエラーと同じ期限超過応答になる."""
+    response = client.get("/database-timeout")
+    assert response.status_code == 504  # noqa: PLR2004
+    assert response.json()["detail"]["code"] == 504  # noqa: PLR2004
+    assert "時間上限" in response.json()["detail"]["message"]
 
 
 def test_api() -> None:  # noqa: D103

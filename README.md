@@ -69,6 +69,25 @@ tb check notes --extension md
 続けられないため、1回の検査では各ファイルの最初のエラーを検出する。通常は
 エラーがあるファイルのパスだけを列挙し、`-v`で詳細を表示する。
 
+### Database execution deadlines
+
+Neo4jの実行期限は`tanbun/config/database.py`で共通設定する。APIのGET・HEAD・
+OPTIONSは30秒、それ以外は120秒が初期値。環境変数で変更できる（正の有限値のみ）。
+
+```text
+NEO4J_READ_TIMEOUT_SECONDS=30
+NEO4J_WRITE_TIMEOUT_SECONDS=120
+```
+
+通常のCypher・ORM・明示トランザクションに適用し、HTTP処理ではなくDB側で
+期限超過のトランザクションを終了させる。期限はトランザクション全体に対する
+上限で、複数クエリを実行してもリセットしない。APIでは504を返し、自動再試行
+しない。暗黙トランザクションは各クエリに上限が適用されるため、バックグラウンド
+ジョブ全体の終了期限ではない。API以外の既定値はREAD側の設定を使う。
+
+Auraの`SHOW TRANSACTIONS`の`metaData`に`app`と`operation`が表示される。
+期限設定は新しく開始するトランザクションに適用され、既存の暴走処理は別途停止が必要。
+
 ### Web Push
 
 Web Pushを有効にするサーバーではVAPID鍵を一度だけ生成する。

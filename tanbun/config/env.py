@@ -9,7 +9,10 @@ from urllib.parse import urljoin
 
 import httpx
 from neomodel import config
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from tanbun.config.database import configure_database_deadlines
 
 TIMEOUT: Final = 3.0
 
@@ -29,6 +32,8 @@ class Settings(BaseSettings):
     )
 
     NEO4J_URL: str
+    NEO4J_READ_TIMEOUT_SECONDS: float = Field(default=30, gt=0, allow_inf_nan=False)
+    NEO4J_WRITE_TIMEOUT_SECONDS: float = Field(default=120, gt=0, allow_inf_nan=False)
     GOOGLE_CLIENT_ID: str
     GOOGLE_CLIENT_SECRET: str
     KNOWDE_URL: str = "https://knowde.onrender.com/"
@@ -69,6 +74,7 @@ class Settings(BaseSettings):
 
     def setup_db(self) -> None:
         """DB設定."""
+        configure_database_deadlines(self.NEO4J_READ_TIMEOUT_SECONDS)
         config.DATABASE_URL = self.NEO4J_URL
 
     def url(self, relative: str) -> str:
