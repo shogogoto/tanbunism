@@ -7,9 +7,7 @@ from pydantic import BaseModel
 
 from tanbun.feature.learning_activity.domain import LearningActivityCounts
 
-SENTENCE_XP = 1
 TANBUN_EXPOSURE_XP = 1
-QUIZ_CREATED_XP = 1
 QUIZ_ANSWERED_XP = 5
 QUIZ_CORRECT_BONUS_XP = 2
 LEVEL_CURVE = 50
@@ -28,9 +26,9 @@ class XpSource(StrEnum):
 class XpBreakdown(BaseModel, frozen=True):
     """活動種別ごとの経験値."""
 
-    knowledge: int
+    knowledge: int = 0
     tanbun_exposure: int
-    quiz_creation: int
+    quiz_creation: int = 0
     quiz_answer: int
     correct_bonus: int
 
@@ -65,18 +63,12 @@ def level_threshold(level: int) -> int:
 def calculate_learning_progress(
     activity: LearningActivityCounts,
 ) -> LearningProgress:
-    """活動の事実から、永続化せずXPとLevelを計算する."""
+    """復習の事実だけからXPとLevelを計算する。知識量・作成数は加算しない."""
     xp_details = [
-        _xp_detail(XpSource.KNOWLEDGE, activity.n_sentence, SENTENCE_XP),
         _xp_detail(
             XpSource.TANBUN_EXPOSURE,
             activity.n_tanbun_exposure,
             TANBUN_EXPOSURE_XP,
-        ),
-        _xp_detail(
-            XpSource.QUIZ_CREATION,
-            activity.n_quiz_created,
-            QUIZ_CREATED_XP,
         ),
         _xp_detail(
             XpSource.QUIZ_ANSWER,

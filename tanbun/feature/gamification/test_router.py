@@ -3,6 +3,7 @@
 from httpx import AsyncClient
 
 from tanbun.conftest import mark_async_test
+from tanbun.feature.entry.resource.usecase import save_text
 from tanbun.feature.user.testing import aregister
 
 
@@ -10,6 +11,7 @@ from tanbun.feature.user.testing import aregister
 async def test_get_learning_progress_without_login(ac: AsyncClient) -> None:
     """公開プロフィールではログインせずLevelとXPを取得できる."""
     user = await aregister("learning-progress@example.com")
+    await save_text(user.uid, "# knowledge is not review XP\n  imported sentence\n")
 
     response = await ac.get(f"/user/{user.uid}/learning-progress")
 
@@ -18,19 +20,7 @@ async def test_get_learning_progress_without_login(ac: AsyncClient) -> None:
     assert response.json()["total_xp"] == 0
     assert response.json()["xp_details"] == [
         {
-            "source": "knowledge",
-            "activity_count": 0,
-            "xp_per_activity": 1,
-            "earned_xp": 0,
-        },
-        {
             "source": "tanbun_exposure",
-            "activity_count": 0,
-            "xp_per_activity": 1,
-            "earned_xp": 0,
-        },
-        {
-            "source": "quiz_creation",
             "activity_count": 0,
             "xp_per_activity": 1,
             "earned_xp": 0,
