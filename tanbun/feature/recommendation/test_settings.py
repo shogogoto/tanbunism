@@ -2,15 +2,17 @@
 
 # ruff: noqa: PLR2004
 
-from datetime import date, timedelta
+from datetime import datetime, timedelta
 from uuid import uuid4
 
 from httpx import AsyncClient
 
 from tanbun.conftest import async_fixture, mark_async_test
 from tanbun.feature.dashboard.repo import list_personal_tanbuns
+from tanbun.feature.domain.datetime import TZ
 from tanbun.feature.domain.types import to_uuid
 from tanbun.feature.entry.resource.usecase import save_text
+from tanbun.feature.quiz.answering.repo import create_answer
 from tanbun.feature.quiz.domain.parts import QuizType
 from tanbun.feature.quiz.fixture import fx_u
 from tanbun.feature.quiz.learning.study_plan.domain import StudyPlanDraft
@@ -19,9 +21,76 @@ from tanbun.feature.quiz.listing.test_router import _generate_quizzes
 from tanbun.feature.user.label import LUser
 from tanbun.feature.user.testing import aauth_header, aregister
 
-from .settings import ReviewSettingsInput, reset_settings, save_settings, today_settings
+from .daily import load_daily, save_daily
+from .settings import (
+    ReviewSettingsInput,
+    reset_settings,
+    save_settings,
+    settings_scope,
+    today_settings,
+)
 
 u = async_fixture()(fx_u)
+
+
+@mark_async_test()
+async def test_past_sets_keep_ids_and_progress_without_backdating(
+    ac: AsyncClient,
+    u: LUser,
+):
+    """過去セットの消化は実際の日に記録. 未保存の日は生成しない."""
+    today = datetime.now(TZ).date()
+    yesterday = today - timedelta(days=1)
+    quizzes = await _generate_quizzes(u, 2)
+    headers = await aauth_header(u.email)
+    knowledge = (await ac.get("/dashboard/tanbuns", headers=headers)).json()
+    sentence_id = knowledge[0]["uid"]
+    await today_settings(u.uid, "default", yesterday)
+    await save_daily(
+        u.uid,
+        settings_scope("default", "tanbuns"),
+        yesterday,
+        [to_uuid(sentence_id).hex],
+    )
+    await save_daily(
+        u.uid,
+        settings_scope("default", "quizzes"),
+        yesterday,
+        [quizzes[0].quiz_id.hex],
+    )
+    await ac.post(f"/dashboard/tanbuns/{sentence_id}/exposures", headers=headers)
+    await create_answer(quizzes[0].quiz_id, quizzes[0].to_readable().correct, u.uid)
+    past = (await ac.get(f"/dashboard/tanbuns?day={yesterday}", headers=headers)).json()
+    assert [s["uid"] for s in past] == [sentence_id]
+    assert past[0]["seen_today"]
+    assert past[0]["seen_in_set"]
+    past_quizzes = (
+        await ac.get(f"/quiz/daily?day={yesterday}", headers=headers)
+    ).json()["data"]
+    assert [q["quiz"]["quiz_id"] for q in past_quizzes] == [str(quizzes[0].quiz_id)]
+    assert past_quizzes[0]["answered_today"]
+    assert past_quizzes[0]["answered_in_set"]
+    await reset_settings(u.uid, "default")
+    assert await load_daily(u.uid, settings_scope("default", "tanbuns"), yesterday) == [
+        to_uuid(sentence_id).hex,
+    ]
+    missing = today - timedelta(days=2)
+    assert (
+        await ac.get(f"/dashboard/tanbuns?day={missing}", headers=headers)
+    ).json() == []
+    assert (await ac.get(f"/quiz/daily?day={missing}", headers=headers)).json()[
+        "total"
+    ] == 0
+    assert (
+        await load_daily(u.uid, settings_scope("default", "quizzes"), missing) is None
+    )
+    for invalid in (today + timedelta(days=1), today - timedelta(days=7)):
+        assert (
+            await ac.get(f"/dashboard/tanbuns?day={invalid}", headers=headers)
+        ).status_code == 422
+        assert (
+            await ac.get(f"/quiz/daily?day={invalid}", headers=headers)
+        ).status_code == 422
 
 
 @mark_async_test()
@@ -109,7 +178,7 @@ async def test_settings_api_ownership_and_validation(ac: AsyncClient, u: LUser):
 @mark_async_test()
 async def test_settings_frozen_today_and_explicit_rebuild(u: LUser):
     """編集では今日の件数を変えず、再作成・翌日に最新設定を使う."""
-    day = date(2026, 10, 6)
+    day = datetime.now(TZ).date()
     setting = await save_settings(
         u.uid,
         ReviewSettingsInput(name="少し", tanbun_count=2),

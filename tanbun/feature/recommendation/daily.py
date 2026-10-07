@@ -2,11 +2,42 @@
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta
 from hashlib import sha256
 from math import log
 
+from fastapi import HTTPException
 from neomodel import adb
+
+from tanbun.feature.domain.datetime import TZ
+
+RETENTION_DAYS = 7
+
+
+def review_day(day: date | None = None) -> date:
+    """公開APIの指定日は日本時間の今日を含む7日間のみ."""
+    today = datetime.now(TZ).date()
+    result = day or today
+    if not today - timedelta(days=RETENTION_DAYS - 1) <= result <= today:
+        raise HTTPException(
+            status_code=422,
+            detail="今日を含む7日以内を選択してください",
+        )
+    return result
+
+
+async def prune_daily(user_id: str) -> None:
+    """最新の保存日から7日分を保持. 遅延リクエストで新しい日を消さない."""
+    await adb.cypher_query(
+        """
+        MATCH (user:User {uid:$uid})-[:RECOMMENDATIONS|REVIEW_DAY]->(s)
+        WITH user, max(s.day) AS latest
+        MATCH (user)-[:RECOMMENDATIONS|REVIEW_DAY]->(old)
+        WHERE old.day < latest - duration({days:6})
+        DETACH DELETE old
+        """,
+        params={"uid": user_id},
+    )
 
 
 @dataclass(frozen=True)
@@ -63,15 +94,17 @@ async def save_daily(
     day: date,
     ids: list[str],
 ) -> list[str]:
-    """ユーザー・用途ごとに1セットだけ保持し、同日の先行セットを優先する."""
+    """日付ごとに保持し、同日の先行セットを優先する."""
     rows, _ = await adb.cypher_query(
         """
         MATCH (user:User {uid: $user_id})
-        MERGE (user)-[:RECOMMENDATIONS]->(s:DailyRecommendation {scope: $scope})
-        ON CREATE SET s.day = date($day), s.ids = $ids
+        SET user.review_settings_revision=coalesce(user.review_settings_revision,0)+1
+        WITH user
+        MERGE (user)-[:RECOMMENDATIONS]->(s:DailyRecommendation {
+            scope: $scope, day: date($day)})
+        ON CREATE SET s.ids = $ids
         WITH s
-        FOREACH (_ IN CASE WHEN s.day < date($day)
-            OR (s.day = date($day) AND size(s.ids) = 0)
+        FOREACH (_ IN CASE WHEN size(s.ids) = 0
             THEN [1] ELSE [] END |
             SET s.day = date($day), s.ids = $ids
         )
@@ -84,6 +117,7 @@ async def save_daily(
             "ids": ids,
         },
     )
+    await prune_daily(user_id)
     return rows[0][0] if rows else []
 
 
@@ -99,12 +133,10 @@ async def append_daily(
         MATCH (user:User {uid:$user_id})
         SET user.review_settings_revision=coalesce(user.review_settings_revision, 0)+1
         WITH user
-        MERGE (user)-[:RECOMMENDATIONS]->(s:DailyRecommendation {scope:$scope})
-        ON CREATE SET s.day=date($day), s.ids=[]
+        MERGE (user)-[:RECOMMENDATIONS]->(s:DailyRecommendation {
+            scope:$scope, day:date($day)})
+        ON CREATE SET s.ids=[]
         WITH s
-        FOREACH (_ IN CASE WHEN s.day < date($day) THEN [1] ELSE [] END |
-            SET s.day=date($day), s.ids=[])
-        WITH s WHERE s.day=date($day)
         SET s.ids=(s.ids + [id IN $ids WHERE NOT id IN s.ids])[0..500]
         RETURN s.ids
         """,
@@ -115,4 +147,5 @@ async def append_daily(
             "ids": list(dict.fromkeys(ids)),
         },
     )
+    await prune_daily(user_id)
     return rows[0][0] if rows else []

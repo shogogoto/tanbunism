@@ -37,6 +37,7 @@ class ManagedQuiz(BaseModel, frozen=True):
     accuracy: float | None
     last_attempted_at: Neo4jDateTime | None
     answered_today: bool = False
+    answered_in_set: bool = False
 
 
 class ManagedQuizResult(BaseModel, frozen=True):

@@ -1,6 +1,6 @@
 """本人の復習設定と、今日適用する設定のスナップショット."""
 
-from datetime import date
+from datetime import date, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
@@ -8,8 +8,11 @@ from fastapi import HTTPException
 from neomodel import adb
 from pydantic import BaseModel, Field
 
+from tanbun.feature.domain.datetime import TZ
 from tanbun.feature.domain.types import UUIDy, to_uuid
 from tanbun.feature.quiz.learning.study_plan.repo import fetch_study_plan
+
+from .daily import prune_daily
 
 
 class ReviewPriority(StrEnum):
@@ -55,8 +58,10 @@ async def list_settings(user_id: UUIDy) -> list[ReviewSettings]:
     settings = [ReviewSettings.model_validate_json(row[0]) for row in rows]
     default = next(
         (s for s in settings if s.id == "default"),
-        ReviewSettings(name="標準"),
+        ReviewSettings(name="今日"),
     )
+    if default.name == "標準":
+        default = default.model_copy(update={"name": "今日"})
     return [default, *(s for s in settings if s.id != "default")]
 
 
@@ -133,11 +138,8 @@ async def today_settings(
         MATCH (user:User {uid:$uid})
         SET user.review_settings_revision = coalesce(user.review_settings_revision, 0)+1
         WITH user
-        MERGE (user)-[:REVIEW_DAY]->(s:ReviewDaySettings {id:$id})
-        ON CREATE SET s.day=date($day), s.config=$config
-        WITH s
-        FOREACH (_ IN CASE WHEN s.day < date($day) THEN [1] ELSE [] END |
-            SET s.day=date($day), s.config=$config)
+        MERGE (user)-[:REVIEW_DAY]->(s:ReviewDaySettings {id:$id, day:date($day)})
+        ON CREATE SET s.config=$config
         RETURN s.config
         """,
         params={
@@ -147,6 +149,7 @@ async def today_settings(
             "config": config.model_dump_json(),
         },
     )
+    await prune_daily(to_uuid(user_id).hex)
     return ReviewSettings.model_validate_json(rows[0][0])
 
 
@@ -166,11 +169,12 @@ async def reset_settings(
         SET user.review_settings_revision = coalesce(user.review_settings_revision, 0)+1
         WITH user
         OPTIONAL MATCH (user)-[:REVIEW_DAY]->(day:ReviewDaySettings {id:$id})
+        WHERE $delete OR day.day=date($today)
         WITH user, collect(day) AS days
         FOREACH (item IN days | DETACH DELETE item)
         WITH user
         OPTIONAL MATCH (user)-[:RECOMMENDATIONS]->(s:DailyRecommendation)
-        WHERE s.scope IN $scopes
+        WHERE s.scope IN $scopes AND ($delete OR s.day=date($today))
         WITH user, collect(s) AS sets
         FOREACH (item IN sets | DETACH DELETE item)
         WITH user
@@ -183,6 +187,7 @@ async def reset_settings(
             "uid": to_uuid(user_id).hex,
             "id": profile_id,
             "delete": delete,
+            "today": datetime.now(TZ).date().isoformat(),
             "scopes": [
                 settings_scope(profile_id, kind) for kind in ("tanbuns", "quizzes")
             ],

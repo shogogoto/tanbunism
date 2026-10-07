@@ -1,10 +1,11 @@
 """個人ダッシュボードのNeo4jアクセス."""
 
-from datetime import date
+from datetime import date, datetime
 from math import log1p
 
 from neomodel import adb
 
+from tanbun.feature.domain.datetime import TZ
 from tanbun.feature.domain.types import UUIDy, to_uuid
 from tanbun.feature.gamification.resource import record_exposure_xp
 from tanbun.feature.notification.usecase import dispatch_saved_notifications
@@ -53,12 +54,15 @@ async def list_personal_tanbuns(
     limit: int = 30,
     profile_id: str = "default",
     more: bool = False,
+    historical: bool = False,
 ) -> list[PersonalTanbunItem]:
     """未遭遇・久しぶり・スコアを重みに、同日の推薦セットを返す."""
     uid = to_uuid(user_id).hex
-    settings = await today_settings(user_id, profile_id, seen_on)
     scope = settings_scope(profile_id, "tanbuns")
     ids = await load_daily(uid, scope, seen_on)
+    if historical:
+        return await _fetch_personal_tanbuns(user_id, seen_on, ids=(ids or [])[:limit])
+    settings = await today_settings(user_id, profile_id, seen_on)
     if more or not ids:
         rows, _ = await adb.cypher_query(
             f"""
@@ -162,12 +166,15 @@ async def _fetch_personal_tanbuns(
         })
         WITH resource, sentence, position,
             count(exposure) AS exposure_count,
-            count(CASE WHEN exposure.seen_on = date($seen_on) THEN 1 END) > 0
-                AS seen_today
+            count(CASE WHEN exposure.seen_on = date($today) THEN 1 END) > 0
+                AS seen_today,
+            count(CASE WHEN exposure.seen_on >= date($seen_on) THEN 1 END) > 0
+                AS seen_in_set
         """
         + location_query
         + """
-        WITH resource, sentence, position, exposure_count, seen_today, location
+        WITH resource, sentence, position, exposure_count,
+            seen_today, seen_in_set, location
         WHERE location IS NOT NULL
         """
         + term_names_query
@@ -177,7 +184,7 @@ async def _fetch_personal_tanbuns(
         RETURN sentence.uid, sentence.val,
             coalesce([name IN names | name.val], []) AS term_names,
             resource.uid, resource.title, resource.updated, stats.score,
-            exposure_count, seen_today
+            exposure_count, seen_today, seen_in_set
         """
     )
     rows, _ = await adb.cypher_query(
@@ -185,6 +192,7 @@ async def _fetch_personal_tanbuns(
         params={
             "user_id": to_uuid(user_id).hex,
             "seen_on": seen_on.isoformat(),
+            "today": datetime.now(TZ).date().isoformat(),
             "ids": ids,
         },
     )
@@ -199,6 +207,7 @@ async def _fetch_personal_tanbuns(
             score=row[6],
             exposure_count=row[7],
             seen_today=row[8],
+            seen_in_set=row[9],
         )
         for row in rows
     ]

@@ -6,7 +6,7 @@
 """
 
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import date, datetime
 
 from neomodel import adb
 
@@ -201,17 +201,20 @@ async def list_quiz_feed(
     personal: bool = False,
     profile_id: str = "default",
     more: bool = False,
+    set_day: date | None = None,
 ) -> ManagedQuizResult:
     """全ユーザーが作成した有効なQuizを閲覧者の回答状況付きで返す."""
-    day = datetime.now(TZ).date()
+    day = set_day or datetime.now(TZ).date()
     uid = to_uuid(user_id).hex
     scope = "personal-quizzes" if personal else "global-quizzes"
+    if daily and personal:
+        scope = settings_scope(profile_id, "quizzes")
+    selected = await load_daily(uid, scope, day) if daily else None
+    if daily and day < datetime.now(TZ).date() and not selected:
+        return ManagedQuizResult(total=0, data=[])
     settings = (
         await today_settings(user_id, profile_id, day) if daily and personal else None
     )
-    if settings:
-        scope = settings_scope(profile_id, "quizzes")
-    selected = await load_daily(uid, scope, day) if daily else None
     if selected == []:
         selected = None
     previous_ids = selected or []
@@ -313,7 +316,11 @@ async def list_quiz_feed(
         for record in records:
             last = record["last_attempted_at"]
             record["answered_today"] = bool(
-                last and last.to_native().astimezone(TZ).date() == day,
+                last
+                and last.to_native().astimezone(TZ).date() == datetime.now(TZ).date(),
+            )
+            record["answered_in_set"] = bool(
+                last and last.to_native().astimezone(TZ).date() >= day,
             )
         total = len(records)
     return await _to_managed_result(total, records)
@@ -394,6 +401,7 @@ async def _to_managed_result(
                 accuracy=record["accuracy"],
                 last_attempted_at=record["last_attempted_at"],
                 answered_today=record.get("answered_today", False),
+                answered_in_set=record.get("answered_in_set", False),
             )
             for record in records
         ],

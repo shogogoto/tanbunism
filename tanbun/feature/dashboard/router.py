@@ -1,12 +1,13 @@
 """個人ダッシュボードAPI."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 
 from tanbun.feature.domain.datetime import TZ
+from tanbun.feature.recommendation.daily import review_day
 from tanbun.feature.user.router_util import ActiveUser
 
 from .domain import (
@@ -28,13 +29,16 @@ async def get_personal_tanbuns(
     user: ActiveUser,
     limit: Annotated[int, Query(ge=1, le=500)] = 500,
     profile: Annotated[str, Query(max_length=64)] = "default",
+    day: date | None = None,
 ) -> list[PersonalTanbunItem]:
     """所有する単文の個人TLを取得."""
+    set_day = review_day(day)
     return await list_personal_tanbuns(
         user.uid,
-        datetime.now(TZ).date(),
+        set_day,
         limit=limit,
         profile_id=profile,
+        historical=set_day < datetime.now(TZ).date(),
     )
 
 

@@ -1,6 +1,6 @@
 """quiz router."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -63,6 +63,7 @@ from tanbun.feature.quiz.router.params import (
     DeleteQuizzesParam,
     RepairQuizReferenceParam,
 )
+from tanbun.feature.recommendation.daily import review_day
 from tanbun.feature.repo.cypher import Paging
 from tanbun.feature.user.router_util import ActiveUser
 
@@ -145,6 +146,7 @@ async def list_daily_quizzes_api(
     *,
     personal: bool = True,
     profile: Annotated[str, Query(max_length=64)] = "default",
+    day: date | None = None,
 ) -> ManagedQuizResult:
     """作成時期によらず、既存クイズから同日の推薦セットを取得."""
     return await list_quiz_feed(
@@ -152,6 +154,7 @@ async def list_daily_quizzes_api(
         daily=True,
         personal=personal,
         profile_id=profile,
+        set_day=review_day(day),
     )
 
 

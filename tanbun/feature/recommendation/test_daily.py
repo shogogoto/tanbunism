@@ -52,7 +52,7 @@ def test_daily_selection_deduplicates_cross_resource_targets() -> None:
 
 @mark_async_test()
 async def test_daily_set_persistence() -> None:
-    """同日の最初のセットを保持し、翌日には置換. 用途・ユーザーは分離."""
+    """同日の最初のセットと過去の日を保持. 用途・ユーザーは分離."""
     user = await LUser(email="daily@example.com").save()
     other = await LUser(email="other-daily@example.com").save()
     day = date(2026, 10, 5)
@@ -65,7 +65,17 @@ async def test_daily_set_persistence() -> None:
     tomorrow = day + timedelta(days=1)
     assert await load_daily(user.uid, "tanbuns", tomorrow) is None
     assert await save_daily(user.uid, "tanbuns", tomorrow, ["second"]) == ["second"]
-    assert await save_daily(user.uid, "tanbuns", day, ["late-request"]) == ["second"]
+    assert await save_daily(user.uid, "tanbuns", day, ["late-request"]) == ["first"]
+    assert await load_daily(user.uid, "tanbuns", tomorrow) == ["second"]
+    for offset in range(2, 8):
+        await save_daily(
+            user.uid,
+            "tanbuns",
+            day + timedelta(days=offset),
+            [str(offset)],
+        )
+    assert await load_daily(user.uid, "tanbuns", day) is None
+    assert await load_daily(user.uid, "tanbuns", tomorrow) == ["second"]
 
 
 @mark_async_test()

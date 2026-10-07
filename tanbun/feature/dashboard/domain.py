@@ -20,6 +20,7 @@ class PersonalTanbunItem(BaseModel, frozen=True):
     score: int
     exposure_count: int
     seen_today: bool
+    seen_in_set: bool = False
 
 
 class TanbunExposureResult(BaseModel, frozen=True):
