@@ -25,14 +25,16 @@ resources and other users' resources that the requester has reviewed.
 ## Migration boundary
 
 This first stage records resource XP from deployment onward. Historical activity
-is not automatically replayed. User XP uses existing exposure and answer records
-(1 per exposure, 5 per answer, 2 per correct answer), including historical answers.
+is not automatically replayed. User XP sums the same `ResourceXpEvent` ledger
+as resource XP (1 per exposure, 5 per answer, 2 per correct answer, daily deduplication).
+`today_xp` sums events earned on today's Japan-calendar date. Other users' activity
+never contributes, but the user's own reviews of borrowed resources do.
 Knowledge quantity, quiz creation and Power award no user XP. The legacy
 `xp.knowledge` and `xp.quiz_creation` fields remain zero for API compatibility;
 they are not included in `xp_details`. Existing levels are recalculated without
 these old awards. No activity records are deleted.
-Resource XP remains a separate per-resource ledger with daily deduplication;
-attributing older answers to it requires a separate migration policy.
+User XP retains events for deleted resources. Historical answers without ledger
+events are not added; attributing older answers requires a separate migration policy.
 
 The normal schema installation command (`poetry run task schema-install`, also
 part of `task start`) installs the event indexes and unique key constraint.
@@ -43,4 +45,4 @@ part of `task start`) installs the event indexes and unique key constraint.
 XP by activity, Power and the last reviewed day. It omits activity subjects and
 the recent XP log; those remain available only via the authenticated `me` route.
 Both endpoints share the same calculation. Profiles show review-only user Lv
-and explain its historical review breakdown separately from the resource ledger.
+and explain its breakdown using the shared resource ledger.

@@ -27,10 +27,10 @@ class XpBreakdown(BaseModel, frozen=True):
     """活動種別ごとの経験値."""
 
     knowledge: int = 0
-    tanbun_exposure: int
+    tanbun_exposure: int = 0
     quiz_creation: int = 0
-    quiz_answer: int
-    correct_bonus: int
+    quiz_answer: int = 0
+    correct_bonus: int = 0
 
 
 class XpBreakdownItem(BaseModel, frozen=True):
@@ -53,6 +53,7 @@ class LearningProgress(BaseModel, frozen=True):
     current_level_xp: int
     xp_for_next_level: int
     xp_to_next_level: int
+    today_xp: int = 0
 
 
 def level_threshold(level: int) -> int:
@@ -62,6 +63,8 @@ def level_threshold(level: int) -> int:
 
 def calculate_learning_progress(
     activity: LearningActivityCounts,
+    *,
+    recorded_xp: XpBreakdown | None = None,
 ) -> LearningProgress:
     """復習の事実だけからXPとLevelを計算する。知識量・作成数は加算しない."""
     xp_details = [
@@ -81,6 +84,13 @@ def calculate_learning_progress(
             QUIZ_CORRECT_BONUS_XP,
         ),
     ]
+    if recorded_xp is not None:
+        xp_details = [
+            detail.model_copy(
+                update={"earned_xp": getattr(recorded_xp, detail.source.value)},
+            )
+            for detail in xp_details
+        ]
     earned_xp = {detail.source.value: detail.earned_xp for detail in xp_details}
     xp = XpBreakdown(**earned_xp)
     total_xp = sum(xp.model_dump().values())
