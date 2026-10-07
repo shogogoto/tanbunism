@@ -10,6 +10,11 @@ from tanbun.feature.entry.resource.import_settings import (
     get_resource_import_settings,
     update_resource_import_settings,
 )
+from tanbun.feature.gamification.power import (
+    PowerWeights,
+    get_power_weights,
+    update_power_weights,
+)
 from tanbun.feature.gamification.settings import (
     GamificationSettings,
     get_gamification_settings,
@@ -56,6 +61,21 @@ from .repo import (
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.get("/settings/resource-power")
+async def get_resource_power_settings(_admin: AdminUser) -> PowerWeights:
+    """Powerの適用中の重みを取得する."""
+    return await get_power_weights()
+
+
+@router.put("/settings/resource-power")
+async def update_resource_power_settings(
+    body: PowerWeights,
+    _admin: AdminUser,
+) -> PowerWeights:
+    """既存のリソースにも適用する重みを保存する。Lv・XPは変更しない."""
+    return await update_power_weights(body)
 
 
 @router.get("/settings/gamification")

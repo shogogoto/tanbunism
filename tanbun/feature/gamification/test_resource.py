@@ -16,6 +16,7 @@ from tanbun.feature.gamification.domain import (
     DEFAULT_LEVEL_XP_COEFFICIENT,
     QUIZ_CORRECT_BONUS_XP,
 )
+from tanbun.feature.gamification.power import PowerWeights, calculate_power
 from tanbun.feature.gamification.resource import (
     fetch_resource_growth,
     record_resource_xp,
@@ -43,13 +44,19 @@ async def test_power_excludes_detail_and_duplicate_edges(u: LUser):
     [growth] = await fetch_resource_growth(u.uid)
     assert growth.logic_count > 0
     before = growth.power
-    assert growth.power == growth.logic_count + growth.reference_count
+    assert growth.power == calculate_power(
+        growth.sentence_count,
+        growth.term_count,
+        growth.logic_count,
+        growth.reference_count,
+        PowerWeights(),
+    )
     await adb.cypher_query("""
         MATCH (a:Sentence {val:'ccc'})-[edge:TO]->(:Sentence {val:'ccc1'})
         DELETE edge
     """)
     [after] = await fetch_resource_growth(u.uid)
-    assert after.power == before - 1
+    assert after.power == before - PowerWeights().logic
     assert after.total_xp == growth.total_xp == 0
 
 

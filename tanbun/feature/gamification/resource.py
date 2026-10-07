@@ -3,7 +3,7 @@
 from uuid import UUID
 
 from neomodel import adb
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from tanbun.feature.domain.types import UUIDy, to_uuid
 from tanbun.feature.gamification.domain import (
@@ -15,6 +15,7 @@ from tanbun.feature.gamification.domain import (
     level_threshold,
 )
 
+from .power import PowerWeights, calculate_power, get_power_weights
 from .settings import get_gamification_settings
 
 
@@ -39,6 +40,8 @@ class ResourceGrowth(BaseModel):
     power: int
     logic_count: int
     reference_count: int
+    sentence_count: int = 0
+    term_count: int = 0
     recent_xp: list[ResourceXpLog]
     last_reviewed_on: str | None = None
     exposure_xp: int = 0
@@ -53,6 +56,7 @@ class ResourceGrowthRules(BaseModel):
     answer_xp: int = QUIZ_ANSWERED_XP
     correct_bonus_xp: int = QUIZ_CORRECT_BONUS_XP
     level_xp_coefficient: int = DEFAULT_LEVEL_XP_COEFFICIENT
+    power_weights: PowerWeights = Field(default_factory=PowerWeights)
 
 
 class ResourceGrowthResult(BaseModel):
@@ -168,10 +172,13 @@ async def fetch_resource_growth(
     *,
     owned_only: bool = False,
     coefficient: int | None = None,
+    power_weights: PowerWeights | None = None,
 ) -> list[ResourceGrowth]:
     """現在の構造は再計算し、XPは保存した実績だけを集計する."""
     if coefficient is None:
         coefficient = (await get_gamification_settings()).level_xp_coefficient
+    if power_weights is None:
+        power_weights = await get_power_weights()
     rows, _ = await adb.cypher_query(
         """
         MATCH (resource:Resource)
@@ -181,6 +188,20 @@ async def fetch_resource_growth(
             MATCH (:ResourceXpEvent {user_id: $user_id, resource_id: resource.uid})
         })
         WITH DISTINCT resource
+        OPTIONAL MATCH (resource)-[:STATS]->(cache:ResourceStatsCache)
+        CALL (resource, cache) {
+            OPTIONAL MATCH (sentence:Sentence {resource_uid: resource.uid})
+            WHERE cache.n_sentence IS NULL
+            RETURN count(sentence) AS fallback_sentence_count
+        }
+        CALL (resource, cache) {
+            OPTIONAL MATCH (term:Term)-[:DEF]->(:Sentence {resource_uid: resource.uid})
+            WHERE cache.n_term IS NULL
+            RETURN count(DISTINCT term) AS fallback_term_count
+        }
+        WITH resource,
+            coalesce(cache.n_sentence, fallback_sentence_count) AS sentence_count,
+            coalesce(cache.n_term, fallback_term_count) AS term_count
         CALL (resource) {
             MATCH (source:Sentence|Quoterm {resource_uid: resource.uid})
                 -[edge:TO|REF|RESOLVED|QUOTERM]->(destination:Sentence|Quoterm)
@@ -194,7 +215,7 @@ async def fetch_resource_growth(
         OPTIONAL MATCH (event:ResourceXpEvent {
             user_id: $user_id, resource_id: resource.uid
         })
-        WITH resource, logic_count, reference_count, event
+        WITH resource, logic_count, reference_count, sentence_count, term_count, event
         ORDER BY event.earned_on DESC, event.key
         RETURN resource.uid, resource.title, logic_count, reference_count,
             coalesce(sum(event.xp), 0), collect(event)[0..10],
@@ -203,7 +224,7 @@ async def fetch_resource_growth(
             coalesce(sum(CASE WHEN event.source = 'quiz_answer'
                 THEN event.xp ELSE 0 END), 0),
             coalesce(sum(CASE WHEN event.source = 'correct_bonus'
-                THEN event.xp ELSE 0 END), 0)
+                THEN event.xp ELSE 0 END), 0), sentence_count, term_count
         ORDER BY resource.title
     """,
         params={"user_id": to_uuid(user_id).hex, "owned_only": owned_only},
@@ -219,6 +240,8 @@ async def fetch_resource_growth(
         exposure,
         answer,
         bonus,
+        sentences,
+        terms,
     ) in rows:
         level = level_from_xp(xp, coefficient)
         result.append(
@@ -229,9 +252,17 @@ async def fetch_resource_growth(
                 level=level,
                 current_level_xp=xp - level_threshold(level, coefficient),
                 xp_for_next_level=level * coefficient,
-                power=logic + reference,
+                power=calculate_power(
+                    sentences,
+                    terms,
+                    logic,
+                    reference,
+                    power_weights,
+                ),
                 logic_count=logic,
                 reference_count=reference,
+                sentence_count=sentences,
+                term_count=terms,
                 last_reviewed_on=events[0]["earned_on"] if events else None,
                 exposure_xp=exposure,
                 answer_xp=answer,

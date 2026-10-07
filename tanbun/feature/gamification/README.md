@@ -21,10 +21,18 @@ resources and other users' resources that the requester has reviewed.
   `level_xp_coefficient` (an integer from 1 to 10000). The setting is persistent
   and applies to all users and resources on their next fetch. Existing earned
   XP and Power remain unchanged; only levels and progress are recalculated.
-- Power is recalculated from current outgoing `TO` (logic) and
+- Power is `sentences * 1 + terms * 1 + logic * 3 + reference * 2` by default.
+  Sentence/term counts reuse `ResourceStatsCache`, with direct counts as a fallback
+  when the cache is missing. Relationship counts use current outgoing `TO` (logic) and
   `REF|RESOLVED|QUOTERM` (reference) relationships. Duplicate source/destination
   pairs in each category count once. Self-links, retired destinations,
-  unresolved placeholders, detail/hierarchy edges and text length do not count.
+  unresolved placeholders, detail/hierarchy edges and text length do not count
+  toward relationship points.
+  Admins can GET/PUT `/admin/settings/resource-power` with `sentence`, `term`,
+  `logic`, `reference` weights (integers from 0 to 10000). The persistent weights
+  apply to existing resources on the next fetch without importing again. Responses
+  include the four counts and the exact applied `rules.power_weights` snapshot.
+  Weight changes do not alter any review XP or level settings. PageRank is not used.
 - Imports do not award resource XP. A changed file can change Power.
 
 ## Migration boundary

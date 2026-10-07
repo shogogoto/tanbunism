@@ -10,6 +10,7 @@ from tanbun.conftest import mark_async_test
 from tanbun.feature.domain.types import to_uuid
 from tanbun.feature.entry.resource.import_settings import ResourceImportSettings
 from tanbun.feature.entry.resource.usecase import save_text
+from tanbun.feature.gamification.power import PowerWeights
 from tanbun.feature.gamification.resource import record_resource_xp
 from tanbun.feature.quiz.learning.study_plan.preparation_settings import (
     QuizPreparationSettings,
@@ -24,6 +25,71 @@ async def _admin_headers(email: str) -> dict[str, str]:
     user.is_superuser = True
     await user.save()
     return await aauth_header(email)
+
+
+@mark_async_test()
+async def test_admin_power_weights_apply_to_existing_resources(ac: AsyncClient) -> None:
+    """既存の構造・XPを保持したままPowerだけ変わり、キャッシュ欠落も取得できる."""
+    user = await aregister("power-user@example.com")
+    _, resource = await save_text(
+        user.uid,
+        "# power test\n  term: definition\n  second\n",
+    )
+    await record_resource_xp(
+        user.uid,
+        resource.uid,
+        resource.name,
+        subject_id="reviewed",
+        subject="reviewed",
+        day="2026-10-07",
+        source="quiz_answer",
+        xp=5,
+    )
+    await adb.cypher_query(
+        """MATCH (a:Sentence {resource_uid:$rid, val:'definition'}),
+            (b:Sentence {resource_uid:$rid, val:'second'})
+        CREATE (a)-[:TO]->(b), (a)-[:TO]->(b), (a)-[:REF]->(b),
+            (a)-[:RESOLVED]->(b), (a)-[:BELOW]->(b)""",
+        params={"rid": resource.uid.hex},
+    )
+    headers = await _admin_headers("power-admin@example.com")
+    path = "/admin/settings/resource-power"
+    assert (await ac.get(path, headers=headers)).json() == PowerWeights().model_dump()
+    growth_path = f"/user/{user.uid}/resource-growth"
+    before = (await ac.get(growth_path)).json()
+    progress_before = (await ac.get(f"/user/{user.uid}/learning-progress")).json()
+    [book] = before["resources"]
+    assert book["sentence_count"] == 2  # noqa: PLR2004
+    assert book["term_count"] == book["logic_count"] == book["reference_count"] == 1
+    assert book["power"] == 8  # noqa: PLR2004
+    weights = {"sentence": 2, "term": 3, "logic": 4, "reference": 5}
+    saved = await ac.put(path, headers=headers, json=weights)
+    assert saved.is_success
+    assert (await ac.get(path, headers=headers)).json() == weights
+    after = (await ac.get(growth_path)).json()
+    assert after["rules"]["power_weights"] == weights
+    assert after["resources"][0] == {**book, "power": 16}
+    assert (
+        await ac.get(f"/user/{user.uid}/learning-progress")
+    ).json() == progress_before
+    # importし直すことなく、旧データにキャッシュがなくても基礎点を計算する。
+    await adb.cypher_query(
+        "MATCH (:Resource {uid:$rid})-[:STATS]->(cache) DETACH DELETE cache",
+        params={"rid": resource.uid.hex},
+    )
+    assert (await ac.get(growth_path)).json() == after
+    for value in [-1, 1.5, True, "2", 10001]:
+        assert (
+            await ac.put(path, headers=headers, json={**weights, "logic": value})
+        ).status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    regular = await aauth_header(user.email)
+    for method in ["GET", "PUT"]:
+        assert (
+            await ac.request(method, path, headers=regular, json=weights)
+        ).status_code == status.HTTP_403_FORBIDDEN
+        assert (
+            await ac.request(method, path, json=weights)
+        ).status_code == status.HTTP_401_UNAUTHORIZED
 
 
 @mark_async_test()
