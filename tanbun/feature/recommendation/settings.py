@@ -9,6 +9,7 @@ from neomodel import adb
 from pydantic import BaseModel, Field
 
 from tanbun.feature.domain.types import UUIDy, to_uuid
+from tanbun.feature.quiz.learning.study_plan.repo import fetch_study_plan
 
 
 class ReviewPriority(StrEnum):
@@ -61,6 +62,23 @@ async def list_settings(user_id: UUIDy) -> list[ReviewSettings]:
 
 async def get_settings(user_id: UUIDy, profile_id: str) -> ReviewSettings:
     """他人の設定IDを指定しても取得できない."""
+    if profile_id.startswith("plan:"):
+        try:
+            plan_id = UUID(profile_id.removeprefix("plan:"))
+        except ValueError as error:
+            raise HTTPException(
+                status_code=404,
+                detail="学習計画が見つかりません",
+            ) from error
+        plan = await fetch_study_plan(plan_id, user_id)
+        if plan is None:
+            raise HTTPException(status_code=404, detail="学習計画が見つかりません")
+        # 設定を複製せず、知識の推薦にはPlanの対象Resourceだけ適用する。
+        return ReviewSettings(
+            id=profile_id,
+            name=plan.name.strip()[:64] or "学習計画",
+            resource_ids=plan.resource_ids,
+        )
     for setting in await list_settings(user_id):
         if setting.id == profile_id:
             return setting

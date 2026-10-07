@@ -10,7 +10,11 @@ from httpx import AsyncClient
 from tanbun.conftest import async_fixture, mark_async_test
 from tanbun.feature.dashboard.repo import list_personal_tanbuns
 from tanbun.feature.domain.types import to_uuid
+from tanbun.feature.entry.resource.usecase import save_text
+from tanbun.feature.quiz.domain.parts import QuizType
 from tanbun.feature.quiz.fixture import fx_u
+from tanbun.feature.quiz.learning.study_plan.domain import StudyPlanDraft
+from tanbun.feature.quiz.learning.study_plan.repo import create_study_plan
 from tanbun.feature.quiz.listing.test_router import _generate_quizzes
 from tanbun.feature.user.label import LUser
 from tanbun.feature.user.testing import aauth_header, aregister
@@ -18,6 +22,51 @@ from tanbun.feature.user.testing import aauth_header, aregister
 from .settings import ReviewSettingsInput, reset_settings, save_settings, today_settings
 
 u = async_fixture()(fx_u)
+
+
+@mark_async_test()
+async def test_plan_knowledge_review_uses_resources_without_copying_settings(
+    ac: AsyncClient,
+    u: LUser,
+):
+    """Plan単位の知識・見たよ・追加復習は対象だけ。別ユーザーは取得不可."""
+    _, resource = await save_text(u.uid, "# selected book\n  selected sentence\n")
+    plan = await create_study_plan(
+        u.uid,
+        StudyPlanDraft(
+            name="selected plan",
+            resource_ids=[resource.uid],
+            quiz_types=[QuizType.TERM2SENT],
+            n_quiz=5,
+            n_option=4,
+        ),
+    )
+    headers = await aauth_header(u.email)
+    path = f"/dashboard/tanbuns?profile=plan:{plan.uid}"
+    response = await ac.get(path, headers=headers)
+    assert response.is_success
+    [sentence] = response.json()
+    assert sentence["resource_uid"] == str(resource.uid)
+    assert sentence["sentence"] == "selected sentence"
+    seen = await ac.post(
+        f"/dashboard/tanbuns/{sentence['uid']}/exposures",
+        headers=headers,
+    )
+    assert seen.is_success
+    assert (await ac.get(path, headers=headers)).json()[0]["seen_today"]
+    more = await ac.post(
+        f"/dashboard/tanbuns/more?profile=plan:{plan.uid}",
+        headers=headers,
+    )
+    assert {s["resource_uid"] for s in more.json()} == {str(resource.uid)}
+    assert len((await ac.get("/review/settings", headers=headers)).json()) == 1
+    other = await aregister("other-plan-review@example.com")
+    assert (
+        await ac.get(path, headers=await aauth_header(other.email))
+    ).status_code == 404
+    assert (
+        await ac.get("/dashboard/tanbuns?profile=plan:invalid", headers=headers)
+    ).status_code == 404
 
 
 @mark_async_test()
