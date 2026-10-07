@@ -59,6 +59,12 @@ from .repo import (
     update_user_password_hash,
     update_user_status,
 )
+from .user_transfer import (
+    UserTransferPreview,
+    UserTransferRequest,
+    preview_user_transfer,
+    transfer_user_data,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -288,6 +294,26 @@ async def get_user_resources(
             detail="ユーザーが見つかりません",
         )
     return resources
+
+
+@router.get("/users/{user_id}/transfer-preview")
+async def inspect_user_transfer(
+    user_id: UUID,
+    target_id: UUID,
+    _admin: AdminUser,
+) -> UserTransferPreview:
+    """元ユーザーを保持するデータ移行の事前確認."""
+    return await preview_user_transfer(user_id, target_id)
+
+
+@router.post("/users/{user_id}/transfer")
+async def migrate_user_data(
+    user_id: UUID,
+    body: UserTransferRequest,
+    admin: AdminUser,
+) -> UserTransferPreview:
+    """空の移行先へ一括移行。認証・権限は変えない."""
+    return await transfer_user_data(user_id, body, admin.uid)
 
 
 @router.get("/resources/{resource_id}/deletion-impact")
