@@ -14,6 +14,7 @@ class NotificationKind(StrEnum):
     QUIZ_PREPARATION_COMPLETE = "quiz_preparation_complete"
     QUIZ_PREPARATION_FAILED = "quiz_preparation_failed"
     QUIZ_ISSUE_REPORTED = "quiz_issue_reported"
+    PAGERANK_COMPLETE = "pagerank_complete"
 
 
 class NewNotification(BaseModel, frozen=True):

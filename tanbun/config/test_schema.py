@@ -5,7 +5,7 @@ from io import StringIO
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from neo4j.exceptions import ClientError
+from neo4j.exceptions import ClientError, TransientError
 from neomodel import adb
 from pytest_mock import MockerFixture
 
@@ -13,6 +13,56 @@ from tanbun.config.database import DeadlineDriver
 from tanbun.config.schema import ASYNC_LABELS, SchemaDatabase, install_schema
 from tanbun.conftest import mark_async_test
 from tanbun.feature.gamification.label import LResourceXpEvent
+
+
+@mark_async_test()
+async def test_only_deadlocked_idempotent_ddl_is_retried(mocker: MockerFixture) -> None:
+    """並列DDLのdeadlockだけ再試行し、成功後は制約の実体を検証する."""
+    error = TransientError._hydrate_neo4j(  # noqa: SLF001
+        code="Neo.TransientError.Transaction.DeadlockDetected",
+        message="concurrent DDL",
+    )
+    query = mocker.patch.object(
+        SchemaDatabase,
+        "cypher_query",
+        new_callable=AsyncMock,
+        side_effect=[error, None, ([[1]], [])],
+    )
+    sleep = mocker.patch("tanbun.config.schema.asyncio.sleep", new_callable=AsyncMock)
+    await SchemaDatabase()._create_node_constraint(  # noqa: SLF001
+        LResourceXpEvent,
+        "key",
+        StringIO(),
+        quiet=True,
+    )
+    assert query.await_count == 3  # noqa: PLR2004
+    sleep.assert_awaited_once_with(0.05)
+    assert "SHOW CONSTRAINTS" in query.call_args_list[-1].args[0]
+
+
+@mark_async_test()
+async def test_schema_deadlock_retry_is_bounded(mocker: MockerFixture) -> None:
+    """繰り返し失敗しても永久に起動待ちしない."""
+    error = TransientError._hydrate_neo4j(  # noqa: SLF001
+        code="Neo.TransientError.Transaction.DeadlockDetected",
+        message="deadlock",
+    )
+    query = mocker.patch.object(
+        SchemaDatabase,
+        "cypher_query",
+        new_callable=AsyncMock,
+        side_effect=error,
+    )
+    sleep = mocker.patch("tanbun.config.schema.asyncio.sleep", new_callable=AsyncMock)
+    with pytest.raises(TransientError):
+        await SchemaDatabase()._create_node_constraint(  # noqa: SLF001
+            LResourceXpEvent,
+            "key",
+            StringIO(),
+            quiet=True,
+        )
+    assert query.await_count == 3  # noqa: PLR2004
+    assert sleep.await_count == 2  # noqa: PLR2004
 
 
 @mark_async_test()

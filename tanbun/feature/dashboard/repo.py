@@ -14,6 +14,7 @@ from tanbun.feature.recommendation.daily import (
     save_daily,
     select_daily,
 )
+from tanbun.feature.recommendation.pagerank.cypher import cached_rank
 from tanbun.feature.recommendation.settings import (
     ReviewPriority,
     settings_scope,
@@ -59,15 +60,20 @@ async def list_personal_tanbuns(
     ids = await load_daily(uid, scope, seen_on)
     if more or not ids:
         rows, _ = await adb.cypher_query(
-            """
-            MATCH (resource:Resource)-[:PARENT*0..]->()-[:OWNED]->(:User {uid: $uid})
-            MATCH (sentence:Sentence {resource_uid: resource.uid})
+            f"""
+            MATCH (resource:Resource)-[:PARENT*0..]->()-[:OWNED]->(:User {{uid: $uid}})
+            MATCH (sentence:Sentence {{resource_uid: resource.uid}})
             WHERE $resource_ids IS NULL OR resource.uid IN $resource_ids
             WITH DISTINCT resource, sentence
-            OPTIONAL MATCH (exposure:TanbunExposure {
+            OPTIONAL MATCH (exposure:TanbunExposure {{
                 user_id: $uid, sentence_id: sentence.uid
-            })
+            }})
             RETURN sentence.uid, resource.uid, count(exposure), max(exposure.seen_on)
+                , {
+                cached_rank("sentence", "resource")
+                if settings.priority == ReviewPriority.PAGERANK
+                else "null"
+            } AS pagerank_score
             """,
             params={
                 "uid": uid,
@@ -79,8 +85,9 @@ async def list_personal_tanbuns(
             },
         )
         weights: dict[str, float] = {}
+        pageranks: dict[str, float] = {}
         candidates = []
-        for sentence_id, resource_id, count, last_seen in rows:
+        for sentence_id, resource_id, count, last_seen, rank in rows:
             if ids and sentence_id in ids:
                 continue
             days = (seen_on - last_seen.to_native()).days if last_seen else 30
@@ -96,7 +103,15 @@ async def list_personal_tanbuns(
             elif settings.priority == ReviewPriority.SCORE:
                 weight = 1
             weights[sentence_id] = weight
-            candidates.append(Candidate(sentence_id, resource_id, weight))
+            if settings.priority == ReviewPriority.PAGERANK and rank is not None:
+                pageranks[sentence_id] = rank
+            candidates.append(
+                Candidate(
+                    sentence_id,
+                    resource_id,
+                    weight * (1 + log1p(max(0, pageranks.get(sentence_id, 0)))),
+                ),
+            )
         seed = f"{uid}:{scope}:{seen_on}"
         # 高コストの位置・スコア取得は分散した候補に限定する。
         pool = select_daily(candidates, seed, 150)
@@ -106,7 +121,8 @@ async def list_personal_tanbuns(
                 Candidate(
                     item.uid.hex,
                     item.resource_uid.hex,
-                    weights[item.uid.hex] * (1 + log1p(max(0, item.score))),
+                    weights[item.uid.hex]
+                    * (1 + log1p(max(0, pageranks.get(item.uid.hex, item.score)))),
                 )
                 for item in items
             ],

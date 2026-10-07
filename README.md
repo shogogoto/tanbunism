@@ -90,11 +90,43 @@ NEO4J_SCHEMA_TIMEOUT_SECONDS=300
 `NEO4J_SCHEMA_TIMEOUT_SECONDS`を使う（各DBトランザクションの上限）。
 一意制約は`IF NOT EXISTS`で再実行可能にし、登録後にラベル・プロパティ・
 制約の種類を確認する。同名の別制約や未完成のインデックスを成功扱いにせず、
+同じイベントループ内の制約登録は共通ロックで直列化する。並列登録のデッドロックだけは
+冪等なDDLを最大3回再試行する。
 自動削除もしない。異常時は`SHOW INDEXES`と`SHOW CONSTRAINTS`で確認して
 手動修復する。DB切断などで構築が中断された場合の残存まで完全には防げない。
 
 Auraの`SHOW TRANSACTIONS`の`metaData`に`app`と`operation`が表示される。
 期限設定は新しく開始するトランザクションに適用され、既存の暴走処理は別途停止が必要。
+
+### PageRankの一括再計算
+
+adminの「PageRank」で対象Resourceを選び、DBに保存済みのグラフから再計算する。
+ファイルの再importは不要。専用のNeo4jキューに受付を保存し、Webのlifespanで
+起動するworkerが処理する。ジョブ内はResourceごとに逐次実行し、成功・失敗・
+現在の対象を保存する。完了時は依頼したadminへ一覧通知とWeb Pushを送る。
+失敗は残りを止めず、管理画面からそのResourceだけ再計算対象に追加できる。
+
+- 初期値は同時実行1、待機＋実行の受付10件、1 Resourceにつき20,000ノード／
+  100,000辺。adminで調整可能。512MB環境では同時実行1から増やさないことを推奨。
+- import・クイズ準備とは別の制限。受付・取得は一意な調停ノードへの書込ロックで
+  全Webプロセスを通じて制御する。制約・インデックスは`task schema-install`で登録。
+- ジョブに120秒のリースを付け、20秒ごとに更新する。再起動・切断後は期限切れを
+  再取得し、Resource単位の保存位置から再開する。完了直前の再起動では同じResourceを
+  再計算する場合があるが、値の上書きだけなのでXPの重複加算はない。
+- Freeホストが停止中は実行できない。次回起動後に再開する。通知は完了後の送信を
+  試みるが、通知送信中の停止・配信失敗についてはキュー結果を確認すること。
+
+計算v1はResource内の現行Sentence・Quotermを頂点とし、RESOLVED／REFは
+参照先へ、TOは逆向き（前提へ）に票を流す。自己辺・重複辺・リソースを跨ぐ辺・
+階層／並び順の辺は除く。[NetworkX PageRank](https://networkx.org/documentation/stable/reference/algorithms/generated/networkx.algorithms.link_analysis.pagerank_alg.pagerank.html)
+をalpha=0.85、最大100反復、tol=1e-8で実行し、収束しなければ失敗として記録する。
+結果はSentenceの`pagerank`（生値）と`pagerank_score`（生値×全頂点数）に保存し、
+Resourceには計算バージョン・日時・元内容hash・元更新日時を保存する。
+
+復習設定で「PageRank（知識）」を選ぶと、知識TLで未閲覧・復習間隔も考慮しながら
+PageRankを推薦の重みに使う。Power・XPの計算とは独立。未計算／import後の古い
+キャッシュは従来の関連数スコアに戻す。クイズ推薦はバランス方式のまま。
+今日の推薦セットは固定なので、すぐ反映したい場合は設定の「今日を作り直す」を使う。
 
 ### Web Push
 

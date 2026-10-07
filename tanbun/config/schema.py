@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any, TextIO, override
+from weakref import WeakKeyDictionary
 
-from neo4j.exceptions import ClientError
+from neo4j.exceptions import ClientError, TransientError
 from neomodel.async_.core import AsyncDatabase
 
 from tanbun.config.database import database_budget
@@ -20,6 +21,7 @@ from tanbun.feature.entry.label import (
 )
 from tanbun.feature.gamification.label import LResourceXpEvent
 from tanbun.feature.quiz.label import LAnswer, LQuiz
+from tanbun.feature.recommendation.pagerank.label import LPageRankJob, LPageRankQueue
 from tanbun.feature.tanbun.label import LInterval, LQuoterm, LSentence, LTerm
 from tanbun.feature.user.label import LAccount, LUser
 
@@ -39,7 +41,20 @@ ASYNC_LABELS = (
     LQuoterm,
     LInterval,
     LResourceXpEvent,
+    LPageRankQueue,
+    LPageRankJob,
 )
+
+_constraint_locks: WeakKeyDictionary = WeakKeyDictionary()
+
+
+def _constraint_lock() -> asyncio.Lock:
+    # Keep DDL in this process sequential, including callers using different DB
+    # instances. Locks belong to their event loop (CLI/tests may use another loop).
+    loop = asyncio.get_running_loop()
+    if loop not in _constraint_locks:
+        _constraint_locks[loop] = asyncio.Lock()
+    return _constraint_locks[loop]
 
 
 def _identifier(value: str) -> str:
@@ -48,6 +63,23 @@ def _identifier(value: str) -> str:
 
 class SchemaDatabase(AsyncDatabase):
     """neomodelの宣言を使い、制約登録だけを冪等・検証付きにする互換境界."""
+
+    async def _create_idempotent_constraint(self, query: str) -> None:
+        # Concurrent IF NOT EXISTS operations can still deadlock while upgrading
+        # label locks. Only this idempotent DDL is retried, never application writes
+        # or schema-name collisions. The failed auto-transaction is already closed.
+        for attempt in range(3):
+            try:
+                await self.cypher_query(query)
+            except TransientError as error:
+                if (
+                    error.code != "Neo.TransientError.Transaction.DeadlockDetected"
+                    or attempt == 2  # noqa: PLR2004
+                ):
+                    raise
+                await asyncio.sleep(0.05 * (attempt + 1))
+            else:
+                return
 
     @override
     async def _create_node_constraint(
@@ -60,11 +92,12 @@ class SchemaDatabase(AsyncDatabase):
         label = target_cls.__label__
         name = f"constraint_unique_{label}_{property_name}"
         try:
-            await self.cypher_query(
-                f"CREATE CONSTRAINT {_identifier(name)} IF NOT EXISTS "
-                f"FOR (n:{_identifier(label)}) "
-                f"REQUIRE n.{_identifier(property_name)} IS UNIQUE",
-            )
+            async with _constraint_lock():
+                await self._create_idempotent_constraint(
+                    f"CREATE CONSTRAINT {_identifier(name)} IF NOT EXISTS "
+                    f"FOR (n:{_identifier(label)}) "
+                    f"REQUIRE n.{_identifier(property_name)} IS UNIQUE",
+                )
         except ClientError as error:
             if error.code == "Neo.ClientError.Schema.IndexWithNameAlreadyExists":
                 msg = (

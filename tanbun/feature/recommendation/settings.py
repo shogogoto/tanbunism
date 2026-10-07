@@ -18,6 +18,7 @@ class ReviewPriority(StrEnum):
     UNSEEN = "unseen"
     WEAK = "weak"
     SCORE = "score"
+    PAGERANK = "pagerank"
 
 
 class ReviewSettingsInput(BaseModel):
