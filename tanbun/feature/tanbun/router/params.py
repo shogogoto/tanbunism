@@ -1,5 +1,8 @@
 """単文routerのparameter."""
 
+from typing import Literal
+from uuid import UUID
+
 from fastapi import Query
 from pydantic import BaseModel, Field
 
@@ -14,6 +17,8 @@ class SearchParam(BaseModel):
     type: str = Query(WherePhrase.CONTAINS.name, enum=[p.name for p in WherePhrase])
     paging: Paging = Field(default_factory=Paging)
     order: OrderBy | None = None
+    sort: Literal["score", "pagerank"] = "score"
+    resource_id: UUID | None = None
 
 
 def get_search_param(  # noqa: PLR0917
@@ -27,6 +32,8 @@ def get_search_param(  # noqa: PLR0917
     n_refer: int = Query(default=3),
     n_referred: int = Query(default=3),
     desc: bool = Query(default=True),  # noqa: FBT001
+    sort: Literal["score", "pagerank"] = Query(default="score"),
+    resource_id: UUID | None = Query(default=None),
 ) -> SearchParam:
     """orderByがうまく変換されなかったので噛ませた."""
     paging = Paging(page=page, size=size)
@@ -38,4 +45,11 @@ def get_search_param(  # noqa: PLR0917
         n_referred=n_referred,
         desc=desc,
     )
-    return SearchParam(q=q, type=type, paging=paging, order=order)
+    return SearchParam(
+        q=q,
+        type=type,
+        paging=paging,
+        order=order,
+        sort=sort,
+        resource_id=resource_id,
+    )

@@ -2,7 +2,7 @@
 
 from functools import cache
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from tanbun.feature.tanbun.domain import TanbunChains, TanbunSearchResult
 from tanbun.feature.tanbun.repo import search_tanbun
@@ -26,7 +26,19 @@ async def search_by_text(
 ) -> TanbunSearchResult:
     """文字列検索."""
     t = WherePhrase[param.type]
-    return await search_tanbun(param.q, t, param.paging, param.order)
+    if param.sort == "pagerank" and param.resource_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail="PageRank順ではリソースを1つ選択してください。",
+        )
+    return await search_tanbun(
+        param.q,
+        t,
+        param.paging,
+        param.order,
+        filter_resource_uids=[param.resource_id] if param.resource_id else None,
+        sort=param.sort,
+    )
 
 
 @tanbun_router().get("/sentence/{sentence_id}")

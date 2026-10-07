@@ -6,18 +6,82 @@ from uuid import UUID
 import pytz
 from fastapi import status
 from fastapi.testclient import TestClient
+from neomodel import adb
 
 from tanbun.api import root_router
 from tanbun.conftest import async_fixture, mark_async_test
 from tanbun.feature.entry.resource.usecase import save_text
+from tanbun.feature.repo.cypher import Paging
 from tanbun.feature.tanbun.domain import TanbunChains
 from tanbun.feature.tanbun.label import LSentence, LTerm
+from tanbun.feature.tanbun.repo import search_tanbun
+from tanbun.feature.tanbun.repo.clause import OrderBy
 from tanbun.feature.user.label import LUser
 
 
 @async_fixture()
 async def u() -> LUser:  # noqa: D103
     return await LUser(email="onex@gmail.com", hashed_password="xxx").save()  # noqa: S106
+
+
+@mark_async_test()
+async def test_pagerank_search(u: LUser):
+    """リソース内の有効な順位のみ使い、ページング前にソートする."""
+    _, resource = await save_text(u.uid, "# rank search\n  low\n  high\n  missing\n")
+    await save_text(u.uid, "# other resource\n  foreign\n")
+    await adb.cypher_query(
+        """
+        MATCH (r:Resource {uid:$uid})
+        SET r.pagerank_version=1, r.pagerank_source_hash=r.txt_hash,
+            r.pagerank_source_updated=r.updated
+        WITH r MATCH (s:Sentence {resource_uid:r.uid})
+        SET s.pagerank_score=CASE s.val WHEN 'low' THEN 0.5
+            WHEN 'high' THEN 2.0 ELSE null END
+        """,
+        params={"uid": resource.uid.hex},
+    )
+    result = await search_tanbun(
+        "",
+        filter_resource_uids=[resource.uid],
+        sort="pagerank",
+    )
+    assert [item.sentence for item in result.data] == ["high", "low", "missing"]
+    assert list(result.pagerank_scores.values()) == [2.0, 0.5, None]
+    page = await search_tanbun(
+        "",
+        paging=Paging(page=2, size=1),
+        filter_resource_uids=[resource.uid],
+        sort="pagerank",
+    )
+    assert page.data[0].sentence == "low"
+    ascending = await search_tanbun(
+        "",
+        order_by=OrderBy(desc=False),
+        filter_resource_uids=[resource.uid],
+        sort="pagerank",
+    )
+    assert [item.sentence for item in ascending.data] == ["low", "high", "missing"]
+    normal = await search_tanbun("", filter_resource_uids=[resource.uid])
+    assert normal.pagerank_scores == {}
+    client = TestClient(root_router())
+    assert (
+        client.get("/tanbun/?sort=pagerank").status_code
+        == status.HTTP_422_UNPROCESSABLE_ENTITY
+    )
+    response = client.get(f"/tanbun/?sort=pagerank&resource_id={resource.uid}&q=high")
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["data"][0]["sentence"] == "high"
+    assert list(response.json()["pagerank_scores"].values()) == [2.0]
+    await adb.cypher_query(
+        "MATCH (r:Resource {uid:$uid}) SET r.pagerank_source_hash=-1",
+        params={"uid": resource.uid.hex},
+    )
+    stale = await search_tanbun(
+        "",
+        filter_resource_uids=[resource.uid],
+        sort="pagerank",
+    )
+    assert all(value is None for value in stale.pagerank_scores.values())
 
 
 @mark_async_test()

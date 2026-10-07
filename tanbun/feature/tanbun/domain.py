@@ -105,6 +105,7 @@ class TanbunSearchResult(BaseModel):
     total: int
     data: list[Tanbun]
     resource_infos: dict[UUID, ResourceInfo]
+    pagerank_scores: dict[UUID, float | None] = Field(default_factory=dict)
 
 
 class UidStr(BaseModel):

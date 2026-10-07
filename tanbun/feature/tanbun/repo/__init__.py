@@ -1,6 +1,6 @@
 """repo."""
 
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from more_itertools import collapse
@@ -9,6 +9,7 @@ from neomodel import adb
 from tanbun.feature.domain.errors import DomainError as DomainError
 from tanbun.feature.domain.types import UUIDy, to_uuid
 from tanbun.feature.entry.namespace import resource_infos_by_resource_uids
+from tanbun.feature.recommendation.pagerank.cypher import cached_rank
 from tanbun.feature.repo.cypher import Paging
 from tanbun.feature.tanbun.domain import (
     Tanbun as Tanbun,
@@ -58,6 +59,7 @@ async def search_tanbun_ids(  # noqa: PLR0917
     only_with_term: bool = False,  # noqa: FBT001, FBT002
     exclude_sent_ids: list[UUIDy] | None = None,
     do_print: bool = False,  # noqa: FBT001, FBT002
+    sort: Literal["score", "pagerank"] = "score",
 ) -> list[UUID]:
     """用語、文のいずれかでマッチする単文のUUIDを返す."""
     q = q_search(
@@ -66,9 +68,25 @@ async def search_tanbun_ids(  # noqa: PLR0917
         only_with_term,
         exclude_sent_ids=exclude_sent_ids,
     )
+    rank_clause = ""
+    ordering = order_by.phrase() if order_by else ""
+    if sort == "pagerank":
+        if not belong_resource_uids or len(belong_resource_uids) != 1:
+            msg = "PageRank順ではリソースを1つ選択してください。"
+            raise ValueError(msg)
+        rank_clause = f"""
+            MATCH (rank_resource:Resource {{uid: sent.resource_uid}})
+            WITH *, {cached_rank("sent", "rank_resource")} AS rank_score
+        """
+        direction = "DESC" if order_by is None or order_by.desc else "ASC"
+        ordering = (
+            f"ORDER BY rank_score IS NULL ASC, rank_score {direction}, "
+            "stats.score DESC, sent.uid ASC"
+        )
     q += f"""
         {q_stats("sent", order_by)}
-        {(order_by.phrase() if order_by else "")}
+        {rank_clause}
+        {ordering}
         {paging.phrase()}
         RETURN
             sent.uid AS sent_uid
@@ -99,6 +117,7 @@ async def search_tanbun(  # noqa: PLR0917
     only_with_term: bool = False,  # noqa: FBT001, FBT002
     exclude_sent_ids: list[UUIDy] | None = None,
     do_print: bool = False,  # noqa: FBT001, FBT002
+    sort: Literal["score", "pagerank"] = "score",
 ) -> TanbunSearchResult:
     """用語、文のいずれかでマッチする単文の検索結果を返す."""
     kn_uids = await search_tanbun_ids(
@@ -110,12 +129,26 @@ async def search_tanbun(  # noqa: PLR0917
         only_with_term,
         exclude_sent_ids,
         do_print,
+        sort,
     )
     d = await fetch_tanbuns_with_detail(kn_uids, order_by=order_by)
-    ls = list(d.values())
+    ls = [d[to_uuid(uid).hex] for uid in kn_uids]
+    ranks = {}
+    if sort == "pagerank" and kn_uids:
+        rows, _ = await adb.cypher_query(
+            f"""
+            UNWIND $uids AS uid
+            MATCH (sent:Sentence {{uid: uid}})
+            MATCH (resource:Resource {{uid: sent.resource_uid}})
+            RETURN sent.uid, {cached_rank("sent", "resource")}
+            """,
+            params={"uids": [to_uuid(uid).hex for uid in kn_uids]},
+        )
+        ranks = dict(rows)
     return TanbunSearchResult(
         total=await search_total(s, where, filter_resource_uids, only_with_term),
         data=ls,
+        pagerank_scores=ranks,
         resource_infos=await resource_infos_by_resource_uids({
             k.resource_uid for k in ls
         }),
