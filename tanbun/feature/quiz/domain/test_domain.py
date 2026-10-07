@@ -177,6 +177,8 @@ def test_quiz_rel2sent_lv1(sn: SysNet):
         "answer_kind": "sentence",
     }
     assert q.is_correct(["2"])
+    assert q.option_terms["2"] == ["T1"]
+    assert src.target_id not in q.option_terms
     assert not q.is_correct(["3"])
 
     src2 = src.model_copy(update={"correct_ids": ["3"]})
@@ -207,6 +209,7 @@ def test_quiz_pair2rel_shows_graph_direction(sn: SysNet):
     )
 
     conclusion = source.to_readable()
+    assert conclusion.option_terms == {}
     assert conclusion.statement == "'ccc'-[]->'to'\n[]に入る関係はどれ?"
     assert conclusion.prompt.model_dump() == {
         "subject": "ccc",

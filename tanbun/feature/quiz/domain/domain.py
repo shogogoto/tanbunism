@@ -49,6 +49,7 @@ class ReadableQuiz(BaseModel, frozen=True):
     prompt: QuizPrompt
     statement: str = Field(title="問題文")
     options: dict[str, str] = Field(title="選択肢")
+    option_terms: dict[str, list[str]] = Field(default_factory=dict)
     correct: list[str] = Field(title="正解")
     created: Neo4jDateTime
     no_correct_option: bool
@@ -137,12 +138,18 @@ class QuizSource(BaseModel, frozen=True):
     def to_readable(self) -> ReadableQuiz:
         """読める状態にする."""
         correct_opts = [self.sources[c] for c in self.correct_ids]
+        options = self.readable_options()
         return ReadableQuiz(
             quiz_id=self.quiz_id,
             quiz_type=self.quiz_type,
             prompt=self._prompt(correct_opts),
             statement=self.quiz_type.statement(self.target, correct_opts),
-            options=self.readable_options(),
+            options=options,
+            option_terms={
+                key: self.sources[key].terms
+                for key in options
+                if self.quiz_type is QuizType.REL2PAIR and self.sources[key].terms
+            },
             correct=self.correct_ids,
             created=self.created,
             no_correct_option=self.no_correct_option,
