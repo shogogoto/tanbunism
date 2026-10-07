@@ -1,6 +1,9 @@
 """リソースの知識構造と、ユーザー別の永続的な復習実績."""
 
-from uuid import UUID
+from asyncio import Lock, get_running_loop
+from contextlib import AsyncExitStack
+from uuid import UUID, uuid4
+from weakref import WeakKeyDictionary
 
 from neomodel import adb
 from pydantic import BaseModel, Field
@@ -14,7 +17,10 @@ from tanbun.feature.gamification.domain import (
     level_from_xp,
     level_threshold,
 )
+from tanbun.feature.notification.domain import Notification
+from tanbun.feature.notification.usecase import dispatch_saved_notifications
 
+from .level_notifications import save_level_up_notifications
 from .power import PowerWeights, calculate_power, get_power_weights
 from .settings import get_gamification_settings
 
@@ -73,11 +79,30 @@ EVENT_QUERY = """
     MATCH (user:User {uid: $user_id})
     SET user.resource_xp_revision = coalesce(user.resource_xp_revision, 0) + 1
     WITH user
+    CALL (user) {
+        OPTIONAL MATCH (previous:ResourceXpEvent {user_id: user.uid})
+        RETURN coalesce(sum(previous.xp), 0) AS user_xp,
+            coalesce(sum(CASE WHEN previous.resource_id = $resource_id
+                THEN previous.xp ELSE 0 END), 0) AS resource_xp
+    }
     MERGE (event:ResourceXpEvent {key: $key})
     ON CREATE SET event.user_id = $user_id, event.resource_id = $resource_id,
         event.resource_name = $resource_name, event.source = $source,
-        event.xp = $xp, event.subject = $subject, event.earned_on = $day
+        event.xp = $xp, event.subject = $subject, event.earned_on = $day,
+        event.award_id = $award_id
+    RETURN user_xp, resource_xp,
+        CASE WHEN event.award_id = $award_id THEN event.xp ELSE 0 END AS awarded_xp
 """
+
+# 単独加点でもneomodelの共有トランザクションを並行タスクで取り合わない。
+_standalone_locks = WeakKeyDictionary()
+
+
+def _standalone_lock() -> Lock:
+    loop = get_running_loop()
+    if loop not in _standalone_locks:
+        _standalone_locks[loop] = Lock()
+    return _standalone_locks[loop]
 
 
 async def record_resource_xp(
@@ -90,26 +115,49 @@ async def record_resource_xp(
     day: str,
     source: str,
     xp: int,
-) -> None:
-    """同じ対象・種別・日の加点は一回だけ."""
+    within_transaction: bool = False,
+) -> list[Notification]:
+    """日別加点は一回。既存transactionを使う場合、通知配信は呼び出し側で行う."""
     uid = to_uuid(user_id).hex
-    await adb.cypher_query(
-        EVENT_QUERY,
-        params={
-            "user_id": uid,
-            "resource_id": to_uuid(resource_id).hex,
-            "resource_name": resource_name,
-            "subject": subject,
-            "day": day,
-            "source": source,
-            "xp": xp,
-            "key": f"{uid}:{subject_id}:{day}:{source}",
-        },
-    )
+    owns_transaction = not within_transaction
+    notifications = []
+    async with AsyncExitStack() as stack:
+        if owns_transaction:
+            await stack.enter_async_context(_standalone_lock())
+            await stack.enter_async_context(adb.transaction)
+        coefficient = (await get_gamification_settings()).level_xp_coefficient
+        rows, _ = await adb.cypher_query(
+            EVENT_QUERY,
+            params={
+                "user_id": uid,
+                "resource_id": to_uuid(resource_id).hex,
+                "resource_name": resource_name,
+                "subject": subject,
+                "day": day,
+                "source": source,
+                "xp": xp,
+                "key": f"{uid}:{subject_id}:{day}:{source}",
+                "award_id": uuid4().hex,
+            },
+        )
+        if rows:
+            user_xp, resource_xp, awarded = rows[0]
+            notifications = await save_level_up_notifications(
+                uid,
+                resource_id,
+                resource_name,
+                user_xp=user_xp,
+                resource_xp=resource_xp,
+                awarded_xp=awarded,
+                coefficient=coefficient,
+            )
+    if owns_transaction:
+        await dispatch_saved_notifications(uid, notifications)
+    return notifications
 
 
-async def record_answer_xp(user_id: UUIDy, answer_id: UUIDy) -> None:
-    """回答対象を保存時に解決し、参照切れ後も履歴を保持する."""
+async def record_answer_xp(user_id: UUIDy, answer_id: UUIDy) -> list[Notification]:
+    """回答保存のtransaction内で加点し、commit後に配信する通知を返す."""
     rows, _ = await adb.cypher_query(
         """
         MATCH (:User {uid: $user_id})-[:ANSWER]->(answer:Answer {uid: $answer_id})
@@ -121,18 +169,9 @@ async def record_answer_xp(user_id: UUIDy, answer_id: UUIDy) -> None:
     """,
         params={"user_id": to_uuid(user_id).hex, "answer_id": to_uuid(answer_id).hex},
     )
+    notifications = []
     for resource_id, name, subject, quiz_id, day, correct in rows:
-        await record_resource_xp(
-            user_id,
-            resource_id,
-            name,
-            subject_id=quiz_id,
-            subject=subject,
-            day=day,
-            source="quiz_answer",
-            xp=QUIZ_ANSWERED_XP,
-        )
-        if correct:
+        notifications.extend(
             await record_resource_xp(
                 user_id,
                 resource_id,
@@ -140,13 +179,34 @@ async def record_answer_xp(user_id: UUIDy, answer_id: UUIDy) -> None:
                 subject_id=quiz_id,
                 subject=subject,
                 day=day,
-                source="correct_bonus",
-                xp=QUIZ_CORRECT_BONUS_XP,
+                source="quiz_answer",
+                xp=QUIZ_ANSWERED_XP,
+                within_transaction=True,
+            ),
+        )
+        if correct:
+            notifications.extend(
+                await record_resource_xp(
+                    user_id,
+                    resource_id,
+                    name,
+                    subject_id=quiz_id,
+                    subject=subject,
+                    day=day,
+                    source="correct_bonus",
+                    xp=QUIZ_CORRECT_BONUS_XP,
+                    within_transaction=True,
+                ),
             )
+    return notifications
 
 
-async def record_exposure_xp(user_id: UUIDy, sentence_id: UUIDy, day: str) -> None:
-    """見たよの対象と内容をスナップショットとして保存する."""
+async def record_exposure_xp(
+    user_id: UUIDy,
+    sentence_id: UUIDy,
+    day: str,
+) -> list[Notification]:
+    """閲覧保存のtransaction内で加点し、commit後に配信する通知を返す."""
     rows, _ = await adb.cypher_query(
         """
         MATCH (sentence:Sentence {uid: $sentence_id})
@@ -155,17 +215,22 @@ async def record_exposure_xp(user_id: UUIDy, sentence_id: UUIDy, day: str) -> No
     """,
         params={"sentence_id": to_uuid(sentence_id).hex},
     )
+    notifications = []
     for resource_id, name, subject in rows:
-        await record_resource_xp(
-            user_id,
-            resource_id,
-            name,
-            subject_id=to_uuid(sentence_id).hex,
-            subject=subject,
-            day=day,
-            source="tanbun_exposure",
-            xp=TANBUN_EXPOSURE_XP,
+        notifications.extend(
+            await record_resource_xp(
+                user_id,
+                resource_id,
+                name,
+                subject_id=to_uuid(sentence_id).hex,
+                subject=subject,
+                day=day,
+                source="tanbun_exposure",
+                xp=TANBUN_EXPOSURE_XP,
+                within_transaction=True,
+            ),
         )
+    return notifications
 
 
 async def fetch_resource_growth(

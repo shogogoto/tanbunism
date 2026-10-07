@@ -26,8 +26,23 @@ async def notify_user(
 ) -> Notification:
     """通知をDBへ保存し、購読済みの全端末へWeb Pushする."""
     notification = await create_notification(user_id, draft)
-    await _dispatch_web_push(user_id, notification)
+    await dispatch_saved_notifications(user_id, [notification])
     return notification
+
+
+async def dispatch_saved_notifications(
+    user_id: UUIDy,
+    notifications: list[Notification],
+) -> None:
+    """確定済み通知を配信する。配信失敗で完了済みの操作を失敗させない."""
+    for notification in notifications:
+        try:
+            await _dispatch_web_push(user_id, notification)
+        except Exception:
+            logger.exception(
+                "Web Push dispatch failed for notification %s",
+                notification.uid,
+            )
 
 
 async def _dispatch_web_push(

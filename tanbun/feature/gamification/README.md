@@ -35,6 +35,12 @@ resources and other users' resources that the requester has reviewed.
   include the five counts and the exact applied `rules.power_weights` snapshot.
   Weight changes do not alter any review XP or level settings. PageRank is not used.
 - Imports do not award resource XP. A changed file can change Power.
+- Review XP awards compare user and resource levels before/after the new award
+  under the user's write lock, using the same current level coefficient.
+  Level-up notifications are saved in the XP transaction and sent to registered
+  Web Push devices only after commit. Duplicate awards, imports and coefficient
+  changes alone do not send notifications. Push delivery failures retain the
+  answer/exposure, earned XP and notification in the notification feed.
 
 ## Migration boundary
 

@@ -7,6 +7,7 @@ from neomodel import adb
 
 from tanbun.feature.domain.types import UUIDy, to_uuid
 from tanbun.feature.gamification.resource import record_exposure_xp
+from tanbun.feature.notification.usecase import dispatch_saved_notifications
 from tanbun.feature.recommendation.daily import (
     Candidate,
     append_daily,
@@ -252,7 +253,12 @@ async def record_tanbun_exposure(
         )
         if not rows:
             return None
-        await record_exposure_xp(user_id, sentence_id, seen_on.isoformat())
+        notifications = await record_exposure_xp(
+            user_id,
+            sentence_id,
+            seen_on.isoformat(),
+        )
+    await dispatch_saved_notifications(user_id, notifications)
     return TanbunExposureResult(
         sentence_id=sentence_id,
         seen_on=seen_on,
