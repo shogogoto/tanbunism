@@ -62,7 +62,13 @@ async def test_pagerank_search(u: LUser):
     )
     assert [item.sentence for item in ascending.data] == ["low", "high", "missing"]
     normal = await search_tanbun("", filter_resource_uids=[resource.uid])
-    assert normal.pagerank_scores == {}
+    assert {
+        item.sentence: normal.pagerank_scores[item.uid] for item in normal.data
+    } == {
+        "high": 2.0,
+        "low": 0.5,
+        "missing": None,
+    }
     await adb.cypher_query(
         """
         MATCH (r:Resource {uid:$uid})

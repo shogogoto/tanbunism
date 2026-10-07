@@ -131,7 +131,7 @@ async def search_tanbun(  # noqa: PLR0917
     d = await fetch_tanbuns_with_detail(kn_uids, order_by=order_by)
     ls = [d[to_uuid(uid).hex] for uid in kn_uids]
     ranks = {}
-    if sort == "pagerank" and kn_uids:
+    if kn_uids:
         rows, _ = await adb.cypher_query(
             f"""
             UNWIND $uids AS uid
