@@ -40,6 +40,7 @@ class ResourceGrowth(BaseModel):
     power: int
     logic_count: int
     reference_count: int
+    abstraction_count: int = 0
     sentence_count: int = 0
     term_count: int = 0
     recent_xp: list[ResourceXpLog]
@@ -204,18 +205,21 @@ async def fetch_resource_growth(
             coalesce(cache.n_term, fallback_term_count) AS term_count
         CALL (resource) {
             MATCH (source:Sentence|Quoterm {resource_uid: resource.uid})
-                -[edge:TO|REF|RESOLVED|QUOTERM]->(destination:Sentence|Quoterm)
+                -[edge:TO|REF|RESOLVED|QUOTERM|EXAMPLE]->(destination:Sentence|Quoterm)
             WHERE source <> destination AND destination.val <> '<<<not defined>>>'
             WITH DISTINCT CASE WHEN type(edge) = 'TO' THEN 'logic'
+                WHEN type(edge) = 'EXAMPLE' THEN 'abstraction'
                 ELSE 'reference' END AS kind,
                 source.uid AS start, destination.uid AS end
             RETURN count(CASE WHEN kind = 'logic' THEN 1 END) AS logic_count,
-                count(CASE WHEN kind = 'reference' THEN 1 END) AS reference_count
+                count(CASE WHEN kind = 'reference' THEN 1 END) AS reference_count,
+                count(CASE WHEN kind = 'abstraction' THEN 1 END) AS abstraction_count
         }
         OPTIONAL MATCH (event:ResourceXpEvent {
             user_id: $user_id, resource_id: resource.uid
         })
-        WITH resource, logic_count, reference_count, sentence_count, term_count, event
+        WITH resource, logic_count, reference_count, abstraction_count,
+            sentence_count, term_count, event
         ORDER BY event.earned_on DESC, event.key
         RETURN resource.uid, resource.title, logic_count, reference_count,
             coalesce(sum(event.xp), 0), collect(event)[0..10],
@@ -224,7 +228,8 @@ async def fetch_resource_growth(
             coalesce(sum(CASE WHEN event.source = 'quiz_answer'
                 THEN event.xp ELSE 0 END), 0),
             coalesce(sum(CASE WHEN event.source = 'correct_bonus'
-                THEN event.xp ELSE 0 END), 0), sentence_count, term_count
+                THEN event.xp ELSE 0 END), 0), sentence_count, term_count,
+            abstraction_count
         ORDER BY resource.title
     """,
         params={"user_id": to_uuid(user_id).hex, "owned_only": owned_only},
@@ -242,6 +247,7 @@ async def fetch_resource_growth(
         bonus,
         sentences,
         terms,
+        abstraction,
     ) in rows:
         level = level_from_xp(xp, coefficient)
         result.append(
@@ -258,9 +264,11 @@ async def fetch_resource_growth(
                     logic,
                     reference,
                     power_weights,
+                    abstraction_count=abstraction,
                 ),
                 logic_count=logic,
                 reference_count=reference,
+                abstraction_count=abstraction,
                 sentence_count=sentences,
                 term_count=terms,
                 last_reviewed_on=events[0]["earned_on"] if events else None,

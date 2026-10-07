@@ -49,11 +49,21 @@ async def test_admin_power_weights_apply_to_existing_resources(ac: AsyncClient) 
         """MATCH (a:Sentence {resource_uid:$rid, val:'definition'}),
             (b:Sentence {resource_uid:$rid, val:'second'})
         CREATE (a)-[:TO]->(b), (a)-[:TO]->(b), (a)-[:REF]->(b),
-            (a)-[:RESOLVED]->(b), (a)-[:BELOW]->(b)""",
+            (a)-[:RESOLVED]->(b), (a)-[:BELOW]->(b),
+            (a)-[:EXAMPLE]->(b), (a)-[:EXAMPLE]->(b),
+            (a)-[:EXAMPLE]->(a),
+            (a)-[:EXAMPLE]->(:RetiredSentence {uid:'retired', val:'old'}),
+            (a)-[:EXAMPLE]->(:Quoterm {uid:'undefined', val:'<<<not defined>>>'})""",
         params={"rid": resource.uid.hex},
     )
     headers = await _admin_headers("power-admin@example.com")
     path = "/admin/settings/resource-power"
+    assert (await ac.get(path, headers=headers)).json() == PowerWeights().model_dump()
+    # 旧設定に新しい重みが保存されていなくても、既定値を補う。
+    await adb.cypher_query(
+        """CREATE (:AdminSettings {key:'resource_power', sentence:1, term:1,
+            logic:3, reference:2})""",
+    )
     assert (await ac.get(path, headers=headers)).json() == PowerWeights().model_dump()
     growth_path = f"/user/{user.uid}/resource-growth"
     before = (await ac.get(growth_path)).json()
@@ -61,14 +71,15 @@ async def test_admin_power_weights_apply_to_existing_resources(ac: AsyncClient) 
     [book] = before["resources"]
     assert book["sentence_count"] == 2  # noqa: PLR2004
     assert book["term_count"] == book["logic_count"] == book["reference_count"] == 1
-    assert book["power"] == 8  # noqa: PLR2004
-    weights = {"sentence": 2, "term": 3, "logic": 4, "reference": 5}
+    assert book["abstraction_count"] == 1
+    assert book["power"] == 10  # noqa: PLR2004
+    weights = {"sentence": 2, "term": 3, "logic": 4, "reference": 5, "abstraction": 6}
     saved = await ac.put(path, headers=headers, json=weights)
     assert saved.is_success
     assert (await ac.get(path, headers=headers)).json() == weights
     after = (await ac.get(growth_path)).json()
     assert after["rules"]["power_weights"] == weights
-    assert after["resources"][0] == {**book, "power": 16}
+    assert after["resources"][0] == {**book, "power": 22}
     assert (
         await ac.get(f"/user/{user.uid}/learning-progress")
     ).json() == progress_before

@@ -19,9 +19,19 @@ def test_zero_weights_disable_power_without_changing_facts() -> None:
             4,
             2,
             3,
-            PowerWeights(sentence=0, term=0, logic=0, reference=0),
+            PowerWeights(sentence=0, term=0, logic=0, reference=0, abstraction=0),
+            abstraction_count=5,
         )
         == 0
+    )
+
+
+def test_abstraction_weight_is_independent() -> None:
+    """具体・抽象の件数を既定2点で加算し、重み0で無効化する."""
+    assert calculate_power(10, 4, 2, 3, PowerWeights(), abstraction_count=5) == 36  # noqa: PLR2004
+    assert (
+        calculate_power(10, 4, 2, 3, PowerWeights(abstraction=0), abstraction_count=5)
+        == 26  # noqa: PLR2004
     )
 
 

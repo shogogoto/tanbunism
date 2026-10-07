@@ -50,6 +50,7 @@ async def test_power_excludes_detail_and_duplicate_edges(u: LUser):
         growth.logic_count,
         growth.reference_count,
         PowerWeights(),
+        abstraction_count=growth.abstraction_count,
     )
     await adb.cypher_query("""
         MATCH (a:Sentence {val:'ccc'})-[edge:TO]->(:Sentence {val:'ccc1'})

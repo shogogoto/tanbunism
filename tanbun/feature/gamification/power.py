@@ -11,6 +11,7 @@ class PowerWeights(BaseModel, frozen=True):
     term: int = Field(default=1, ge=0, le=10000, strict=True)
     logic: int = Field(default=3, ge=0, le=10000, strict=True)
     reference: int = Field(default=2, ge=0, le=10000, strict=True)
+    abstraction: int = Field(default=2, ge=0, le=10000, strict=True)
 
 
 def calculate_power(
@@ -19,6 +20,8 @@ def calculate_power(
     logic_count: int,
     reference_count: int,
     weights: PowerWeights,
+    *,
+    abstraction_count: int = 0,
 ) -> int:
     """適用中の重みと件数からPowerを計算する."""
     return (
@@ -26,6 +29,7 @@ def calculate_power(
         + term_count * weights.term
         + logic_count * weights.logic
         + reference_count * weights.reference
+        + abstraction_count * weights.abstraction
     )
 
 
@@ -35,6 +39,7 @@ async def get_power_weights() -> PowerWeights:
         """
         MATCH (settings:AdminSettings {key: 'resource_power'})
         RETURN settings.sentence, settings.term, settings.logic, settings.reference
+            , settings.abstraction
         LIMIT 1
         """,
     )
@@ -53,7 +58,8 @@ async def update_power_weights(weights: PowerWeights) -> PowerWeights:
         """
         MERGE (settings:AdminSettings {key: 'resource_power'})
         SET settings.sentence = $sentence, settings.term = $term,
-            settings.logic = $logic, settings.reference = $reference
+            settings.logic = $logic, settings.reference = $reference,
+            settings.abstraction = $abstraction
         """,
         params=weights.model_dump(),
     )
