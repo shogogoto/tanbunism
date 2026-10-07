@@ -10,7 +10,7 @@ from tanbun.feature.learning_activity.domain import LearningActivityCounts
 TANBUN_EXPOSURE_XP = 1
 QUIZ_ANSWERED_XP = 5
 QUIZ_CORRECT_BONUS_XP = 2
-LEVEL_CURVE = 50
+DEFAULT_LEVEL_XP_COEFFICIENT = 10
 
 
 class XpSource(StrEnum):
@@ -54,17 +54,24 @@ class LearningProgress(BaseModel, frozen=True):
     xp_for_next_level: int
     xp_to_next_level: int
     today_xp: int = 0
+    level_xp_coefficient: int = DEFAULT_LEVEL_XP_COEFFICIENT
 
 
-def level_threshold(level: int) -> int:
+def level_threshold(level: int, coefficient: int = DEFAULT_LEVEL_XP_COEFFICIENT) -> int:
     """指定レベルに到達する累計XP."""
-    return LEVEL_CURVE * (level - 1) ** 2
+    return coefficient * level * (level - 1) // 2
+
+
+def level_from_xp(xp: int, coefficient: int = DEFAULT_LEVEL_XP_COEFFICIENT) -> int:
+    """累計XPからLvを逆算する。浮動小数点による境界誤差を避ける."""
+    return (1 + isqrt(1 + 8 * (xp // coefficient))) // 2
 
 
 def calculate_learning_progress(
     activity: LearningActivityCounts,
     *,
     recorded_xp: XpBreakdown | None = None,
+    coefficient: int = DEFAULT_LEVEL_XP_COEFFICIENT,
 ) -> LearningProgress:
     """復習の事実だけからXPとLevelを計算する。知識量・作成数は加算しない."""
     xp_details = [
@@ -94,9 +101,9 @@ def calculate_learning_progress(
     earned_xp = {detail.source.value: detail.earned_xp for detail in xp_details}
     xp = XpBreakdown(**earned_xp)
     total_xp = sum(xp.model_dump().values())
-    level = isqrt(total_xp // LEVEL_CURVE) + 1
-    current_threshold = level_threshold(level)
-    next_threshold = level_threshold(level + 1)
+    level = level_from_xp(total_xp, coefficient)
+    current_threshold = level_threshold(level, coefficient)
+    next_threshold = level_threshold(level + 1, coefficient)
     return LearningProgress(
         activity=activity,
         xp=xp,
@@ -106,6 +113,7 @@ def calculate_learning_progress(
         current_level_xp=total_xp - current_threshold,
         xp_for_next_level=next_threshold - current_threshold,
         xp_to_next_level=next_threshold - total_xp,
+        level_xp_coefficient=coefficient,
     )
 
 

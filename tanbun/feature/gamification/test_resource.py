@@ -12,7 +12,10 @@ from tanbun.conftest import async_fixture, mark_async_test
 from tanbun.feature.dashboard.repo import record_tanbun_exposure
 from tanbun.feature.domain.types import to_uuid
 from tanbun.feature.entry.resource.usecase import save_text
-from tanbun.feature.gamification.domain import LEVEL_CURVE, QUIZ_CORRECT_BONUS_XP
+from tanbun.feature.gamification.domain import (
+    DEFAULT_LEVEL_XP_COEFFICIENT,
+    QUIZ_CORRECT_BONUS_XP,
+)
 from tanbun.feature.gamification.resource import (
     fetch_resource_growth,
     record_resource_xp,
@@ -216,7 +219,7 @@ async def test_resource_level_and_power_are_independent(u: LUser):
         params={
             "resource_id": growth.resource_id.hex,
             "user_id": to_uuid(u.uid).hex,
-            "xp": LEVEL_CURVE,
+            "xp": DEFAULT_LEVEL_XP_COEFFICIENT,
         },
     )
     [after] = await fetch_resource_growth(u.uid)

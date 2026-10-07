@@ -14,8 +14,13 @@ resources and other users' resources that the requester has reviewed.
   A wrong answer followed by a correct answer earns only the missing bonus.
 - Answer/exposure writes and XP writes share a transaction. A User write lock
   serializes awards, and the event key also has a uniqueness constraint.
-- The resource level uses `50 * (level - 1)^2` as its cumulative XP threshold.
-  Power does not change the XP threshold.
+- User and resource levels share a per-level cost of `current level * coefficient`.
+  The default coefficient is 10; cumulative XP to reach level L is
+  `coefficient * L * (L - 1) / 2`. Power does not change this threshold.
+  Admins can GET/PUT `/admin/settings/gamification` to change
+  `level_xp_coefficient` (an integer from 1 to 10000). The setting is persistent
+  and applies to all users and resources on their next fetch. Existing earned
+  XP and Power remain unchanged; only levels and progress are recalculated.
 - Power is recalculated from current outgoing `TO` (logic) and
   `REF|RESOLVED|QUOTERM` (reference) relationships. Duplicate source/destination
   pairs in each category count once. Self-links, retired destinations,

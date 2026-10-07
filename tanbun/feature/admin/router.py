@@ -10,6 +10,11 @@ from tanbun.feature.entry.resource.import_settings import (
     get_resource_import_settings,
     update_resource_import_settings,
 )
+from tanbun.feature.gamification.settings import (
+    GamificationSettings,
+    get_gamification_settings,
+    update_gamification_settings,
+)
 from tanbun.feature.quiz.learning.study_plan.preparation_settings import (
     QuizPreparationSettings,
     get_quiz_preparation_settings,
@@ -51,6 +56,21 @@ from .repo import (
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.get("/settings/gamification")
+async def get_level_settings(_admin: AdminUser) -> GamificationSettings:
+    """ユーザー・リソース共通のレベル設定を取得する."""
+    return await get_gamification_settings()
+
+
+@router.put("/settings/gamification")
+async def update_level_settings(
+    body: GamificationSettings,
+    _admin: AdminUser,
+) -> GamificationSettings:
+    """XPを保持したままレベル係数を更新する."""
+    return await update_gamification_settings(body)
 
 
 @router.get("/settings/resource-import")

@@ -9,6 +9,7 @@ from tanbun.feature.domain.types import UUIDy, to_uuid
 from tanbun.feature.learning_activity.domain import LearningActivityCounts
 
 from .domain import LearningProgress, XpBreakdown, calculate_learning_progress
+from .settings import get_gamification_settings
 
 
 async def fetch_learning_progress(user_id: UUIDy) -> LearningProgress:
@@ -32,6 +33,11 @@ async def fetch_learning_progress(user_id: UUIDy) -> LearningProgress:
         n_quiz_answered=counts.get("quiz_answer", 0),
         n_quiz_correct=counts.get("correct_bonus", 0),
     )
-    return calculate_learning_progress(activity, recorded_xp=xp).model_copy(
+    settings = await get_gamification_settings()
+    return calculate_learning_progress(
+        activity,
+        recorded_xp=xp,
+        coefficient=settings.level_xp_coefficient,
+    ).model_copy(
         update={"today_xp": sum(today_xp for _, _, _, today_xp in rows)},
     )

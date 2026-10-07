@@ -10,6 +10,7 @@ from tanbun.conftest import mark_async_test
 from tanbun.feature.domain.types import to_uuid
 from tanbun.feature.entry.resource.import_settings import ResourceImportSettings
 from tanbun.feature.entry.resource.usecase import save_text
+from tanbun.feature.gamification.resource import record_resource_xp
 from tanbun.feature.quiz.learning.study_plan.preparation_settings import (
     QuizPreparationSettings,
 )
@@ -23,6 +24,61 @@ async def _admin_headers(email: str) -> dict[str, str]:
     user.is_superuser = True
     await user.save()
     return await aauth_header(email)
+
+
+@mark_async_test()
+async def test_admin_level_coefficient_preserves_xp(ac: AsyncClient) -> None:
+    """係数変更をユーザー・Resourceに共通適用し、XPとPowerは保持する."""
+    user = await aregister("level-user@example.com")
+    _, resource = await save_text(user.uid, "# level rules\n  reviewed sentence\n")
+    await record_resource_xp(
+        user.uid,
+        resource.uid,
+        resource.name,
+        subject_id="historical",
+        subject="historical",
+        day="2026-10-07",
+        source="quiz_answer",
+        xp=30,
+    )
+    headers = await _admin_headers("level-admin@example.com")
+    path = "/admin/settings/gamification"
+    assert (await ac.get(path, headers=headers)).json() == {"level_xp_coefficient": 10}
+    progress_path = f"/user/{user.uid}/learning-progress"
+    growth_path = f"/user/{user.uid}/resource-growth"
+    before = (await ac.get(progress_path)).json()
+    growth_before = (await ac.get(growth_path)).json()
+    assert before["level"] == growth_before["resources"][0]["level"] == 3  # noqa: PLR2004
+    updated = await ac.put(path, headers=headers, json={"level_xp_coefficient": 20})
+    assert updated.is_success
+    assert (await ac.get(path, headers=headers)).json() == updated.json()
+    after = (await ac.get(progress_path)).json()
+    growth_after = (await ac.get(growth_path)).json()
+    book = growth_after["resources"][0]
+    assert after["level"] == book["level"] == 2  # noqa: PLR2004
+    assert after["current_level_xp"] == book["current_level_xp"] == 10  # noqa: PLR2004
+    assert after["xp_for_next_level"] == book["xp_for_next_level"] == 40  # noqa: PLR2004
+    assert after["xp"] == before["xp"]
+    assert after["total_xp"] == before["total_xp"] == book["total_xp"]
+    assert after["today_xp"] == before["today_xp"]
+    assert book["power"] == growth_before["resources"][0]["power"]
+    assert growth_after["rules"]["level_xp_coefficient"] == 20  # noqa: PLR2004
+    for value in [0, -1, 1.5, True, "10", 10001]:
+        invalid = await ac.put(
+            path,
+            headers=headers,
+            json={"level_xp_coefficient": value},
+        )
+        assert invalid.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    regular = await aauth_header(user.email)
+    for auth, expected in [
+        ({}, status.HTTP_401_UNAUTHORIZED),
+        (regular, status.HTTP_403_FORBIDDEN),
+    ]:
+        assert (await ac.get(path, headers=auth)).status_code == expected
+        assert (
+            await ac.put(path, headers=auth, json={"level_xp_coefficient": 99})
+        ).status_code == expected
 
 
 @mark_async_test()

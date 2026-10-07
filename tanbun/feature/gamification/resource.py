@@ -1,6 +1,5 @@
 """リソースの知識構造と、ユーザー別の永続的な復習実績."""
 
-from math import isqrt
 from uuid import UUID
 
 from neomodel import adb
@@ -8,12 +7,15 @@ from pydantic import BaseModel
 
 from tanbun.feature.domain.types import UUIDy, to_uuid
 from tanbun.feature.gamification.domain import (
-    LEVEL_CURVE,
+    DEFAULT_LEVEL_XP_COEFFICIENT,
     QUIZ_ANSWERED_XP,
     QUIZ_CORRECT_BONUS_XP,
     TANBUN_EXPOSURE_XP,
+    level_from_xp,
     level_threshold,
 )
+
+from .settings import get_gamification_settings
 
 
 class ResourceXpLog(BaseModel):
@@ -50,7 +52,7 @@ class ResourceGrowthRules(BaseModel):
     exposure_xp: int = TANBUN_EXPOSURE_XP
     answer_xp: int = QUIZ_ANSWERED_XP
     correct_bonus_xp: int = QUIZ_CORRECT_BONUS_XP
-    level_curve: int = LEVEL_CURVE
+    level_xp_coefficient: int = DEFAULT_LEVEL_XP_COEFFICIENT
 
 
 class ResourceGrowthResult(BaseModel):
@@ -165,8 +167,11 @@ async def fetch_resource_growth(
     user_id: UUIDy,
     *,
     owned_only: bool = False,
+    coefficient: int | None = None,
 ) -> list[ResourceGrowth]:
     """現在の構造は再計算し、XPは保存した実績だけを集計する."""
+    if coefficient is None:
+        coefficient = (await get_gamification_settings()).level_xp_coefficient
     rows, _ = await adb.cypher_query(
         """
         MATCH (resource:Resource)
@@ -215,15 +220,15 @@ async def fetch_resource_growth(
         answer,
         bonus,
     ) in rows:
-        level = isqrt(xp // LEVEL_CURVE) + 1
+        level = level_from_xp(xp, coefficient)
         result.append(
             ResourceGrowth(
                 resource_id=resource_id,
                 resource_name=name,
                 total_xp=xp,
                 level=level,
-                current_level_xp=xp - level_threshold(level),
-                xp_for_next_level=level_threshold(level + 1) - level_threshold(level),
+                current_level_xp=xp - level_threshold(level, coefficient),
+                xp_for_next_level=level * coefficient,
                 power=logic + reference,
                 logic_count=logic,
                 reference_count=reference,

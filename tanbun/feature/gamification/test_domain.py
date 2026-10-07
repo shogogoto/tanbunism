@@ -1,8 +1,10 @@
 """ゲーム進捗規則のテスト."""
 
+import pytest
+
 from tanbun.feature.learning_activity.domain import LearningActivityCounts
 
-from .domain import calculate_learning_progress, level_threshold
+from .domain import calculate_learning_progress, level_from_xp, level_threshold
 
 
 def test_calculate_learning_progress() -> None:
@@ -45,10 +47,10 @@ def test_calculate_learning_progress() -> None:
         },
     ]
     assert progress.total_xp == 160  # noqa: PLR2004
-    assert progress.level == 2  # noqa: PLR2004
-    assert progress.current_level_xp == 110  # noqa: PLR2004
-    assert progress.xp_for_next_level == 150  # noqa: PLR2004
-    assert progress.xp_to_next_level == 40  # noqa: PLR2004
+    assert progress.level == 6  # noqa: PLR2004
+    assert progress.current_level_xp == 10  # noqa: PLR2004
+    assert progress.xp_for_next_level == 60  # noqa: PLR2004
+    assert progress.xp_to_next_level == 50  # noqa: PLR2004
 
 
 def test_importing_and_creating_quizzes_do_not_raise_review_level() -> None:
@@ -67,3 +69,14 @@ def test_level_threshold_starts_at_zero() -> None:
     """Level 1は活動前から開始する."""
     assert level_threshold(1) == 0
     assert calculate_learning_progress(LearningActivityCounts()).level == 1
+
+
+@pytest.mark.parametrize("coefficient", [1, 3, 10, 20, 10000])
+@pytest.mark.parametrize("level", [1, 2, 3, 10, 100, 10**9])
+def test_linear_level_cost_boundaries(coefficient: int, level: int) -> None:
+    """任意の係数で境界を正確に逆算し、レベル毎の必要量はLv * 係数となる."""
+    threshold = level_threshold(level, coefficient)
+    assert level_from_xp(threshold, coefficient) == level
+    if level > 1:
+        assert level_from_xp(threshold - 1, coefficient) == level - 1
+    assert level_threshold(level + 1, coefficient) - threshold == level * coefficient
