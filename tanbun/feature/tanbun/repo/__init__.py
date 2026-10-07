@@ -71,9 +71,6 @@ async def search_tanbun_ids(  # noqa: PLR0917
     rank_clause = ""
     ordering = order_by.phrase() if order_by else ""
     if sort == "pagerank":
-        if not belong_resource_uids or len(belong_resource_uids) != 1:
-            msg = "PageRank順ではリソースを1つ選択してください。"
-            raise ValueError(msg)
         rank_clause = f"""
             MATCH (rank_resource:Resource {{uid: sent.resource_uid}})
             WITH *, {cached_rank("sent", "rank_resource")} AS rank_score

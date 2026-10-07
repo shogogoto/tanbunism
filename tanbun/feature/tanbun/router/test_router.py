@@ -26,9 +26,9 @@ async def u() -> LUser:  # noqa: D103
 
 @mark_async_test()
 async def test_pagerank_search(u: LUser):
-    """リソース内の有効な順位のみ使い、ページング前にソートする."""
+    """リソースを横断して有効な順位のみ使い、ページング前にソートする."""
     _, resource = await save_text(u.uid, "# rank search\n  low\n  high\n  missing\n")
-    await save_text(u.uid, "# other resource\n  foreign\n")
+    _, other = await save_text(u.uid, "# other resource\n  foreign\n")
     await adb.cypher_query(
         """
         MATCH (r:Resource {uid:$uid})
@@ -63,11 +63,30 @@ async def test_pagerank_search(u: LUser):
     assert [item.sentence for item in ascending.data] == ["low", "high", "missing"]
     normal = await search_tanbun("", filter_resource_uids=[resource.uid])
     assert normal.pagerank_scores == {}
-    client = TestClient(root_router())
-    assert (
-        client.get("/tanbun/?sort=pagerank").status_code
-        == status.HTTP_422_UNPROCESSABLE_ENTITY
+    await adb.cypher_query(
+        """
+        MATCH (r:Resource {uid:$uid})
+        SET r.pagerank_version=1, r.pagerank_source_hash=r.txt_hash,
+            r.pagerank_source_updated=r.updated
+        WITH r MATCH (s:Sentence {resource_uid:r.uid}) SET s.pagerank_score=3.0
+        """,
+        params={"uid": other.uid.hex},
     )
+    client = TestClient(root_router())
+    global_response = client.get("/tanbun/?sort=pagerank")
+    assert global_response.status_code == status.HTTP_200_OK
+    assert [item["sentence"] for item in global_response.json()["data"]] == [
+        "foreign",
+        "high",
+        "low",
+        "missing",
+    ]
+    global_page = await search_tanbun(
+        "",
+        paging=Paging(page=2, size=1),
+        sort="pagerank",
+    )
+    assert global_page.data[0].sentence == "high"
     response = client.get(f"/tanbun/?sort=pagerank&resource_id={resource.uid}&q=high")
     assert response.status_code == status.HTTP_200_OK
     assert response.json()["data"][0]["sentence"] == "high"
@@ -82,6 +101,11 @@ async def test_pagerank_search(u: LUser):
         sort="pagerank",
     )
     assert all(value is None for value in stale.pagerank_scores.values())
+    global_stale = await search_tanbun("", sort="pagerank")
+    assert global_stale.data[0].sentence == "foreign"
+    assert (
+        sum(value is not None for value in global_stale.pagerank_scores.values()) == 1
+    )
 
 
 @mark_async_test()
