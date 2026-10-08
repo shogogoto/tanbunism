@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from tanbun.config.env import Settings
 from tanbun.feature.user.router_util import ActiveUser, AdminUser
 
-from .cloudinary import CloudinaryClient, managed_id, upload_signature
+from .cloudinary import CloudinaryClient, avatar_folder_id, managed_id, upload_signature
 from .repo import referenced_ids, schedule_avatar_delete, schedule_delete
 
 router = APIRouter(tags=["images"])
@@ -114,7 +114,8 @@ async def list_images(
             "created_at": item.get("created_at"),
             "url": item.get("secure_url"),
             "referenced": item["public_id"] in refs,
-            "can_delete": eligible(item, refs, settings),
+            "can_delete": avatar_folder_id(item["public_id"], settings)
+            and item["public_id"] not in refs,
         }
         for item in result.get("resources", [])
     ]
@@ -149,3 +150,21 @@ async def cleanup_images(body: CleanupRequest, _admin: AdminUser) -> dict:
             await schedule_delete(public_id)
             accepted.append(public_id)
     return {"scheduled": accepted}
+
+
+@router.post("/admin/images/delete")
+async def delete_images(body: CleanupRequest, _admin: AdminUser) -> dict:
+    """Explicit manual deletion bypasses age/name rules, never live references."""
+    settings = Settings()
+    client = CloudinaryClient(settings)
+    deleted, skipped = [], []
+    for public_id in dict.fromkeys(body.public_ids):
+        if not avatar_folder_id(public_id, settings):
+            skipped.append(public_id)
+            continue
+        if public_id in await referenced_ids():
+            skipped.append(public_id)
+            continue
+        await client.destroy(public_id, manual=True)
+        deleted.append(public_id)
+    return {"deleted": deleted, "skipped": skipped}

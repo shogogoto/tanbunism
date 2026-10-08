@@ -41,11 +41,14 @@ already-issued upload signatures to expire. New abandoned uploads wait 72 hours.
 Run `task schema-install` to install the cleanup job/queue uniqueness constraints
 before starting multiple web processes (the normal deployment already does this).
 
-Admin's Images tab inspects one provider page (100 items) at a time. Only
-explicitly selected, UUID-named, unreferenced avatars older than 72 hours may be
-queued. Unknown asset names, other folders, external/Google images and live
-avatars are not deleted. This is not a destructive full-library sweep. Existing
-large originals are not re-encoded automatically.
+Admin's Images tab inspects one provider page (100 items) at a time, in a table
+with hover/tap previews. Confirmed manual deletions use `/admin/images/delete`
+and run immediately, rechecking references before each deletion. Non-UUID names
+and recent uploads in the avatar folder are allowed; live references and other
+folders remain protected. Reference checks include non-UUID legacy avatars.
+Automatic cleanup retains UUID restrictions and grace periods. The old cleanup
+reservation endpoint remains for compatibility. This is not a destructive
+full-library sweep. Existing large originals are not re-encoded automatically.
 
 Cloudinary references:
 [signatures](https://cloudinary.com/documentation/authentication_signatures),

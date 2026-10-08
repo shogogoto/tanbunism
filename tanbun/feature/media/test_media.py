@@ -222,7 +222,7 @@ async def test_admin_audit_cleanup_rechecks_and_profile_ownership(
     assert [item["can_delete"] for item in response.json()["resources"]] == [
         True,
         False,
-        False,
+        True,
     ]
     assert response.json()["next_cursor"] == "next"
     request.side_effect = [asset(orphan), asset(recent)]

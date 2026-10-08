@@ -10,7 +10,8 @@ from starlette import status
 from tanbun.config.env import Settings
 
 from . import router
-from .cloudinary import CloudinaryClient
+from .cloudinary import CloudinaryClient, avatar_id
+from .repo import referenced_ids
 
 
 @pytest.mark.asyncio
@@ -121,4 +122,64 @@ async def test_inventory_includes_preview_and_reference_state(monkeypatch):
     assert not live["can_delete"]
     assert recent["url"] is None
     assert not recent["referenced"]
-    assert not recent["can_delete"]
+    assert recent["can_delete"]
+
+
+@pytest.mark.asyncio
+async def test_manual_deletion_rechecks_references_and_scope(monkeypatch):
+    """Allow non-UUID/recent avatars, including a newly referenced selection."""
+    monkeypatch.setenv("CLOUDINARY_CLOUD_NAME", "test")
+    refs = AsyncMock(side_effect=[{"avatar/live"}, {"avatar/new-live"}, set()])
+    monkeypatch.setattr(router, "referenced_ids", refs)
+    destroy = AsyncMock()
+    monkeypatch.setattr(CloudinaryClient, "destroy", destroy)
+    result = await router.delete_images(
+        router.CleanupRequest(
+            public_ids=[
+                "other/test",
+                "avatar/live",
+                "avatar/new-live",
+                "avatar/test",
+                "avatar/test",
+            ],
+        ),
+        None,
+    )
+    assert result["deleted"] == ["avatar/test"]
+    assert result["skipped"] == ["other/test", "avatar/live", "avatar/new-live"]
+    destroy.assert_awaited_once_with("avatar/test", manual=True)
+
+
+@pytest.mark.asyncio
+async def test_manual_destroy_only_relaxes_uuid_rule(monkeypatch):
+    """Keep automatic cleanup strict and manual calls inside the avatar folder."""
+    client = _client()
+    request = AsyncMock(return_value={"result": "ok"})
+    monkeypatch.setattr(client, "request", request)
+    with pytest.raises(ValueError, match="Unmanaged"):
+        await client.destroy("avatar/test")
+    with pytest.raises(ValueError, match="Unmanaged"):
+        await client.destroy("other/test", manual=True)
+    await client.destroy("avatar/test", manual=True)
+    assert request.await_count == 1
+    url = "https://res.cloudinary.com/private-cloud/image/upload/v123/avatar/test.jpg"
+    assert avatar_id(url, client.settings, managed_only=False) == "avatar/test"
+    assert avatar_id(url, client.settings) is None
+
+
+@pytest.mark.asyncio
+async def test_reference_inventory_includes_non_uuid_avatars(monkeypatch):
+    """Manual deletion must protect legacy/test IDs in actual user properties."""
+    monkeypatch.setenv("CLOUDINARY_CLOUD_NAME", "private-cloud")
+    database = AsyncMock()
+    database.cypher_query.return_value = (
+        [
+            [
+                "https://res.cloudinary.com/private-cloud/image/upload/v123/avatar/test.jpg",
+            ],
+            ["https://res.cloudinary.com/another-cloud/image/upload/avatar/test.jpg"],
+            ["https://google.example/avatar.jpg"],
+        ],
+        [],
+    )
+    assert await referenced_ids(database) == {"avatar/test"}

@@ -42,4 +42,8 @@ async def referenced_ids(database=adb) -> set[str]:
         "MATCH (u:User) WHERE u.avatar_url IS NOT NULL RETURN u.avatar_url",
     )
     settings = Settings()
-    return {public_id for row in rows if (public_id := avatar_id(row[0], settings))}
+    return {
+        public_id
+        for row in rows
+        if (public_id := avatar_id(row[0], settings, managed_only=False))
+    }

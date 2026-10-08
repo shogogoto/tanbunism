@@ -40,7 +40,18 @@ def managed_id(public_id: str, settings: Settings) -> bool:
     return True
 
 
-def avatar_id(url: str | None, settings: Settings) -> str | None:
+def avatar_folder_id(public_id: str, settings: Settings) -> bool:
+    """Manual admin deletion is scoped to the avatar folder, not UUID names."""
+    prefix = settings.CLOUDINARY_AVATAR_FOLDER + "/"
+    return public_id.startswith(prefix) and bool(public_id[len(prefix) :])
+
+
+def avatar_id(
+    url: str | None,
+    settings: Settings,
+    *,
+    managed_only: bool = True,
+) -> str | None:
     """Preserve old crop/version URLs; never treat external avatars as ours."""
     if not url or not settings.CLOUDINARY_CLOUD_NAME:
         return None
@@ -55,7 +66,8 @@ def avatar_id(url: str | None, settings: Settings) -> str | None:
     for position in range(len(segments)):
         if segments[position : position + len(folder)] == folder:
             candidate = "/".join(segments[position:]).rsplit(".", 1)[0]
-            return candidate if managed_id(candidate, settings) else None
+            valid = managed_id if managed_only else avatar_folder_id
+            return candidate if valid(candidate, settings) else None
     return None
 
 
@@ -170,9 +182,10 @@ class CloudinaryClient:
                 "Cloudinaryからの応答を読み取れませんでした。再試行してください。",
             ) from exc
 
-    async def destroy(self, public_id: str) -> None:
+    async def destroy(self, public_id: str, *, manual: bool = False) -> None:
         """Only app-owned images; delete originals/derivatives and invalidate CDN."""
-        if not managed_id(public_id, self.settings):
+        valid = avatar_folder_id if manual else managed_id
+        if not valid(public_id, self.settings):
             msg = "Unmanaged image"
             raise ValueError(msg)
         result = await self.request(
