@@ -20,12 +20,15 @@ from tanbun.feature.entry.label import (
     LResourceStatsCache,
 )
 from tanbun.feature.gamification.label import LResourceXpEvent
+from tanbun.feature.media.label import LImageCleanup, LImageCleanupQueue
 from tanbun.feature.quiz.label import LAnswer, LQuiz
 from tanbun.feature.recommendation.pagerank.label import LPageRankJob, LPageRankQueue
 from tanbun.feature.tanbun.label import LInterval, LQuoterm, LSentence, LTerm
 from tanbun.feature.user.label import LAccount, LUser
 
 ASYNC_LABELS = (
+    LImageCleanup,
+    LImageCleanupQueue,
     LAccount,
     LUser,
     LHead,

@@ -21,6 +21,8 @@ from tanbun.feature.dashboard import dashboard_router
 from tanbun.feature.entry.router import entry_router
 from tanbun.feature.gamification import gamification_router
 from tanbun.feature.language_service.router import language_router
+from tanbun.feature.media import worker as media_worker
+from tanbun.feature.media.router import router as media_router
 from tanbun.feature.notification import notification_router
 from tanbun.feature.quiz.router.router import quiz_router
 from tanbun.feature.recommendation.pagerank.router import router as pagerank_router
@@ -42,9 +44,11 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator:
     """Set up DB etc."""
     s.setup_db()
     worker = start_worker()
+    image_worker = media_worker.start_worker()
     try:
         yield
     finally:
+        await media_worker.stop_worker(image_worker)
         await stop_worker(worker)
         await AsyncDatabase().close_connection()
 
@@ -66,6 +70,7 @@ api.add_middleware(
 api.add_middleware(LoggingMiddleware)
 
 api.include_router(auth_router())
+api.include_router(media_router)
 api.include_router(user_router())
 api.include_router(admin_router())
 api.include_router(

@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     VAPID_PUBLIC_KEY: str | None = None
     VAPID_PRIVATE_KEY: str | None = None
     VAPID_SUBJECT: str = "mailto:gotoadmn0605@gmail.com"
+    CLOUDINARY_CLOUD_NAME: str | None = None
+    CLOUDINARY_API_KEY: str | None = None
+    CLOUDINARY_API_SECRET: str | None = None
+    CLOUDINARY_UPLOAD_PRESET: str | None = None
+    CLOUDINARY_AVATAR_FOLDER: str = "avatar"
     CONFIG_PATH: str = ".config/knowde"
 
     NEO4J_TRANSACTION_EXCLUDE_PATHS: str = "/health"  # カンマ区切り

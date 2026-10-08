@@ -5,10 +5,14 @@ from __future__ import annotations
 from typing import override
 from uuid import UUID
 
+from fastapi import HTTPException
 from fastapi_users.db import (
     BaseUserDatabase,
 )
 
+from tanbun.config.env import Settings
+from tanbun.feature.media.cloudinary import avatar_id
+from tanbun.feature.media.repo import schedule_avatar_delete
 from tanbun.feature.user.domain import Account, User
 from tanbun.feature.user.label import LAccount, LUser
 
@@ -52,6 +56,21 @@ class AccountDB(BaseUserDatabase[User, UUID]):
     @override
     async def update(self, user, update_dict):
         lb = await LUser.nodes.get(uid=user.id.hex)
+        if "avatar_url" in update_dict and update_dict["avatar_url"] is not None:
+            settings = Settings()
+            new_url = update_dict["avatar_url"]
+            public_id = avatar_id(new_url, settings)
+            if public_id:
+                owner = public_id[len(settings.CLOUDINARY_AVATAR_FOLDER) + 1 :].split(
+                    "/",
+                )[0]
+                if UUID(owner) != user.id:
+                    raise HTTPException(400, "他のユーザーの画像は設定できません。")
+            if new_url != lb.avatar_url and public_id != avatar_id(
+                lb.avatar_url,
+                settings,
+            ):
+                await schedule_avatar_delete(lb.avatar_url)
         for k, v in update_dict.items():
             if v is None:
                 continue
@@ -62,6 +81,7 @@ class AccountDB(BaseUserDatabase[User, UUID]):
     @override
     async def delete(self, user):
         lb = await LUser.nodes.get(uid=user.id.hex)
+        await schedule_avatar_delete(lb.avatar_url)
         await lb.delete()
 
     # OAUTH BaseUserManager.oauth_callbackで使用される

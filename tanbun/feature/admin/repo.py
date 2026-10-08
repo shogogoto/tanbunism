@@ -7,6 +7,7 @@ from tanbun.feature.entry.resource.repo.delete import delete_resource
 from tanbun.feature.entry.resource.repo.retirement import (
     purge_orphaned_retired_sentences,
 )
+from tanbun.feature.media.repo import schedule_avatar_delete
 from tanbun.feature.quiz.domain.parts import QuizType
 from tanbun.feature.tanbun.repo.cypher import STREAM
 
@@ -338,12 +339,13 @@ async def delete_user_account(user_uid: UUIDy) -> DeleteUserResult | None:
         SET user.is_active = false
         WITH user
         OPTIONAL MATCH (resource:Resource)-[:PARENT|OWNED]->*(user)
-        RETURN collect(DISTINCT resource.uid)
+        RETURN collect(DISTINCT resource.uid), user.avatar_url
         """,
         params={"user_uid": uid.hex},
     )
     if not rows:
         return None
+    await schedule_avatar_delete(rows[0][1])
     resource_ids = [resource_id for resource_id in rows[0][0] if resource_id]
     for resource_id in resource_ids:
         await delete_resource(resource_id)
