@@ -36,13 +36,16 @@ capped exponential backoff. Cloudinary outages do not block account deletion;
 jobs survive restart. Deleted users have no edge to the cleanup job, so removing
 the user does not remove pending work. Credentials must stay pointed at the same
 cloud; jobs for another cloud are not processed.
-Reference removals wait at least one hour before remote deletion, allowing
+Avatar replacements queue the previous asset without a grace period; the worker
+deletes it on its next available pass after the profile transaction commits.
+Other reference removals wait at least one hour before remote deletion, allowing
 already-issued upload signatures to expire. New abandoned uploads wait 72 hours.
 Run `task schema-install` to install the cleanup job/queue uniqueness constraints
 before starting multiple web processes (the normal deployment already does this).
 
-Admin's Images tab inspects one provider page (100 items) at a time, in a table
-with hover/tap previews. Confirmed manual deletions use `/admin/images/delete`
+Admin's Images tab automatically loads all provider pages, in a table
+with hover/tap previews and bulk deletion of eligible unreferenced images.
+Confirmed manual deletions use `/admin/images/delete` (100 IDs per batch)
 and run immediately, rechecking references before each deletion. Non-UUID names
 and recent uploads in the avatar folder are allowed; live references and other
 folders remain protected. Reference checks include non-UUID legacy avatars.

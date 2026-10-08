@@ -70,7 +70,9 @@ class AccountDB(BaseUserDatabase[User, UUID]):
                 lb.avatar_url,
                 settings,
             ):
-                await schedule_avatar_delete(lb.avatar_url)
+                # Persist with the avatar update; the worker only sees committed jobs.
+                # Fresh upload IDs allow cleanup without a replacement grace period.
+                await schedule_avatar_delete(lb.avatar_url, delay=0)
         for k, v in update_dict.items():
             if v is None:
                 continue

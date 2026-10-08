@@ -149,6 +149,31 @@ async def test_replacement_and_both_account_deletion_paths():
 
 
 @mark_async_test()
+async def test_replacement_cleans_previous_image_without_waiting(monkeypatch):
+    """Delete the old image on the next worker pass, not the new reference."""
+    user = await aregister("immediate-avatar@example.com")
+    original = f"avatar/{UUID(user.uid)}/{uuid4()}"
+    replacement = f"avatar/{UUID(user.uid)}/{uuid4()}"
+    user.avatar_url = _url(original)
+    await user.save()
+    db = AccountDB()
+    updated = await db.update(
+        await db.get(UUID(user.uid)),
+        {"avatar_url": _url(replacement)},
+    )
+    assert updated.avatar_url == _url(replacement)
+    destroy = AsyncMock()
+    monkeypatch.setattr(CloudinaryClient, "destroy", destroy)
+    assert await process_next(adb)
+    destroy.assert_awaited_once_with(original)
+    await user.refresh()
+    assert user.avatar_url == _url(replacement)
+    # Re-saving the same image/crop must not queue the current asset for deletion.
+    await db.update(updated, {"avatar_url": _url(replacement)})
+    assert not await process_next(adb)
+
+
+@mark_async_test()
 async def test_worker_protects_references_and_retries(monkeypatch):
     """Used avatars survive; provider failures leave durable jobs for retry."""
     user = await aregister("live-avatar@example.com")

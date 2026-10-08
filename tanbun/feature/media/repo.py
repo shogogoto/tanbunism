@@ -29,11 +29,11 @@ async def schedule_delete(public_id: str, *, delay: int = 3600, database=adb) ->
     )
 
 
-async def schedule_avatar_delete(url: str | None) -> None:
+async def schedule_avatar_delete(url: str | None, *, delay: int = 3600) -> None:
     """No destructive fallback when URL identity is unknown."""
     public_id = avatar_id(url, Settings())
     if public_id:
-        await schedule_delete(public_id)
+        await schedule_delete(public_id, delay=delay)
 
 
 async def referenced_ids(database=adb) -> set[str]:
