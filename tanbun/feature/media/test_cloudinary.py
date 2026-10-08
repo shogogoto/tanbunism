@@ -9,6 +9,7 @@ from starlette import status
 
 from tanbun.config.env import Settings
 
+from . import router
 from .cloudinary import CloudinaryClient
 
 
@@ -82,3 +83,42 @@ async def test_invalid_response(monkeypatch):
         await _client().request("GET", "resources/image/upload")
     assert "応答を読み取れません" in error.value.detail
     assert "secret" not in error.value.detail
+
+
+@pytest.mark.asyncio
+async def test_inventory_includes_preview_and_reference_state(monkeypatch):
+    """Return provider delivery URLs without changing deletion protection."""
+    monkeypatch.setenv("CLOUDINARY_CLOUD_NAME", "test")
+    monkeypatch.setenv("CLOUDINARY_API_KEY", "dummy")
+    monkeypatch.setenv("CLOUDINARY_API_SECRET", "dummy")
+    url = "https://res.cloudinary.com/test/image/upload/v123/avatar/live.jpg"
+    monkeypatch.setattr(
+        CloudinaryClient,
+        "request",
+        AsyncMock(
+            return_value={
+                "resources": [
+                    {"public_id": "avatar/live", "secure_url": url},
+                    {"public_id": "avatar/recent"},
+                ],
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        router,
+        "referenced_ids",
+        AsyncMock(return_value={"avatar/live"}),
+    )
+    monkeypatch.setattr(
+        router.adb,
+        "cypher_query",
+        AsyncMock(return_value=([[0, 0]], [])),
+    )
+    result = await router.list_images(None)
+    live, recent = result["resources"]
+    assert live["url"] == url
+    assert live["referenced"]
+    assert not live["can_delete"]
+    assert recent["url"] is None
+    assert not recent["referenced"]
+    assert not recent["can_delete"]

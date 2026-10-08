@@ -112,6 +112,7 @@ async def list_images(
             "public_id": item["public_id"],
             "bytes": item.get("bytes", 0),
             "created_at": item.get("created_at"),
+            "url": item.get("secure_url"),
             "referenced": item["public_id"] in refs,
             "can_delete": eligible(item, refs, settings),
         }
