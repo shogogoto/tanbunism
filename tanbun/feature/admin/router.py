@@ -40,6 +40,7 @@ from .domain import (
     DeleteOrphanedTanbunsResult,
     DeleteUserRequest,
     DeleteUserResult,
+    GrantAdminRequest,
     OrphanedTanbun,
     ResetUserPasswordRequest,
     ResourceDeletionImpact,
@@ -52,6 +53,7 @@ from .repo import (
     delete_user_account,
     delete_user_resource,
     get_resource_deletion_impact,
+    grant_user_admin,
     list_broken_quizzes,
     list_orphaned_tanbuns,
     list_user_resources,
@@ -356,6 +358,32 @@ async def remove_user_resource(
             detail="Resourceが見つかりません",
         )
     return result
+
+
+@router.post("/users/{user_id}/admin")
+async def grant_admin(
+    user_id: UUID,
+    body: GrantAdminRequest,
+    _admin: AdminUser,
+) -> AdminUserItem:
+    """Grant admin privileges only to an active, confirmed account."""
+    users = await list_users()
+    target = next((user for user in users if user.uid == user_id), None)
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "ユーザーが見つかりません")
+    if body.confirmation != target.email:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "メールアドレスが一致しません")
+    if not target.is_active:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "停止中のユーザーは先に再開してください",
+        )
+    if not await grant_user_admin(user_id):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "ユーザーの状態が変わりました。再確認してください",
+        )
+    return target.model_copy(update={"is_superuser": True})
 
 
 def admin_router() -> APIRouter:

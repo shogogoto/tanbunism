@@ -96,6 +96,12 @@ class UpdateUserStatusRequest(BaseModel, frozen=True):
     is_active: bool
 
 
+class GrantAdminRequest(BaseModel, frozen=True):
+    """管理者権限を付与するアカウントの確認."""
+
+    confirmation: str = Field(min_length=1, max_length=320)
+
+
 class ResetUserPasswordRequest(BaseModel, frozen=True):
     """管理者が設定する新しいパスワード."""
 

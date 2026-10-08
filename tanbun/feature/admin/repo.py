@@ -310,6 +310,18 @@ async def update_user_status(
     )
 
 
+async def grant_user_admin(user_uid: UUIDy) -> bool:
+    """書込ロック取得後に利用状態を再確認して管理者権限を付与する."""
+    rows, _ = await adb.cypher_query(
+        """MATCH (u:User {uid:$uid})
+        SET u.admin_role_lock=coalesce(u.admin_role_lock,0)+1
+        WITH u WHERE u.is_active=true
+        SET u.is_superuser=true RETURN u.uid""",
+        params={"uid": to_uuid(user_uid).hex},
+    )
+    return bool(rows)
+
+
 async def update_user_password_hash(
     user_uid: UUIDy,
     *,
