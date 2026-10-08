@@ -17,7 +17,7 @@ from .repo import referenced_ids
 logger = logging.getLogger(__name__)
 
 
-async def process_next(database) -> bool:
+async def process_next(database, *, public_id: str | None = None) -> bool:
     """Short claim transaction; Cloudinary is not called inside it."""
     settings = Settings()
     if not configured(settings):
@@ -29,12 +29,17 @@ async def process_next(database) -> bool:
         WITH q WHERE q.lease IS NULL OR q.lease<datetime()
         MATCH (j:ImageCleanup)
         WHERE j.cloud=$cloud AND j.due<=datetime()
+            AND ($public_id IS NULL OR j.public_id=$public_id)
             AND (j.lease IS NULL OR j.lease<datetime())
         WITH q, j ORDER BY j.due LIMIT 1
         SET q.lease=datetime()+duration({seconds:120}), q.token=$token
         SET j.lease=datetime()+duration({seconds:120}), j.token=$token
         RETURN j.key, j.public_id, j.attempts""",
-        params={"cloud": settings.CLOUDINARY_CLOUD_NAME, "token": token},
+        params={
+            "cloud": settings.CLOUDINARY_CLOUD_NAME,
+            "token": token,
+            "public_id": public_id,
+        },
     )
     if not rows:
         return False

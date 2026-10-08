@@ -8,6 +8,7 @@ from neo4j.exceptions import Neo4jError
 from starlette.responses import Response
 
 from tanbun.api.middleware.transaction import Neo4jTransactionMiddleware
+from tanbun.config.after_commit import after_commit
 from tanbun.config.database import DeadlineDriver
 from tanbun.conftest import mark_async_test
 
@@ -81,3 +82,32 @@ async def test_cancelled_request_rolls_back(mocker):
         )
     db.rollback.assert_awaited_once()
     db.commit.assert_not_awaited()
+
+
+@mark_async_test()
+@pytest.mark.parametrize("response_status", [200, 400])
+async def test_external_effects_run_only_after_commit(mocker, response_status):
+    """Rollback never executes destructive effects, successful commit precedes them."""
+    events = []
+    db = MagicMock(begin=AsyncMock(), commit=AsyncMock(), rollback=AsyncMock())
+
+    async def commit():
+        await asyncio.sleep(0)
+        events.append("commit")
+
+    async def effect():
+        await asyncio.sleep(0)
+        events.append("effect")
+
+    db.commit.side_effect = commit
+    mocker.patch("tanbun.api.middleware.transaction.AsyncDatabase", return_value=db)
+    request = MagicMock(method="PATCH")
+    request.url.path = "/test"
+
+    async def respond(_request):
+        after_commit(effect)
+        await asyncio.sleep(0)
+        return Response(status_code=response_status)
+
+    await Neo4jTransactionMiddleware(None).dispatch(request, respond)
+    assert events == (["commit", "effect"] if response_status == 200 else [])  # noqa: PLR2004

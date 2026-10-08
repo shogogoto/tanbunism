@@ -36,8 +36,9 @@ capped exponential backoff. Cloudinary outages do not block account deletion;
 jobs survive restart. Deleted users have no edge to the cleanup job, so removing
 the user does not remove pending work. Credentials must stay pointed at the same
 cloud; jobs for another cloud are not processed.
-Avatar replacements queue the previous asset without a grace period; the worker
-deletes it on its next available pass after the profile transaction commits.
+Avatar replacements queue the previous asset without a grace period and attempt
+deletion immediately after the profile transaction commits, before returning the
+response. The worker retries failures (or a busy cleanup lease) on later passes.
 Other reference removals wait at least one hour before remote deletion, allowing
 already-issued upload signatures to expire. New abandoned uploads wait 72 hours.
 Run `task schema-install` to install the cleanup job/queue uniqueness constraints

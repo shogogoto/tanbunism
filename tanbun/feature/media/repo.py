@@ -1,7 +1,9 @@
 """Persist cleanup in the same DB transaction as avatar/account changes."""
 
 from neomodel import adb
+from neomodel.async_.core import AsyncDatabase
 
+from tanbun.config.after_commit import after_commit
 from tanbun.config.env import Settings
 
 from .cloudinary import avatar_id, managed_id
@@ -34,6 +36,15 @@ async def schedule_avatar_delete(url: str | None, *, delay: int = 3600) -> None:
     public_id = avatar_id(url, Settings())
     if public_id:
         await schedule_delete(public_id, delay=delay)
+        if delay == 0:
+
+            async def delete_replaced_avatar() -> None:
+                # Import lazily: the worker also uses this repository.
+                from .worker import process_next  # noqa: PLC0415
+
+                await process_next(AsyncDatabase(), public_id=public_id)
+
+            after_commit(delete_replaced_avatar)
 
 
 async def referenced_ids(database=adb) -> set[str]:

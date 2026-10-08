@@ -149,6 +149,39 @@ async def test_replacement_and_both_account_deletion_paths():
 
 
 @mark_async_test()
+@pytest.mark.parametrize("deletion_fails", [False, True])
+async def test_http_replacement_deletes_immediately_after_commit(
+    ac,
+    monkeypatch,
+    deletion_fails,
+):
+    """Successful replacement attempts deletion before response; outages are retried."""
+    user = await aregister("http-replacement@example.com")
+    headers = await aauth_header(user.email)
+    original = f"avatar/{UUID(user.uid)}/{uuid4()}"
+    replacement = f"avatar/{UUID(user.uid)}/{uuid4()}"
+    user.avatar_url = _url(original)
+    await user.save()
+    destroy = AsyncMock(
+        side_effect=HTTPException(502, "offline") if deletion_fails else None,
+    )
+    monkeypatch.setattr(CloudinaryClient, "destroy", destroy)
+    response = await ac.patch(
+        "/user/me",
+        headers=headers,
+        json={"avatar_url": _url(replacement)},
+    )
+    assert response.status_code == status.HTTP_200_OK
+    destroy.assert_awaited_once_with(original)
+    await user.refresh()
+    assert user.avatar_url == _url(replacement)
+    rows, _ = await adb.cypher_query(
+        "MATCH (j:ImageCleanup) RETURN j.public_id, j.attempts",
+    )
+    assert rows == ([[original, 1]] if deletion_fails else [])
+
+
+@mark_async_test()
 async def test_replacement_cleans_previous_image_without_waiting(monkeypatch):
     """Delete the old image on the next worker pass, not the new reference."""
     user = await aregister("immediate-avatar@example.com")

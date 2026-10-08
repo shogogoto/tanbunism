@@ -10,6 +10,7 @@ from neomodel.async_.core import AsyncDatabase
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from tanbun.api.middleware.error_handling import database_timeout_response
+from tanbun.config.after_commit import commit_hooks
 from tanbun.config.database import database_budget, is_database_timeout
 from tanbun.config.env import Settings
 
@@ -27,8 +28,19 @@ class Neo4jTransactionMiddleware(BaseHTTPMiddleware):
             if request.method in {"GET", "HEAD", "OPTIONS"}
             else settings.NEO4J_WRITE_TIMEOUT_SECONDS
         )
-        with database_budget(timeout, f"{request.method} {request.url.path}"):
-            return await self._dispatch_transaction(request, call_next)
+        with (
+            database_budget(timeout, f"{request.method} {request.url.path}"),
+            commit_hooks() as hooks,
+        ):
+            response = await self._dispatch_transaction(request, call_next)
+            if 200 <= response.status_code < 300:  # noqa: PLR2004
+                for hook in hooks:
+                    try:
+                        await hook()
+                    except Exception:
+                        # DB is committed; durable jobs retry failed effects.
+                        logging.exception("Post-commit effect failed")  # noqa: LOG015
+            return response
 
     async def _dispatch_transaction(self, request, call_next):
         if self._should_skip(request.url.path):
