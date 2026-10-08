@@ -131,10 +131,43 @@ class CloudinaryClient:
                 )
                 response.raise_for_status()
                 return response.json()
-        except (httpx.HTTPError, ValueError) as exc:
+        except httpx.HTTPStatusError as exc:
+            code = exc.response.status_code
+            explanations = {
+                401: (
+                    "認証に失敗しました。RenderのAPI Key・API Secretと"
+                    "Cloud Nameの組み合わせを確認してください。"
+                ),
+                403: (
+                    "アクセスが拒否されました。"
+                    "CloudinaryのAPIキーの権限を確認してください。"
+                ),
+                404: "対象が見つかりません。Cloud Nameと対象画像を確認してください。",
+                420: "APIの利用上限に達しました。時間を置いて再試行してください。",
+                429: "APIの利用上限に達しました。時間を置いて再試行してください。",
+            }
+            explanation = explanations.get(
+                code,
+                "要求が失敗しました。設定を確認し、再試行してください。",
+            )
+            raise HTTPException(
+                502,
+                f"Cloudinary (HTTP {code}): {explanation}",
+            ) from exc
+        except httpx.TimeoutException as exc:
+            raise HTTPException(
+                504,
+                "Cloudinaryへの接続がタイムアウトしました。再試行してください。",
+            ) from exc
+        except httpx.RequestError as exc:
             raise HTTPException(
                 502,
                 "Cloudinaryとの通信に失敗しました。再試行してください。",
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                502,
+                "Cloudinaryからの応答を読み取れませんでした。再試行してください。",
             ) from exc
 
     async def destroy(self, public_id: str) -> None:
