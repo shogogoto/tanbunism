@@ -25,6 +25,7 @@ from tanbun.feature.repo.cypher import q_call_term_names
 from tanbun.feature.repo.pagerank import cached_rank
 from tanbun.feature.tanbun.repo.clause import OrderBy
 from tanbun.feature.tanbun.repo.cypher import q_location, q_stats
+from tanbun.feature.tanbun.repo.reviewable import q_reviewable_sentences
 
 from .domain import PersonalTanbunItem, TanbunExposureResult
 
@@ -221,20 +222,10 @@ async def record_tanbun_exposure(
     """所有する単文へ、同じ日は重複しない閲覧記録を残す."""
     uid = to_uuid(user_id).hex
     sentence_uid = to_uuid(sentence_id).hex
-    location_query = q_location("sentence")
     query = (
-        """
-        MATCH (resource:Resource)-[:PARENT*0..]->(owner_entry)
-            -[:OWNED]->(:User {uid: $user_id})
-        MATCH (sentence:Sentence {
-            uid: $sentence_id,
-            resource_uid: resource.uid
-        })
-        """
-        + location_query
+        q_reviewable_sentences()
         + """
-        WITH sentence, location
-        WHERE location IS NOT NULL
+        WITH DISTINCT sentence
         OPTIONAL MATCH (previous:TanbunExposure {key: $key})
         WITH sentence, previous IS NULL AS recorded
         MERGE (exposure:TanbunExposure {key: $key})
@@ -256,6 +247,8 @@ async def record_tanbun_exposure(
             params={
                 "user_id": uid,
                 "sentence_id": sentence_uid,
+                "sentence_ids": [sentence_uid],
+                "resource_id": None,
                 "seen_on": seen_on.isoformat(),
                 "key": f"{uid}:{sentence_uid}:{seen_on.isoformat()}",
             },

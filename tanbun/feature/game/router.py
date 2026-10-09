@@ -5,9 +5,21 @@ from fastapi import APIRouter, Response
 from tanbun.feature.user.router_util import ActiveUser
 
 from .access import AdventureAccess, consume_adventure_access, get_adventure_access
+from .knowledge import KnowledgeValidation, valid_knowledge
 from .state import GameState, StateUpdate, read_state, write_state
 
 router = APIRouter(prefix="/game", tags=["game"])
+
+
+@router.post("/knowledge/validate")
+async def validate_game_knowledge(
+    body: KnowledgeValidation,
+    user: ActiveUser,
+    response: Response,
+) -> list[str]:
+    """読み取り専用。閲覧記録と同じ条件で候補の有効性を確認."""
+    response.headers["Cache-Control"] = "no-store"
+    return await valid_knowledge(user.uid, body)
 
 
 @router.get("/state")
