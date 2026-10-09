@@ -2,10 +2,22 @@
 
 from datetime import datetime, timedelta
 from operator import attrgetter
+from uuid import uuid4
+
+import pytest
+from neomodel import adb
 
 from tanbun.conftest import async_fixture, mark_async_test
 from tanbun.feature.domain.datetime import TZ
 from tanbun.feature.entry.resource.usecase import save_text
+from tanbun.feature.gamification.settings import (
+    GamificationSettings,
+    update_gamification_settings,
+)
+from tanbun.feature.gamification.usecase import (
+    fetch_learning_progress,
+    fetch_learning_progresses,
+)
 from tanbun.feature.repo.cypher import Paging
 from tanbun.feature.user.label import LUser
 
@@ -80,6 +92,55 @@ async def test_fetch_user_by_score(us: list[LUser]):
     assert [r.user.username for r in res.data] == ["three", "two", "one", "zero"]
     assert [r.archivement.n_resource for r in res.data] == [3, 2, 1, 0]
     assert all(row.level >= 1 for row in res.data)
+
+
+@mark_async_test()
+@pytest.mark.parametrize("coefficient", [10, 25])
+async def test_search_level_matches_profile_ledger(coefficient: int) -> None:
+    """見たよ・実際の加点・admin係数を使い、古い回答数は再加算しない."""
+    reviewed = await setup("reviewed", 1)
+    unread = await setup("unread", 1)
+    await update_gamification_settings(
+        GamificationSettings(level_xp_coefficient=coefficient),
+    )
+    await adb.cypher_query(
+        """
+        MATCH (u:User {uid: $uid})
+        CREATE (u)-[:ANSWER]->(:Answer {uid: $answer, is_correct: true})
+        WITH u
+        UNWIND $events AS event
+        CREATE (:ResourceXpEvent {
+            key: event.key, user_id: u.uid, resource_id: $deleted_resource,
+            source: event.source, xp: event.xp, earned_on: '2026-10-01'
+        })
+        """,
+        params={
+            "uid": reviewed.uid,
+            "answer": uuid4().hex,
+            "deleted_resource": uuid4().hex,
+            "events": [
+                {"key": uuid4().hex, "source": source, "xp": xp}
+                for source, xp in [
+                    ("tanbun_exposure", 60),
+                    ("quiz_answer", 10),
+                    ("correct_bonus", 4),
+                    ("knowledge", 1000),
+                ]
+            ],
+        },
+    )
+    profile = await fetch_learning_progress(reviewed.uid)
+    batch = await fetch_learning_progresses([reviewed.uid, unread.uid])
+    assert batch[reviewed.uid] == profile
+    assert profile.total_xp == 74  # noqa: PLR2004
+    assert profile.level == (4 if coefficient == 10 else 2)  # noqa: PLR2004
+    assert batch[unread.uid].level == 1
+    assert batch[unread.uid].total_xp == 0
+    result = await fetch_user_with_current_achivement()
+    levels = {row.user.id.hex: row.level for row in result.data}
+    assert levels[reviewed.uid] == profile.level
+    assert levels[unread.uid] == 1
+    assert await fetch_learning_progresses([]) == {}
 
 
 @mark_async_test()
