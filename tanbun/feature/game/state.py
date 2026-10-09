@@ -54,6 +54,8 @@ class GameSave(BaseModel):
     run: Run | None = None
     content: dict | None = None
     battleFeedback: str | None = Field(default=None, max_length=1000)
+    maps: dict[str, "DungeonMap"] = Field(default_factory=dict, max_length=1000)
+    dungeons: dict[str, "ParkedDungeon"] = Field(default_factory=dict, max_length=1000)
 
     @model_validator(mode="after")
     def bounded_snapshot(self) -> "GameSave":
@@ -66,6 +68,60 @@ class GameSave(BaseModel):
             raise ValueError(msg)
         if self.run and self.run.hp > self.run.maxHp:
             msg = "HPが最大値を超えています。"
+            raise ValueError(msg)
+        return self
+
+
+class MapPlace(BaseModel):
+    """初めて開拓した達成度帯を保持する地点."""
+
+    id: str = Field(min_length=1, max_length=64)
+    region: int = Field(ge=0)
+
+
+class MapEdge(BaseModel):
+    """知識の関係とゲーム内の寄り道を区別する道."""
+
+    from_: str = Field(alias="from", min_length=1, max_length=64)
+    to: str = Field(min_length=1, max_length=64)
+    kind: Literal["relation", "detour"]
+
+
+class DungeonMap(BaseModel):
+    """移動履歴とは別に、開拓した場所と現在地を保存する."""
+
+    current: str = Field(default="@entrance", max_length=64)
+    places: list[MapPlace] = Field(default_factory=list, max_length=5000)
+    edges: list[MapEdge] = Field(default_factory=list, max_length=10000)
+
+    @model_validator(mode="after")
+    def valid_locations(self) -> "DungeonMap":
+        """存在しない地点・重複地点を保存しない."""
+        ids = {place.id for place in self.places}
+        if len(ids) != len(self.places) or "@entrance" in ids:
+            msg = "開拓地点が重複しています。"
+            raise ValueError(msg)
+        ids.add("@entrance")
+        if self.current not in ids or any(
+            edge.from_ not in ids or edge.to not in ids or edge.from_ == edge.to
+            for edge in self.edges
+        ):
+            msg = "マップに存在しない地点です。"
+            raise ValueError(msg)
+        return self
+
+
+class ParkedDungeon(BaseModel):
+    """ダンジョン切替でもHP・現在地・固定クイズを失わない."""
+
+    run: Run
+    content: dict | None = None
+
+    @model_validator(mode="after")
+    def valid_pause(self) -> "ParkedDungeon":
+        """戦闘からの切替と不正なHPを保存しない."""
+        if self.run.phase == "battle" or self.run.hp > self.run.maxHp:
+            msg = "戦闘中または不正なHPのダンジョンは中断できません。"
             raise ValueError(msg)
         return self
 
@@ -103,6 +159,8 @@ def known_dungeons(save: GameSave) -> list[str]:
     return list(
         dict.fromkeys([
             *save.visitedDungeons,
+            *save.dungeons,
+            *save.maps,
             *([save.run.resourceId] if save.run else []),
             *save.clears,
         ]),
@@ -114,6 +172,7 @@ async def write_state(user_id: UUIDy, update: StateUpdate) -> GameState:
     previous = await read_state(user_id)
     run = update.save.run
     old = previous.save.run
+    merge_exploration(previous.save, update.save)
     history = list(
         dict.fromkeys([
             *previous.save.visitedDungeons,
@@ -166,6 +225,18 @@ async def write_state(user_id: UUIDy, update: StateUpdate) -> GameState:
     return state
 
 
+def merge_exploration(previous: GameSave, updated: GameSave) -> None:
+    """旧クライアントによる未対応フィールドの消失を防ぐ."""
+    updated.maps = {**previous.maps, **updated.maps}
+    updated.dungeons = {**previous.dungeons, **updated.dungeons}
+    if updated.run:
+        updated.dungeons.pop(updated.run.resourceId, None)
+    if any(key != value.run.resourceId for key, value in updated.dungeons.items()):
+        raise HTTPException(422, "ダンジョンの保存先が一致しません。")
+    if len(updated.model_dump_json(by_alias=True).encode()) > MAX_SNAPSHOT_BYTES:
+        raise HTTPException(422, "冒険状態が大きすぎます。")
+
+
 async def compare_and_save(
     user_id: UUIDy,
     update: StateUpdate,
@@ -188,7 +259,7 @@ async def compare_and_save(
             "next_revision": state.revision,
             "consume": update.consume_access,
             "slot": int(time() // SLOT_SECONDS),
-            "state": state.model_dump_json(),
+            "state": state.model_dump_json(by_alias=True),
         },
     )
     return rows

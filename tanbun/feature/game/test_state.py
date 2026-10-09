@@ -157,3 +157,67 @@ async def test_visited_dungeons_survive_retreat_and_old_clients(
     revisited = await save({"run": run})
     assert revisited["visitedDungeons"] == ["first", "second"]
     assert revisited["clears"] == {}
+
+
+@mark_async_test()
+async def test_maps_and_parked_dungeons_survive_server_reads(ac: AsyncClient) -> None:
+    """分岐・達成度帯・ダンジョン別HPをDBに保存し、旧クライアントから守る."""
+    user = await aregister("game-map@example.com")
+    headers = await aauth_header(user.email)
+    run = Run(
+        resourceId="book",
+        name="本",
+        hp=24,
+        maxHp=35,
+        attack=10,
+        defense=1,
+        moves=3,
+        kills=1,
+        enemyHp=0,
+        enemyMaxHp=20,
+        quizCursor=2,
+        readIds=["a", "b", "a"],
+        phase="path",
+    )
+    map_data = {
+        "current": "a",
+        "places": [{"id": "a", "region": 0}, {"id": "b", "region": 1}],
+        "edges": [
+            {"from": "@entrance", "to": "a", "kind": "detour"},
+            {"from": "a", "to": "b", "kind": "relation"},
+        ],
+    }
+    payload = {
+        "maps": {"book": map_data},
+        "dungeons": {"book": {"run": run.model_dump(), "content": {"quizzes": []}}},
+    }
+    path = "/game/state"
+    response = await ac.put(
+        path,
+        headers=headers,
+        json={"revision": 0, "save": payload},
+    )
+    assert response.is_success, response.text
+    restored = (await ac.get(path, headers=headers)).json()
+    assert restored["save"]["maps"]["book"] == map_data
+    assert restored["save"]["dungeons"]["book"]["run"]["hp"] == run.hp
+    # Deployed older clients cannot erase fields they do not know about.
+    response = await ac.put(path, headers=headers, json={"revision": 1, "save": {}})
+    assert response.is_success, response.text
+    reopened = (await ac.get(path, headers=headers)).json()
+    assert reopened["save"]["maps"] == restored["save"]["maps"]
+    assert reopened["save"]["dungeons"] == restored["save"]["dungeons"]
+    response = await ac.put(
+        path,
+        headers=headers,
+        json={"revision": 2, "save": {**payload, "run": run.model_dump()}},
+    )
+    assert response.is_success, response.text
+    assert response.json()["save"]["dungeons"] == {}
+    invalid = {**map_data, "current": "missing"}
+    response = await ac.put(
+        path,
+        headers=headers,
+        json={"revision": 3, "save": {"maps": {"book": invalid}}},
+    )
+    assert response.status_code == 422  # noqa: PLR2004
