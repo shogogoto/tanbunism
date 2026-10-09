@@ -10,6 +10,7 @@ from tanbun.feature.entry.resource.import_settings import (
     get_resource_import_settings,
     update_resource_import_settings,
 )
+from tanbun.feature.game.access import AdventureAccess, reset_adventure_access
 from tanbun.feature.gamification.power import (
     PowerWeights,
     get_power_weights,
@@ -69,6 +70,12 @@ from .user_transfer import (
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.post("/users/{user_id}/adventure-reset")
+async def reset_user_adventure(user_id: UUID, _admin: AdminUser) -> AdventureAccess:
+    """指定ユーザーの冒険待ち時間だけ解除する。復習・攻略実績は変更しない."""
+    return await reset_adventure_access(user_id)
 
 
 @router.get("/settings/resource-power")

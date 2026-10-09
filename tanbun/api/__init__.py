@@ -19,6 +19,7 @@ from tanbun.feature.achievement.router.router import user_achievement_router
 from tanbun.feature.admin import admin_router
 from tanbun.feature.dashboard import dashboard_router
 from tanbun.feature.entry.router import entry_router
+from tanbun.feature.game.router import router as game_router
 from tanbun.feature.gamification import gamification_router
 from tanbun.feature.language_service.router import language_router
 from tanbun.feature.media import worker as media_worker
@@ -81,6 +82,7 @@ api.include_router(
 api.include_router(entry_router())
 api.include_router(dashboard_router())
 api.include_router(gamification_router())
+api.include_router(game_router)
 api.include_router(review_settings_router)
 api.include_router(pagerank_router)
 api.include_router(language_router())
