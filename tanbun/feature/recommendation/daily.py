@@ -1,5 +1,6 @@
 """Resourceを分散させた重み付き抽選と、日替わりセットの保存."""
 
+from asyncio import sleep
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -7,11 +8,29 @@ from hashlib import sha256
 from math import log
 
 from fastapi import HTTPException
+from neo4j.exceptions import TransientError
 from neomodel import adb
 
 from tanbun.feature.domain.datetime import TZ
 
 RETENTION_DAYS = 7
+DEADLOCK_ATTEMPTS = 5
+
+
+async def _daily_query(query: str, params: dict) -> tuple:
+    """冪等な日次保存だけ、ロールバックされたdeadlockを上限付きで再試行."""
+    for attempt in range(DEADLOCK_ATTEMPTS):
+        try:
+            return await adb.cypher_query(query, params=params)
+        except TransientError as error:
+            if (
+                error.code != "Neo.TransientError.Transaction.DeadlockDetected"
+                or attempt == DEADLOCK_ATTEMPTS - 1
+            ):
+                raise
+            await sleep(0.05 * (attempt + 1))
+    msg = "Daily query retry limit exceeded"
+    raise RuntimeError(msg)
 
 
 def review_day(day: date | None = None) -> date:
@@ -28,7 +47,7 @@ def review_day(day: date | None = None) -> date:
 
 async def prune_daily(user_id: str) -> None:
     """最新の保存日から7日分を保持. 遅延リクエストで新しい日を消さない."""
-    await adb.cypher_query(
+    await _daily_query(
         """
         MATCH (user:User {uid:$uid})-[:RECOMMENDATIONS|REVIEW_DAY]->(s)
         WITH user, max(s.day) AS latest
@@ -95,7 +114,7 @@ async def save_daily(
     ids: list[str],
 ) -> list[str]:
     """日付ごとに保持し、同日の先行セットを優先する."""
-    rows, _ = await adb.cypher_query(
+    rows, _ = await _daily_query(
         """
         MATCH (user:User {uid: $user_id})
         SET user.review_settings_revision=coalesce(user.review_settings_revision,0)+1
@@ -128,7 +147,7 @@ async def append_daily(
     ids: list[str],
 ) -> list[str]:
     """追加復習では既存の順序を残し、重複せず最大500件まで追加する."""
-    rows, _ = await adb.cypher_query(
+    rows, _ = await _daily_query(
         """
         MATCH (user:User {uid:$user_id})
         SET user.review_settings_revision=coalesce(user.review_settings_revision, 0)+1

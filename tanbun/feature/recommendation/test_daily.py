@@ -2,11 +2,79 @@
 
 from asyncio import gather
 from datetime import date, timedelta
+from unittest.mock import AsyncMock
+
+import pytest
+from neo4j.exceptions import TransientError
+from neomodel import adb
 
 from tanbun.conftest import mark_async_test
 from tanbun.feature.user.label import LUser
 
-from .daily import Candidate, append_daily, load_daily, save_daily, select_daily
+from .daily import (
+    DEADLOCK_ATTEMPTS,
+    Candidate,
+    append_daily,
+    load_daily,
+    save_daily,
+    select_daily,
+)
+
+
+@mark_async_test()
+@pytest.mark.parametrize("operation", [save_daily, append_daily])
+async def test_deadlocked_daily_write_is_retried_without_duplicate_ids(
+    mocker,
+    operation,
+):
+    """中断された保存だけ再試行し、掃除は保存成功後に行う."""
+    error = TransientError._hydrate_neo4j(  # noqa: SLF001
+        code="Neo.TransientError.Transaction.DeadlockDetected",
+        message="deadlock",
+    )
+    query = mocker.patch.object(
+        adb,
+        "cypher_query",
+        new_callable=AsyncMock,
+        side_effect=[error, ([[["first", "second"]]], []), ([], [])],
+    )
+    sleep = mocker.patch(
+        "tanbun.feature.recommendation.daily.sleep",
+        new_callable=AsyncMock,
+    )
+    result = await operation("user", "test", date(2026, 10, 9), ["second"])
+    assert result == ["first", "second"]
+    assert query.call_args_list[0] == query.call_args_list[1]
+    sleep.assert_awaited_once_with(0.05)
+
+
+@mark_async_test()
+@pytest.mark.parametrize("operation", [save_daily, append_daily])
+@pytest.mark.parametrize(
+    "code",
+    [
+        "Neo.TransientError.Transaction.DeadlockDetected",
+        "Neo.TransientError.Transaction.TransactionTimedOut",
+    ],
+)
+async def test_daily_retry_is_bounded_and_excludes_timeouts(mocker, operation, code):
+    """永久に待たず、タイムアウト等の別エラーは再試行しない."""
+    error = TransientError._hydrate_neo4j(code=code, message="failure")  # noqa: SLF001
+    query = mocker.patch.object(
+        adb,
+        "cypher_query",
+        new_callable=AsyncMock,
+        side_effect=error,
+    )
+    sleep = mocker.patch(
+        "tanbun.feature.recommendation.daily.sleep",
+        new_callable=AsyncMock,
+    )
+    with pytest.raises(TransientError):
+        await operation("user", "test", date(2026, 10, 9), ["second"])
+    attempts = DEADLOCK_ATTEMPTS if code.endswith("DeadlockDetected") else 1
+    assert query.await_count == attempts
+    assert sleep.await_count == attempts - 1
 
 
 def test_daily_selection_is_stable_and_rotates() -> None:
