@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, model_validator
 from tanbun.feature.domain.types import UUIDy, to_uuid
 
 from .access import SLOT_SECONDS
+from .settings import get_battle_settings
 
 MAX_SNAPSHOT_BYTES = 1000000
 
@@ -36,6 +37,8 @@ class Run(BaseModel):
         description="見たよで進んだ単文IDを選択順に保存。最後が現在地。休憩でも順序を維持。",
     )
     phase: Literal["path", "battle", "rest", "defeated", "cleared"]
+    answerDeadline: int | None = Field(default=None, ge=0)
+    answerSeconds: int | None = Field(default=None, ge=1, le=1500)
 
 
 class GameSave(BaseModel):
@@ -45,6 +48,7 @@ class GameSave(BaseModel):
     clears: dict[str, int] = Field(default_factory=dict, max_length=1000)
     run: Run | None = None
     content: dict | None = None
+    battleFeedback: str | None = Field(default=None, max_length=1000)
 
     @model_validator(mode="after")
     def bounded_snapshot(self) -> "GameSave":
@@ -89,6 +93,33 @@ async def read_state(user_id: UUIDy) -> GameState:
 
 async def write_state(user_id: UUIDy, update: StateUpdate) -> GameState:
     """別端末の更新を上書きせず、保存と入場権を同時に確定する."""
+    previous = await read_state(user_id)
+    run = update.save.run
+    old = previous.save.run
+    if run and run.phase == "battle" and not update.save.battleFeedback:
+        if (
+            old
+            and (old.phase, old.resourceId, old.quizCursor, old.readIds)
+            == (run.phase, run.resourceId, run.quizCursor, run.readIds)
+            and old.answerDeadline is not None
+        ):
+            run.answerDeadline = old.answerDeadline
+            run.answerSeconds = old.answerSeconds
+        else:
+            quizzes = (update.save.content or {}).get("quizzes", [])
+            kind = (
+                quizzes[run.quizCursor % len(quizzes)].get("quiz_type")
+                if quizzes
+                else None
+            )
+            if kind not in {"sent2term", "term2sent", "pair2rel", "rel2pair"}:
+                raise HTTPException(422, "戦闘クイズの種類が見つかりません。")
+            settings = await get_battle_settings()
+            run.answerSeconds = settings.seconds(kind)
+            run.answerDeadline = int(time() * 1000) + run.answerSeconds * 1000
+    elif run:
+        run.answerDeadline = None
+        run.answerSeconds = None
     state = GameState(revision=update.revision + 1, save=update.save)
     try:
         rows = await compare_and_save(user_id, update, state)

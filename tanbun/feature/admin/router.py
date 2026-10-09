@@ -11,6 +11,11 @@ from tanbun.feature.entry.resource.import_settings import (
     update_resource_import_settings,
 )
 from tanbun.feature.game.access import AdventureAccess, reset_adventure_access
+from tanbun.feature.game.settings import (
+    BattleSettings,
+    get_battle_settings,
+    update_battle_settings,
+)
 from tanbun.feature.gamification.power import (
     PowerWeights,
     get_power_weights,
@@ -70,6 +75,21 @@ from .user_transfer import (
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.get("/settings/battle")
+async def read_battle_settings(_admin: AdminUser) -> BattleSettings:
+    """戦闘の基本秒数・種類別の重みを取得する."""
+    return await get_battle_settings()
+
+
+@router.put("/settings/battle")
+async def save_battle_settings(
+    body: BattleSettings,
+    _admin: AdminUser,
+) -> BattleSettings:
+    """回答履歴・XPや出題中の期限は変更しない."""
+    return await update_battle_settings(body)
 
 
 @router.post("/users/{user_id}/adventure-reset")
