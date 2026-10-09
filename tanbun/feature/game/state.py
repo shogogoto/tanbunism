@@ -16,6 +16,7 @@ from .access import SLOT_SECONDS
 from .settings import get_battle_settings
 
 MAX_SNAPSHOT_BYTES = 1000000
+MAX_VISITED_DUNGEONS = 1000
 
 
 class Run(BaseModel):
@@ -46,6 +47,10 @@ class GameSave(BaseModel):
 
     version: Literal[2] = 2
     clears: dict[str, int] = Field(default_factory=dict, max_length=1000)
+    visitedDungeons: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_VISITED_DUNGEONS,
+    )
     run: Run | None = None
     content: dict | None = None
     battleFeedback: str | None = Field(default=None, max_length=1000)
@@ -88,7 +93,20 @@ async def read_state(user_id: UUIDy) -> GameState:
     )
     if not rows:
         raise HTTPException(404, "ユーザーが見つかりません。")
-    return GameState.model_validate_json(rows[0][0]) if rows[0][0] else GameState()
+    state = GameState.model_validate_json(rows[0][0]) if rows[0][0] else GameState()
+    state.save.visitedDungeons = known_dungeons(state.save)
+    return state
+
+
+def known_dungeons(save: GameSave) -> list[str]:
+    """旧保存の攻略済み・攻略中も補完する。存在しない過去の履歴は作らない."""
+    return list(
+        dict.fromkeys([
+            *save.visitedDungeons,
+            *([save.run.resourceId] if save.run else []),
+            *save.clears,
+        ]),
+    )[:MAX_VISITED_DUNGEONS]
 
 
 async def write_state(user_id: UUIDy, update: StateUpdate) -> GameState:
@@ -96,6 +114,16 @@ async def write_state(user_id: UUIDy, update: StateUpdate) -> GameState:
     previous = await read_state(user_id)
     run = update.save.run
     old = previous.save.run
+    history = list(
+        dict.fromkeys([
+            *previous.save.visitedDungeons,
+            *update.save.clears,
+        ]),
+    )[:MAX_VISITED_DUNGEONS]
+    if run and (not old or old.resourceId != run.resourceId):
+        history = list(dict.fromkeys([run.resourceId, *history]))[:MAX_VISITED_DUNGEONS]
+    # The server retains history even if a retreat or an older client omits it.
+    update.save.visitedDungeons = history
     if run and run.phase == "battle" and not update.save.battleFeedback:
         if (
             old

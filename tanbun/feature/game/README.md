@@ -16,6 +16,12 @@ XP is still managed by its existing ledger. Reset does not heal, alter XP, or
 restart an ongoing battle. A right consumed just before a clock boundary recovers
 at that boundary. Pending events do not accumulate or auto-restart.
 
+`visitedDungeons` is a server-maintained, deduplicated list of resource IDs,
+most recent entry first (up to 1000). It survives retreat, defeat and clearing,
+including saves from older clients that omit the field. Existing active runs
+and cleared IDs seed history; unstored abandoned visits cannot be reconstructed.
+It is part of the account snapshot and uses the same revision checks.
+
 # Battle timing
 
 Admin > Battle configures basic seconds (default 30) and four quiz-type weights:

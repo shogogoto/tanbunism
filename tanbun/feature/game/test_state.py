@@ -29,6 +29,7 @@ async def test_shared_state_and_conflicts(ac: AsyncClient) -> None:
     shared = (await ac.get(path, headers=headers)).json()
     assert shared["revision"] == 1
     assert shared["save"]["clears"] == {"book": 2}
+    assert shared["save"]["visitedDungeons"] == ["book"]
     assert (await ac.get(path, headers=other_headers)).json()["revision"] == 0
     assert (
         await ac.patch("/user/me", headers=headers, json={"profile": "new"})
@@ -79,6 +80,7 @@ async def test_route_order_survives_reopening_and_event_rest(ac: AsyncClient) ->
     restored = (await ac.get(path, headers=headers)).json()
     assert restored["save"]["run"]["readIds"] == route
     assert restored["save"]["content"] == save.content
+    assert restored["save"]["visitedDungeons"] == ["book"]
     resumed = restored["save"]
     resumed["run"]["moves"] = 0
     resumed["run"]["phase"] = "path"
@@ -95,3 +97,63 @@ async def test_route_order_survives_reopening_and_event_rest(ac: AsyncClient) ->
     )
     assert stale.status_code == 409  # noqa: PLR2004
     assert (await ac.get(path, headers=headers)).json() == reopened
+
+
+@mark_async_test()
+async def test_visited_dungeons_survive_retreat_and_old_clients(
+    ac: AsyncClient,
+) -> None:
+    """未攻略でも履歴を共有し、再訪は先頭へ。クライアントから削除させない."""
+    user = await aregister("game-history@example.com")
+    other = await aregister("other-history@example.com")
+    headers = await aauth_header(user.email)
+    other_headers = await aauth_header(other.email)
+    path = "/game/state"
+    run = {
+        "resourceId": "first",
+        "name": "最初の本",
+        "hp": 35,
+        "maxHp": 35,
+        "attack": 10,
+        "defense": 1,
+        "moves": 0,
+        "kills": 0,
+        "enemyHp": 0,
+        "enemyMaxHp": 20,
+        "quizCursor": 0,
+        "readIds": [],
+        "phase": "path",
+    }
+    revision = 0
+
+    async def save(payload: dict) -> dict:
+        nonlocal revision
+        response = await ac.put(
+            path,
+            headers=headers,
+            json={"revision": revision, "save": payload},
+        )
+        assert response.is_success
+        result = response.json()
+        revision = result["revision"]
+        return result["save"]
+
+    entered = await save({"run": run})
+    assert entered["visitedDungeons"] == ["first"]
+    # Retreat without the new field, as an old deployed client would do.
+    retreated = await save({"clears": {}})
+    assert retreated["visitedDungeons"] == ["first"]
+    assert retreated["run"] is None
+    reopened = (await ac.get(path, headers=headers)).json()
+    assert reopened["save"] == retreated
+    assert (await ac.get(path, headers=other_headers)).json()["save"][
+        "visitedDungeons"
+    ] == []
+    second = await save({"run": {**run, "resourceId": "second"}})
+    assert second["visitedDungeons"] == ["second", "first"]
+    unchanged = await save({"run": second["run"], "visitedDungeons": ["fake"]})
+    assert unchanged["visitedDungeons"] == ["second", "first"]
+    await save({"run": None})
+    revisited = await save({"run": run})
+    assert revisited["visitedDungeons"] == ["first", "second"]
+    assert revisited["clears"] == {}
