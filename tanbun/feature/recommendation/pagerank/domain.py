@@ -3,7 +3,6 @@
 import networkx as nx
 from pydantic import BaseModel, Field
 
-VERSION = 1
 LEASE_SECONDS = 120
 
 

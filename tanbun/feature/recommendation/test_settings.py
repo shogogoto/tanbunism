@@ -24,6 +24,7 @@ from tanbun.feature.user.testing import aauth_header, aregister
 from .daily import load_daily, save_daily
 from .settings import (
     ReviewSettingsInput,
+    get_settings,
     reset_settings,
     save_settings,
     settings_scope,
@@ -31,6 +32,26 @@ from .settings import (
 )
 
 u = async_fixture()(fx_u)
+
+
+@mark_async_test()
+async def test_plan_scope_preserves_resource_order(u: LUser):
+    """推薦用の読み取りでも学習計画の名前と選択順を保持する."""
+    _, first = await save_text(u.uid, "# first scope\n  first sentence\n")
+    _, second = await save_text(u.uid, "# second scope\n  second sentence\n")
+    plan = await create_study_plan(
+        u.uid,
+        StudyPlanDraft(
+            name=" ordered plan ",
+            resource_ids=[second.uid, first.uid],
+            quiz_types=[QuizType.TERM2SENT],
+            n_quiz=5,
+            n_option=4,
+        ),
+    )
+    settings = await get_settings(u.uid, f"plan:{plan.uid}")
+    assert settings.name == "ordered plan"
+    assert settings.resource_ids == [to_uuid(second.uid), to_uuid(first.uid)]
 
 
 @mark_async_test()

@@ -116,7 +116,8 @@ class SchemaDatabase(AsyncDatabase):
         # Verify semantics, not merely successful execution or the object's name.
         rows, _ = await self.cypher_query(
             "SHOW CONSTRAINTS YIELD type, entityType, labelsOrTypes, properties "
-            "WHERE type = 'UNIQUENESS' AND entityType = 'NODE' "
+            "WHERE type IN ['UNIQUENESS', 'NODE_PROPERTY_UNIQUENESS'] "
+            "AND entityType = 'NODE' "
             "AND labelsOrTypes = $labels AND properties = $properties "
             "RETURN count(*)",
             {"labels": [label], "properties": [property_name]},

@@ -5,8 +5,9 @@ from uuid import uuid4
 
 from neomodel import adb
 
-from .cypher import current_cache
-from .domain import LEASE_SECONDS, VERSION, PageRankSettings
+from tanbun.feature.repo.pagerank import VERSION, current_cache
+
+from .domain import LEASE_SECONDS, PageRankSettings
 
 LOCK = """
     MERGE (queue:PageRankQueue {key: 'pagerank'})

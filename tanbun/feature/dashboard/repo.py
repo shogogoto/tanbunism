@@ -16,13 +16,13 @@ from tanbun.feature.recommendation.daily import (
     save_daily,
     select_daily,
 )
-from tanbun.feature.recommendation.pagerank.cypher import cached_rank
 from tanbun.feature.recommendation.settings import (
     ReviewPriority,
     settings_scope,
     today_settings,
 )
 from tanbun.feature.repo.cypher import q_call_term_names
+from tanbun.feature.repo.pagerank import cached_rank
 from tanbun.feature.tanbun.repo.clause import OrderBy
 from tanbun.feature.tanbun.repo.cypher import q_location, q_stats
 

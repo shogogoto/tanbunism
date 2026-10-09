@@ -16,11 +16,11 @@ from tanbun.config.env import Settings
 from tanbun.conftest import mark_async_test
 from tanbun.feature.admin.repo import delete_user_account
 from tanbun.feature.user.db import AccountDB
+from tanbun.feature.user.routers.images import eligible
 from tanbun.feature.user.testing import aauth_header, aregister
 
 from .cloudinary import CloudinaryClient, avatar_id, sign, upload_signature
 from .repo import schedule_delete
-from .router import eligible
 from .worker import process_next
 
 

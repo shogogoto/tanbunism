@@ -74,4 +74,6 @@ def test_feature_dependencies_are_acyclic():
             if target in features and target != source:
                 dependencies.add_edge(source, target)
 
-    assert nx.is_directed_acyclic_graph(dependencies)
+    assert nx.is_directed_acyclic_graph(dependencies), list(
+        nx.simple_cycles(dependencies),
+    )

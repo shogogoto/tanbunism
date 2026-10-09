@@ -8,8 +8,8 @@ from fastapi import HTTPException
 from starlette import status
 
 from tanbun.config.env import Settings
+from tanbun.feature.user.routers import images as router
 
-from . import router
 from .cloudinary import CloudinaryClient, avatar_id
 from .repo import referenced_ids
 

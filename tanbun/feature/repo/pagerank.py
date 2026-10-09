@@ -1,6 +1,6 @@
 """キャッシュ鮮度判定を推薦と管理で共有."""
 
-from .domain import VERSION
+VERSION = 1
 
 
 def current_cache(resource: str) -> str:

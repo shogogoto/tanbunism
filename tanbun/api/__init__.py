@@ -23,7 +23,6 @@ from tanbun.feature.game.router import router as game_router
 from tanbun.feature.gamification import gamification_router
 from tanbun.feature.language_service.router import language_router
 from tanbun.feature.media import worker as media_worker
-from tanbun.feature.media.router import router as media_router
 from tanbun.feature.notification import notification_router
 from tanbun.feature.quiz.router.router import quiz_router
 from tanbun.feature.recommendation.pagerank.router import router as pagerank_router
@@ -32,6 +31,7 @@ from tanbun.feature.recommendation.router import router as review_settings_route
 from tanbun.feature.tanbun.router import tanbun_router
 from tanbun.feature.user import PREFIX_USER
 from tanbun.feature.user.routers import auth_router, user_router
+from tanbun.feature.user.routers.images import router as media_router
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator

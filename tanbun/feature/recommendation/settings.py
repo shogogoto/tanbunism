@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 
 from tanbun.feature.domain.datetime import TZ
 from tanbun.feature.domain.types import UUIDy, to_uuid
-from tanbun.feature.quiz.learning.study_plan.repo import fetch_study_plan
 
 from .daily import prune_daily
 
@@ -75,14 +74,24 @@ async def get_settings(user_id: UUIDy, profile_id: str) -> ReviewSettings:
                 status_code=404,
                 detail="学習計画が見つかりません",
             ) from error
-        plan = await fetch_study_plan(plan_id, user_id)
-        if plan is None:
+        # Read only the owned plan's recommendation scope. Quiz generation and
+        # its domain model do not belong to recommendation settings.
+        rows, _ = await adb.cypher_query(
+            """
+            MATCH (plan:StudyPlan {uid:$plan_id})-[:OWNED]->(:User {uid:$user_id})
+            MATCH (plan)-[study:STUDY]->(resource:Resource)
+            WITH plan, study, resource ORDER BY study.position ASC
+            RETURN plan.name, collect(resource.uid)
+            """,
+            params={"plan_id": plan_id.hex, "user_id": to_uuid(user_id).hex},
+        )
+        if not rows:
             raise HTTPException(status_code=404, detail="学習計画が見つかりません")
         # 設定を複製せず、知識の推薦にはPlanの対象Resourceだけ適用する。
         return ReviewSettings(
             id=profile_id,
-            name=plan.name.strip()[:64] or "学習計画",
-            resource_ids=plan.resource_ids,
+            name=rows[0][0].strip()[:64] or "学習計画",
+            resource_ids=rows[0][1],
         )
     for setting in await list_settings(user_id):
         if setting.id == profile_id:

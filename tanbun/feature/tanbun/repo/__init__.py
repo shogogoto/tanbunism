@@ -9,8 +9,8 @@ from neomodel import adb
 from tanbun.feature.domain.errors import DomainError as DomainError
 from tanbun.feature.domain.types import UUIDy, to_uuid
 from tanbun.feature.entry.namespace import resource_infos_by_resource_uids
-from tanbun.feature.recommendation.pagerank.cypher import cached_rank
 from tanbun.feature.repo.cypher import Paging
+from tanbun.feature.repo.pagerank import cached_rank
 from tanbun.feature.tanbun.domain import (
     Tanbun as Tanbun,
 )

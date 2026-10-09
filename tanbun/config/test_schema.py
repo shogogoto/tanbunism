@@ -110,7 +110,8 @@ async def test_schema_can_be_installed_twice() -> None:
         "WHERE labelsOrTypes = ['ResourceXpEvent'] AND properties = ['key'] "
         "RETURN type",
     )
-    assert rows == [["UNIQUENESS"]]
+    assert len(rows) == 1
+    assert rows[0][0] in {"UNIQUENESS", "NODE_PROPERTY_UNIQUENESS"}
 
 
 @mark_async_test()
@@ -164,6 +165,13 @@ async def test_constraint_verifies_semantics(mocker: MockerFixture, count: int) 
                 quiet=True,
             )
     assert "IF NOT EXISTS" in query.call_args_list[0].args[0]
+    verification = query.call_args_list[1]
+    assert "type IN ['UNIQUENESS', 'NODE_PROPERTY_UNIQUENESS']" in verification.args[0]
+    assert "entityType = 'NODE'" in verification.args[0]
+    assert verification.args[1] == {
+        "labels": ["ResourceXpEvent"],
+        "properties": ["key"],
+    }
 
 
 @mark_async_test()
