@@ -31,7 +31,10 @@ class Run(BaseModel):
     enemyHp: int = Field(ge=0, le=100000)
     enemyMaxHp: int = Field(ge=1, le=100000)
     quizCursor: int = Field(ge=0)
-    readIds: list[str] = Field(max_length=100)
+    readIds: list[str] = Field(
+        max_length=100,
+        description="見たよで進んだ単文IDを選択順に保存。最後が現在地。休憩でも順序を維持。",
+    )
     phase: Literal["path", "battle", "rest", "defeated", "cleared"]
 
 
