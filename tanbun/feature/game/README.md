@@ -20,6 +20,12 @@ returns or creates the population after verifying that the default StudyPlan has
 enough usable quizzes. The client snapshot keeps a projection for battle display;
 legacy snapshot pools are validated and migrated through the matching POST route.
 
+Frontier preparation completes only when the usable cumulative region population
+is ready. Partial generation keeps the frontier pending; retries generate only
+the missing quizzes. Preparation status also caps legacy completion counters by
+the actual usable quiz count, so polling can queue repairs for old incomplete
+frontiers instead of leaving them permanently marked complete.
+
 HP, battles, routes and dungeon clears are shared server snapshots with revision
 checks. Combat rules remain a client-side prototype; these APIs
 authorize starting/resuming an event, not validate every combat action. Learning

@@ -5,7 +5,6 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Response
 from pydantic import BaseModel, Field
 
-from tanbun.feature.quiz.learning.study_plan.repo import adventure_quiz_progress
 from tanbun.feature.user.router_util import ActiveUser
 
 from .access import AdventureAccess, consume_adventure_access, get_adventure_access
@@ -27,7 +26,11 @@ from .population import (
     MAX_REGION_LEVEL,
     get_or_prepare_region_pool,
 )
-from .preparation import preparation_status, schedule_dungeon_quizzes
+from .preparation import (
+    dungeon_quiz_progress,
+    preparation_status,
+    schedule_dungeon_quizzes,
+)
 from .roster import assign_enemy_quizzes, enemy_identity
 from .state import GameState, StateUpdate, read_state, recover_state, write_state
 
@@ -136,7 +139,7 @@ async def get_dungeon_preparation(
         background_tasks,
         [resource_id.hex],
     )
-    _plan_id, prepared_regions = await adventure_quiz_progress(user.uid, resource_id)
+    _plan_id, prepared_regions = await dungeon_quiz_progress(user.uid, resource_id.hex)
     return preparation_status(state, prepared_regions, resource_id.hex)
 
 

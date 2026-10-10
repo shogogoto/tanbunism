@@ -15,21 +15,34 @@ from tanbun.feature.quiz.learning.study_plan.preparation_settings import (
     get_quiz_preparation_settings,
 )
 from tanbun.feature.quiz.learning.study_plan.repo import (
-    QUIZZES_PER_ADVENTURE_REGION,
     adventure_quiz_progress,
     complete_adventure_quiz_region,
+    count_prepared_quizzes,
     ensure_default_resource_study_plan,
 )
 from tanbun.feature.quiz.learning.study_plan.usecase import (
     prepare_additional_study_plan_quizzes,
 )
 
+from .population import REGION_QUIZ_COUNT, get_or_prepare_region_pool
 from .state import GameState, read_state
 
 logger = logging.getLogger(__name__)
 PLACES_PER_REGION = 5
 MAX_ADVENTURE_REGIONS = 19
 _scheduled_resources: set[tuple[str, str]] = set()
+
+
+async def dungeon_quiz_progress(
+    user_id: UUID,
+    resource_id: str,
+) -> tuple[UUID | None, int]:
+    """Legacy completion counters never advertise more than usable quizzes allow."""
+    plan_id, recorded = await adventure_quiz_progress(user_id, resource_id)
+    if not plan_id or not recorded:
+        return plan_id, 0
+    count = await count_prepared_quizzes(plan_id, user_id)
+    return plan_id, min(recorded, max(0, count // REGION_QUIZ_COUNT - 1))
 
 
 def _frontier(state: GameState, resource_id: str) -> int:
@@ -71,20 +84,32 @@ async def _prepare_resource_to_frontier(user_id: UUID, resource_id: str) -> None
             user_id,
             resource_id,
         )
-        if not plan_id or target <= prepared_regions:
+        if not plan_id or not target:
             return
-        result = await prepare_additional_study_plan_quizzes(
-            plan_id,
-            user_id,
-            QUIZZES_PER_ADVENTURE_REGION,
-            send_notification=False,
-        )
-        if result.added_count == 0:
-            logger.info(
-                "No more quizzes available for dungeon resource %s at region %d",
-                resource_id,
-                prepared_regions + 1,
+        # Region zero needs the initial five quizzes; each frontier adds five.
+        # Use the actual usable population, not generation attempts, as completion.
+        level = min(prepared_regions + 2, target + 1)
+        pool = await get_or_prepare_region_pool(user_id, resource_id, level)
+        if not pool["ready"]:
+            await prepare_additional_study_plan_quizzes(
+                plan_id,
+                user_id,
+                int(pool["required_quizzes"]) - int(pool["available_quizzes"]),
+                send_notification=False,
             )
+            pool = await get_or_prepare_region_pool(user_id, resource_id, level)
+        if not pool["ready"]:
+            logger.info(
+                "Dungeon resource %s still lacks usable quizzes at region %d",
+                resource_id,
+                level,
+            )
+            # Partial preparation is retained; a later queued attempt fills only
+            # the remaining deficit, without marking this frontier complete.
+            return
+        if target <= prepared_regions:
+            # Repair legacy over-recorded completion without double-counting it.
+            return
         if not await complete_adventure_quiz_region(
             user_id,
             plan_id,
@@ -92,6 +117,8 @@ async def _prepare_resource_to_frontier(user_id: UUID, resource_id: str) -> None
         ):
             # Another request for the same account finished this frontier.
             continue
+        if target == prepared_regions + 1:
+            return
 
 
 async def prepare_dungeon_quizzes(user_id: UUID, resource_ids: list[str]) -> None:
@@ -124,7 +151,7 @@ async def schedule_dungeon_quizzes(
         if key in _scheduled_resources:
             continue
         target = _frontier(state, resource_id)
-        plan_id, prepared_regions = await adventure_quiz_progress(
+        plan_id, prepared_regions = await dungeon_quiz_progress(
             user_id,
             resource_id,
         )
