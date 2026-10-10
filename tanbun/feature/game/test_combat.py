@@ -26,6 +26,7 @@ u = async_fixture()(fx_u)
 
 async def encounter(user: LUser) -> GameState:
     """本物の出題・リソースから二体の敵を準備する."""
+    await update_game_balance(GameBalance(min_enemies=2, max_encounter_enemies=2))
     target = await LSentence.nodes.first(val="ccc")
     quizzes = [
         (
@@ -83,8 +84,8 @@ async def encounter(user: LUser) -> GameState:
 def answers(state: GameState) -> dict[str, list[str]]:
     """固定クイズの実際の正解を使う."""
     return {
-        e["id"]: state.save.content["quizzes"][e["quizIndex"]]["correct"]
-        for e in state.save.content["regionEnemies"]["2"]
+        enemy_id: state.save.content["quizzes"][quiz_index]["correct"]
+        for enemy_id, quiz_index in state.save.battle.quizIndices.items()
     }
 
 

@@ -2,6 +2,7 @@
 
 import json
 from random import sample
+from secrets import choice, randbelow
 from time import time
 from uuid import uuid4
 
@@ -47,6 +48,7 @@ class EnemyStats(BaseModel):
     id: str
     name: str
     quizIndex: int  # noqa: N815
+    quizIndexes: list[int] = Field(default_factory=list)  # noqa: N815
     hp: int
     attack: int
     relations: int
@@ -83,9 +85,15 @@ async def combat_context(
         {"ids": ids, "resource": to_uuid(run.resourceId).hex},
     )
     relations = dict(rows)
+    battle_payload = state.save.battle.model_dump() if state.save.battle else {}
     return CombatContext(
         balance=balance,
-        enemies=derive_enemies(content, relations, power, balance),
+        enemies=derive_enemies(
+            {**content, "battle": battle_payload},
+            relations,
+            power,
+            balance,
+        ),
     )
 
 
@@ -97,25 +105,43 @@ def derive_enemies(
 ) -> list[EnemyStats]:
     """旧snapshotのHP/攻は無視し、同じIDの能力をその都度導出する."""
     quizzes = content.get("quizzes", [])
+    selected = (content.get("battle") or {}).get("quizIndices", {})
     enemies = []
     for key, pool in content.get("regionEnemies", {}).items():
         region = int(key)
         for item in pool:
-            index = item.get("quizIndex", -1)
-            if not 0 <= index < len(quizzes):
+            indices = item.get("quizIndexes") or [item.get("quizIndex", -1)]
+            indices = [
+                index
+                for index in indices
+                if isinstance(index, int) and 0 <= index < len(quizzes)
+            ]
+            if not indices:
                 continue
-            uid = to_uuid(quizzes[index]["quiz_id"]).hex
-            if uid not in relations:
+            valid = [
+                index
+                for index in indices
+                if to_uuid(quizzes[index]["quiz_id"]).hex in relations
+            ]
+            if not valid:
                 continue
-            hp, attack = balance.enemy_stats(power, relations[uid], region)
+            relation_count = round(
+                sum(
+                    relations[to_uuid(quizzes[index]["quiz_id"]).hex] for index in valid
+                )
+                / len(valid),
+            )
+            selected_index = selected.get(item["id"])
+            hp, attack = balance.enemy_stats(power, relation_count, region)
             enemies.append(
                 EnemyStats(
                     id=item["id"],
                     name=item["name"],
-                    quizIndex=index,
+                    quizIndex=(selected_index if selected_index in valid else valid[0]),
+                    quizIndexes=valid,
                     hp=hp,
                     attack=attack,
-                    relations=relations[uid],
+                    relations=relation_count,
                     region=region,
                 ),
             )
@@ -153,20 +179,16 @@ async def start_combat(user_id: UUIDy, body: EncounterRequest) -> GameState:
         raise HTTPException(422, "撤退先がマップにありません。")
     context = await combat_context(user_id, previous)
     unique = {
-        to_uuid(previous.save.content["quizzes"][enemy.quizIndex]["quiz_id"]).hex: enemy
-        for enemy in context.enemies
-        if enemy.region == body.region
+        enemy.id: enemy for enemy in context.enemies if enemy.region == body.region
     }
     if not unique:
         raise HTTPException(
             422,
             "有効な戦闘クイズがありません。候補を更新してください。",
         )
-    count = min(
-        len(unique),
-        context.balance.max_enemies,
-        1 + body.region // context.balance.regions_per_enemy,
-    )
+    upper = min(len(unique), context.balance.max_encounter_enemies)
+    lower = min(context.balance.min_enemies, upper)
+    count = lower + randbelow(upper - lower + 1)
     chosen = sample(list(unique.values()), count)
     updated = previous.model_copy(deep=True)
     updated.save.battle = BattleMarker(
@@ -174,6 +196,9 @@ async def start_combat(user_id: UUIDy, body: EncounterRequest) -> GameState:
         region=body.region,
         checkpoint=body.checkpoint,
         enemies=[e.id for e in chosen],
+        quizIndices={
+            enemy.id: choice(enemy.quizIndexes or [enemy.quizIndex]) for enemy in chosen
+        },
     )
     stats = updated.save.allocation.stats(context.balance)
     next_run = updated.save.run
@@ -417,6 +442,13 @@ async def next_turn(user_id: UUIDy, body: TurnRequest) -> GameState:
     ):
         raise HTTPException(409, "次のターンを開始できません。")
     updated = previous.model_copy(deep=True)
+    context = await combat_context(user_id, previous)
+    selected = {
+        enemy.id: choice(enemy.quizIndexes or [enemy.quizIndex])
+        for enemy in context.enemies
+        if enemy.id in marker.enemies
+    }
+    updated.save.battle.quizIndices = selected
     seconds = previous.save.allocation.stats(await get_game_balance())["answerSeconds"]
     updated.save.run.answerSeconds = seconds
     updated.save.run.answerDeadline = int(time() * 1000) + seconds * 1000

@@ -1,4 +1,5 @@
 """管理者による領域別敵セット補修."""
+# ruff: noqa: PLR2004
 
 from .admin import rebuild_content_enemy_pools
 
@@ -27,8 +28,18 @@ def test_rebuild_migrates_legacy_enemy_assignments_without_widening_pool() -> No
     assert rebuilt["regionQuizPools"] == {"0": ["quiz-1", "quiz-3"]}
     assert rebuilt["regionEnemies"] == {
         "0": [
-            {"id": "stable-1", "name": "敵A", "quizIndex": 0},
-            {"id": "stable-2", "name": "敵B", "quizIndex": 2},
+            {
+                "id": "book:0:enemy:0",
+                "name": "領域 1の敵 1",
+                "quizIndex": 0,
+                "quizIndexes": [0],
+            },
+            {
+                "id": "book:0:enemy:1",
+                "name": "領域 1の敵 2",
+                "quizIndex": 2,
+                "quizIndexes": [2],
+            },
         ],
     }
 
@@ -49,11 +60,28 @@ def test_rebuild_uses_explicit_population_and_drops_missing_quizzes() -> None:
     assert rebuilt["regionQuizPools"] == {"2": ["quiz-2"]}
     assert rebuilt["regionEnemies"]["2"] == [
         {
-            "id": "book:2:quiz-2",
+            "id": "book:2:enemy:0",
             "name": "領域 3の敵 1",
             "quizIndex": 1,
+            "quizIndexes": [1],
         },
     ]
+
+
+def test_rebuild_assigns_multiple_fixed_quizzes_to_each_enemy_type() -> None:
+    """3種類の敵が領域母集団を重複なく固定セットとして分担する."""
+    content = {
+        "quizzes": [{"quiz_id": f"quiz-{index}"} for index in range(5)],
+        "regionQuizPools": {"0": [f"quiz-{index}" for index in range(5)]},
+        "regionEnemies": {"0": []},
+    }
+    rebuilt, _, _ = rebuild_content_enemy_pools(content, "book")
+    assert rebuilt is not None
+    enemies = rebuilt["regionEnemies"]["0"]
+    assert len(enemies) == 3
+    assigned = [index for enemy in enemies for index in enemy["quizIndexes"]]
+    assert sorted(assigned) == list(range(5))
+    assert max(len(enemy["quizIndexes"]) for enemy in enemies) == 2
 
 
 def test_reroll_selects_a_distinct_cumulative_pool_from_prepared_quizzes() -> None:

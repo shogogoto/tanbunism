@@ -150,7 +150,7 @@ async def get_dungeon_region_quiz_pool(
     if not 1 <= level <= MAX_REGION_LEVEL:
         raise HTTPException(422, "領域レベルは1から20の範囲で指定してください。")
     response.headers["Cache-Control"] = "no-store"
-    return await get_or_prepare_region_pool(user.uid, resource_id, level)
+    return await _region_pool_response(user.uid, resource_id, level)
 
 
 @router.post("/dungeons/{resource_id}/regions/{level}/quiz-pool")
@@ -165,12 +165,23 @@ async def migrate_dungeon_region_quiz_pool(
     if not 1 <= level <= MAX_REGION_LEVEL:
         raise HTTPException(422, "領域レベルは1から20の範囲で指定してください。")
     response.headers["Cache-Control"] = "no-store"
-    return await get_or_prepare_region_pool(
-        user.uid,
-        resource_id,
-        level,
-        seed.quiz_ids,
-    )
+    return await _region_pool_response(user.uid, resource_id, level, seed.quiz_ids)
+
+
+async def _region_pool_response(
+    user_id: UUID,
+    resource_id: UUID,
+    level: int,
+    legacy_ids: list[str] | None = None,
+) -> dict[str, object]:
+    pool = await get_or_prepare_region_pool(user_id, resource_id, level, legacy_ids)
+    balance = await get_game_balance()
+    return {
+        **pool,
+        "enemy_types": balance.enemy_types,
+        "min_quizzes_per_enemy": balance.min_quizzes_per_enemy,
+        "max_quizzes_per_enemy": balance.max_quizzes_per_enemy,
+    }
 
 
 @router.post("/state/recover")

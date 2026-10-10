@@ -3,7 +3,7 @@
 from math import ceil, log1p
 
 from neomodel import adb
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class GameBalance(BaseModel, frozen=True):
@@ -28,6 +28,22 @@ class GameBalance(BaseModel, frozen=True):
     region_attack: int = Field(default=2, ge=0, le=100)
     max_enemies: int = Field(default=8, ge=1, le=20)
     regions_per_enemy: int = Field(default=2, ge=1, le=100)
+    enemy_types: int = Field(default=3, ge=1, le=20)
+    min_quizzes_per_enemy: int = Field(default=1, ge=1, le=100)
+    max_quizzes_per_enemy: int = Field(default=100, ge=1, le=100)
+    min_enemies: int = Field(default=1, ge=1, le=20)
+    max_encounter_enemies: int = Field(default=3, ge=1, le=20)
+
+    @model_validator(mode="after")
+    def valid_enemy_ranges(self) -> "GameBalance":
+        """敵ロスターと遭遇人数の範囲が逆転していないことを検証する."""
+        if self.min_quizzes_per_enemy > self.max_quizzes_per_enemy:
+            msg = "敵ごとのクイズ数の下限は上限以下にしてください。"
+            raise ValueError(msg)
+        if self.min_enemies > self.max_encounter_enemies:
+            msg = "同時出現数の下限は上限以下にしてください。"
+            raise ValueError(msg)
+        return self
 
     def enemy_stats(self, power: int, relations: int, region: int) -> tuple[int, int]:
         """Powerはlog補正、単文の関係数は上限付き。検索の重みには依存しない."""

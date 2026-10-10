@@ -27,6 +27,7 @@ from tanbun.feature.quiz.learning.study_plan.usecase import (
 )
 from tanbun.feature.quiz.repo.restore import restore_quiz_sources
 
+from .balance import GameBalance, get_game_balance
 from .population import replace_region_pool
 from .state import GameState, StateUpdate, compare_and_save, read_state
 
@@ -68,13 +69,46 @@ def _legacy_pool_ids(
     quizzes: list[dict[str, Any]],
 ) -> list[str]:
     """旧敵配列から領域で固定されていたクイズIDを取り出す."""
-    return [
-        quizzes[enemy["quizIndex"]]["quiz_id"]
+    indices = [
+        index
         for enemy in enemies
-        if isinstance(enemy.get("quizIndex"), int)
-        and 0 <= enemy["quizIndex"] < len(quizzes)
-        and quizzes[enemy["quizIndex"]].get("quiz_id")
+        for index in enemy.get("quizIndexes", [enemy.get("quizIndex")])
+        if isinstance(index, int) and 0 <= index < len(quizzes)
     ]
+    return list(
+        dict.fromkeys(
+            quizzes[index]["quiz_id"]
+            for index in indices
+            if quizzes[index].get("quiz_id")
+        ),
+    )
+
+
+def _assign_enemy_quizzes(indices: list[int], balance: GameBalance) -> list[list[int]]:
+    """重複なしで敵種類数へクイズを分配する."""
+    count = min(
+        balance.enemy_types,
+        max(1, len(indices) // balance.min_quizzes_per_enemy),
+    )
+    if not count:
+        return []
+    indices = indices[: count * balance.max_quizzes_per_enemy]
+    minimum = min(balance.min_quizzes_per_enemy, len(indices) // count)
+    groups: list[list[int]] = [[] for _ in range(count)]
+    cursor = 0
+    for group in groups:
+        for _ in range(minimum):
+            group.append(indices[cursor])
+            cursor += 1
+    while cursor < len(indices):
+        eligible = [g for g in groups if len(g) < balance.max_quizzes_per_enemy]
+        if not eligible:
+            break
+        min_size = min(map(len, eligible))
+        next_group = next(group for group in eligible if len(group) == min_size)
+        next_group.append(indices[cursor])
+        cursor += 1
+    return groups
 
 
 def _rebuild_region(
@@ -85,16 +119,11 @@ def _rebuild_region(
     quiz_by_id: dict[str, tuple[int, dict[str, Any]]],
     pool_ids: list[str] | None,
     previous_enemies: list[dict[str, Any]],
+    balance: GameBalance,
 ) -> tuple[list[str], list[dict[str, Any]]]:
-    """領域の母集団と、それに対応する安定した敵IDを組み立てる."""
+    """母集団を重複なく固定クイズセットに分けた敵ロスターを作る."""
     region = int(region_key)
-    enemy_by_quiz = {
-        quizzes[index]["quiz_id"].replace("-", "").lower(): enemy
-        for enemy in previous_enemies
-        if isinstance((index := enemy.get("quizIndex")), int)
-        and 0 <= index < len(quizzes)
-        and quizzes[index].get("quiz_id")
-    }
+    old_by_id = {str(enemy.get("id")): enemy for enemy in previous_enemies}
     source_ids = (
         pool_ids
         if pool_ids is not None
@@ -104,7 +133,7 @@ def _rebuild_region(
         )
     )
     stored_ids: list[str] = []
-    enemies: list[dict[str, Any]] = []
+    indices: list[int] = []
     seen: set[str] = set()
     for quiz_id in source_ids:
         key = quiz_id.replace("-", "").lower()
@@ -114,18 +143,20 @@ def _rebuild_region(
         seen.add(key)
         index, quiz = record
         stored_id = quiz["quiz_id"]
-        old_enemy = enemy_by_quiz.get(key, {})
         stored_ids.append(stored_id)
-        enemies.append(
-            {
-                "id": old_enemy.get("id", f"{resource_id}:{region}:{stored_id}"),
-                "name": old_enemy.get(
-                    "name",
-                    f"領域 {region + 1}の敵 {len(enemies) + 1}",
-                ),
-                "quizIndex": index,
-            },
-        )
+        indices.append(index)
+    groups = _assign_enemy_quizzes(indices, balance)
+    if not groups:
+        return stored_ids, []
+    enemies = []
+    for enemy_index, group in enumerate(groups):
+        old = old_by_id.get(f"{resource_id}:{region}:enemy:{enemy_index}", {})
+        enemies.append({
+            "id": f"{resource_id}:{region}:enemy:{enemy_index}",
+            "name": old.get("name", f"領域 {region + 1}の敵 {enemy_index + 1}"),
+            "quizIndex": group[0],
+            "quizIndexes": group,
+        })
     return stored_ids, enemies
 
 
@@ -174,6 +205,7 @@ def rebuild_content_enemy_pools(
     resource_id: str,
     *,
     reroll: bool = False,
+    balance: GameBalance | None = None,
 ) -> tuple[dict[str, Any] | None, int, int]:
     """保存済み母集団または再選出した母集団から敵配列を組み立てる."""
     if not content:
@@ -194,6 +226,7 @@ def rebuild_content_enemy_pools(
     replacement_pools = (
         _rerolled_region_pools(quizzes, old_pools, region_keys) if reroll else {}
     )
+    balance = balance or GameBalance()
 
     rebuilt_regions = {
         str(region_key): _rebuild_region(
@@ -205,6 +238,7 @@ def rebuild_content_enemy_pools(
                 replacement_pools[region_key] if reroll else old_pools.get(region_key)
             ),
             previous_enemies=old_enemies.get(region_key, []),
+            balance=balance,
         )
         for region_key in region_keys
     }
@@ -223,6 +257,7 @@ def rebuild_content_enemy_pools(
 async def rebuild_user_enemy_pools(user_id: UUIDy) -> dict[str, int]:
     """戦闘中でないユーザーの保存済みダンジョン敵セットを再構成する."""
     previous = await read_state(user_id)
+    balance = await get_game_balance()
     if previous.save.battle or (
         previous.save.run and previous.save.run.phase == "battle"
     ):
@@ -235,6 +270,7 @@ async def rebuild_user_enemy_pools(user_id: UUIDy) -> dict[str, int]:
         content, count, population = rebuild_content_enemy_pools(
             updated.save.content,
             resource_id,
+            balance=balance,
         )
         if count:
             updated.save.content = content
@@ -246,6 +282,7 @@ async def rebuild_user_enemy_pools(user_id: UUIDy) -> dict[str, int]:
         content, count, population = rebuild_content_enemy_pools(
             parked.content,
             resource_id,
+            balance=balance,
         )
         if count:
             parked.content = content
@@ -307,11 +344,13 @@ def _snapshot_pool_counts(content: dict[str, Any] | None) -> tuple[int, int]:
     }
     if not quiz_ids:
         quiz_ids = {
-            str(enemy.get("quizIndex"))
+            str(index)
             for values in enemies.values()
             if isinstance(values, list)
             for enemy in values
-            if isinstance(enemy, dict) and isinstance(enemy.get("quizIndex"), int)
+            if isinstance(enemy, dict)
+            for index in enemy.get("quizIndexes", [enemy.get("quizIndex")])
+            if isinstance(index, int)
         }
     return len(keys), len(quiz_ids)
 
@@ -656,6 +695,7 @@ async def _rebuild_dungeon_enemy_pools_now(
     resource_id: UUIDy,
 ) -> dict[str, int]:
     previous = await read_state(user_id)
+    balance = await get_game_balance()
     if previous.save.battle or (
         previous.save.run and previous.save.run.phase == "battle"
     ):
@@ -667,6 +707,7 @@ async def _rebuild_dungeon_enemy_pools_now(
             updated.save.content,
             key,
             reroll=True,
+            balance=balance,
         )
         updated.save.content = content
     else:
@@ -684,6 +725,7 @@ async def _rebuild_dungeon_enemy_pools_now(
             parked.content,
             key,
             reroll=True,
+            balance=balance,
         )
         parked.content = content
 
