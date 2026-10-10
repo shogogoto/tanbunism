@@ -1,7 +1,12 @@
 """管理者による領域別敵セット補修."""
 # ruff: noqa: PLR2004
 
-from .admin import rebuild_content_enemy_pools
+from .admin import (
+    EnemyBalanceSimulationRequest,
+    rebuild_content_enemy_pools,
+    simulate_enemy_balance,
+)
+from .balance import GameBalance
 
 
 def test_rebuild_migrates_legacy_enemy_assignments_without_widening_pool() -> None:
@@ -82,6 +87,33 @@ def test_rebuild_assigns_multiple_fixed_quizzes_to_each_enemy_type() -> None:
     assigned = [index for enemy in enemies for index in enemy["quizIndexes"]]
     assert sorted(assigned) == list(range(5))
     assert max(len(enemy["quizIndexes"]) for enemy in enemies) == 2
+
+
+def test_enemy_simulation_uses_production_roster_and_stat_calculations() -> None:
+    """試算のロスター配分と能力値は本番の計算関数と一致する."""
+    balance = GameBalance(
+        enemy_types=3,
+        min_quizzes_per_enemy=2,
+        max_quizzes_per_enemy=6,
+        min_enemies=2,
+        max_encounter_enemies=3,
+    )
+    result = simulate_enemy_balance(
+        EnemyBalanceSimulationRequest(
+            balance=balance,
+            power=100,
+            achievement=3,
+            average_relations=3,
+        ),
+    )
+    expected_hp, expected_attack = balance.enemy_stats(100, 3, 2)
+    assert result.pool_quiz_count == 15
+    assert [enemy.quiz_count for enemy in result.enemies] == [5, 5, 5]
+    assert {(enemy.hp, enemy.attack) for enemy in result.enemies} == {
+        (expected_hp, expected_attack),
+    }
+    assert result.min_encounter_enemies == 2
+    assert result.max_encounter_enemies == 3
 
 
 def test_reroll_selects_a_distinct_cumulative_pool_from_prepared_quizzes() -> None:

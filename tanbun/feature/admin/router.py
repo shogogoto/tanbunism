@@ -12,10 +12,13 @@ from tanbun.feature.entry.resource.import_settings import (
 )
 from tanbun.feature.game.access import AdventureAccess, reset_adventure_access
 from tanbun.feature.game.admin import (
+    EnemyBalanceSimulationRequest,
+    EnemyBalanceSimulationResult,
     GameDungeonAdminItem,
     list_game_dungeons,
     rebuild_dungeon_enemy_pools,
     rebuild_user_enemy_pools,
+    simulate_enemy_balance,
 )
 from tanbun.feature.game.balance import (
     GameBalance,
@@ -115,6 +118,15 @@ async def read_game_balance(_admin: AdminUser) -> GameBalance:
 async def save_game_balance(body: GameBalance, _admin: AdminUser) -> GameBalance:
     """既存の敵にも反映する補正値を保存する."""
     return await update_game_balance(body)
+
+
+@router.post("/settings/game-balance/simulate")
+async def simulate_game_balance(
+    body: EnemyBalanceSimulationRequest,
+    _admin: AdminUser,
+) -> EnemyBalanceSimulationResult:
+    """敵生成と共通の計算ロジックで設定候補を試算する."""
+    return simulate_enemy_balance(body)
 
 
 @router.get("/settings/battle")

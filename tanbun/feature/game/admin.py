@@ -28,7 +28,7 @@ from tanbun.feature.quiz.learning.study_plan.usecase import (
 from tanbun.feature.quiz.repo.restore import restore_quiz_sources
 
 from .balance import GameBalance, get_game_balance
-from .population import replace_region_pool
+from .population import MAX_REGION_LEVEL, replace_region_pool
 from .state import GameState, StateUpdate, compare_and_save, read_state
 
 QUIZZES_PER_REGION_LEVEL = 5
@@ -62,6 +62,81 @@ class GameDungeonRegionPool(BaseModel, frozen=True):
 
     level: int
     quizzes: list[GameDungeonRegionQuiz]
+
+
+class EnemyBalanceSimulationRequest(BaseModel, frozen=True):
+    """ゲームの実ロジックで敵構成を試算する入力."""
+
+    balance: GameBalance
+    power: int = Field(ge=0, le=1_000_000_000)
+    achievement: int = Field(ge=1, le=MAX_REGION_LEVEL)
+    average_relations: int = Field(ge=0, le=1_000_000)
+
+
+class SimulatedEnemy(BaseModel, frozen=True):
+    """敵ロスター編成関数と能力計算関数から導出した1種の敵."""
+
+    index: int
+    quiz_count: int
+    hp: int
+    attack: int
+    relations: int
+
+
+class EnemyBalanceSimulationResult(BaseModel, frozen=True):
+    """設定候補とダンジョン条件に対する試算結果."""
+
+    power: int
+    achievement: int
+    pool_quiz_count: int
+    average_relations: int
+    min_encounter_enemies: int
+    max_encounter_enemies: int
+    enemies: list[SimulatedEnemy]
+
+
+def simulate_enemy_balance(
+    request: EnemyBalanceSimulationRequest,
+) -> EnemyBalanceSimulationResult:
+    """実際の敵クイズ分配・能力計算を使い、指定条件の敵を試算する."""
+    pool_quiz_count = request.achievement * QUIZZES_PER_REGION_LEVEL
+    quiz_groups = _assign_enemy_quizzes(
+        list(range(pool_quiz_count)),
+        request.balance,
+    )
+    enemies = []
+    for index, quiz_indexes in enumerate(quiz_groups):
+        hp, attack = request.balance.enemy_stats(
+            request.power,
+            request.average_relations,
+            request.achievement - 1,
+        )
+        enemies.append(
+            SimulatedEnemy(
+                index=index + 1,
+                quiz_count=len(quiz_indexes),
+                hp=hp,
+                attack=attack,
+                relations=min(
+                    request.balance.relation_cap,
+                    request.average_relations,
+                ),
+            ),
+        )
+    encounter_upper = min(
+        len(enemies),
+        request.balance.max_encounter_enemies,
+    )
+    encounter_lower = min(request.balance.min_enemies, encounter_upper)
+    return EnemyBalanceSimulationResult(
+        power=request.power,
+        achievement=request.achievement,
+        pool_quiz_count=pool_quiz_count,
+        average_relations=request.average_relations,
+        min_encounter_enemies=encounter_lower,
+        max_encounter_enemies=encounter_upper,
+        enemies=enemies,
+    )
 
 
 def _legacy_pool_ids(
