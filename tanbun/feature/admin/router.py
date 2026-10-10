@@ -11,7 +11,12 @@ from tanbun.feature.entry.resource.import_settings import (
     update_resource_import_settings,
 )
 from tanbun.feature.game.access import AdventureAccess, reset_adventure_access
-from tanbun.feature.game.admin import rebuild_user_enemy_pools
+from tanbun.feature.game.admin import (
+    GameDungeonAdminItem,
+    list_game_dungeons,
+    rebuild_dungeon_enemy_pools,
+    rebuild_user_enemy_pools,
+)
 from tanbun.feature.game.balance import (
     GameBalance,
     get_game_balance,
@@ -81,6 +86,22 @@ from .user_transfer import (
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.get("/game/dungeons")
+async def get_game_dungeons(_admin: AdminUser) -> list[GameDungeonAdminItem]:
+    """ユーザー別の攻略ダンジョンと保存済み母集団を一覧する."""
+    return await list_game_dungeons()
+
+
+@router.post("/users/{user_id}/game/dungeons/{resource_id}/enemies/rebuild")
+async def rebuild_user_dungeon_enemies(
+    user_id: UUID,
+    resource_id: UUID,
+    _admin: AdminUser,
+) -> dict[str, int]:
+    """指定したユーザー別ダンジョンの敵セットだけを再構成する."""
+    return await rebuild_dungeon_enemy_pools(user_id, resource_id)
 
 
 @router.get("/settings/game-balance")

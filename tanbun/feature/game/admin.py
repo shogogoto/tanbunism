@@ -1,12 +1,27 @@
 """管理者向けのゲームスナップショット補修."""
 
 from typing import Any
+from uuid import UUID
 
 from fastapi import HTTPException
+from neomodel import adb
+from pydantic import BaseModel, ValidationError
 
-from tanbun.feature.domain.types import UUIDy
+from tanbun.feature.domain.types import UUIDy, to_uuid
 
-from .state import StateUpdate, compare_and_save, read_state
+from .state import GameState, StateUpdate, compare_and_save, read_state
+
+
+class GameDungeonAdminItem(BaseModel, frozen=True):
+    """管理画面に表示するユーザー別Resourceの冒険状態."""
+
+    user_id: UUID
+    user_email: str
+    resource_id: UUID
+    resource_name: str
+    status: str
+    region_count: int
+    quiz_count: int
 
 
 def _legacy_pool_ids(
@@ -167,3 +182,154 @@ async def rebuild_user_enemy_pools(user_id: UUIDy) -> dict[str, int]:
         "region_count": regions,
         "quiz_count": population_quizzes,
     }
+
+
+def _snapshot_dungeons(state: GameState) -> dict[str, dict[str, Any]]:
+    items: dict[str, dict[str, Any]] = {}
+    if state.save.run:
+        run = state.save.run
+        items[run.resourceId.replace("-", "").lower()] = {
+            "resource_id": run.resourceId,
+            "resource_name": run.name,
+            "status": run.phase,
+            "content": state.save.content,
+        }
+    for resource_id, parked in state.save.dungeons.items():
+        run = parked.run
+        items[resource_id.replace("-", "").lower()] = {
+            "resource_id": run.resourceId,
+            "resource_name": run.name,
+            "status": run.phase,
+            "content": parked.content,
+        }
+    return items
+
+
+def _snapshot_pool_counts(content: dict[str, Any] | None) -> tuple[int, int]:
+    if not content:
+        return 0, 0
+    pools = content.get("regionQuizPools") or {}
+    enemies = content.get("regionEnemies") or {}
+    keys = set(pools) | set(enemies)
+    quiz_ids = {
+        quiz_id
+        for values in pools.values()
+        if isinstance(values, list)
+        for quiz_id in values
+        if isinstance(quiz_id, str)
+    }
+    if not quiz_ids:
+        quiz_ids = {
+            str(enemy.get("quizIndex"))
+            for values in enemies.values()
+            if isinstance(values, list)
+            for enemy in values
+            if isinstance(enemy, dict) and isinstance(enemy.get("quizIndex"), int)
+        }
+    return len(keys), len(quiz_ids)
+
+
+async def list_game_dungeons() -> list[GameDungeonAdminItem]:
+    """スナップショットとグラフの母集団を合わせて管理一覧を返す."""
+    rows, _ = await adb.cypher_query(
+        "MATCH (user:User) RETURN user.uid, user.email, user.game_state",
+    )
+    result: dict[tuple[str, str], dict[str, Any]] = {}
+    for user_id, email, raw_state in rows:
+        if not raw_state:
+            continue
+        try:
+            state = GameState.model_validate_json(raw_state)
+        except ValidationError:
+            continue
+        for resource_key, dungeon in _snapshot_dungeons(state).items():
+            region_count, quiz_count = _snapshot_pool_counts(dungeon["content"])
+            result[user_id, resource_key] = {
+                "user_id": user_id,
+                "user_email": email,
+                "resource_id": dungeon["resource_id"],
+                "resource_name": dungeon["resource_name"],
+                "status": dungeon["status"],
+                "region_count": region_count,
+                "quiz_count": quiz_count,
+            }
+
+    graph_rows, _ = await adb.cypher_query(
+        """
+        MATCH (user:User)-[:HAS_DUNGEON]->(dungeon:Dungeon)
+            -[:BASED_ON]->(resource:Resource)
+        OPTIONAL MATCH (dungeon)-[:HAS_REGION]->(region:DungeonRegion)
+        OPTIONAL MATCH (region)-[:POPULATION_QUIZ]->(quiz:Quiz)
+        RETURN user.uid, user.email, resource.uid, resource.title,
+            count(DISTINCT region), count(DISTINCT quiz)
+        """,
+    )
+    for user_id, email, resource_id, name, regions, quizzes in graph_rows:
+        key = (user_id, resource_id)
+        item = result.setdefault(
+            key,
+            {
+                "user_id": user_id,
+                "user_email": email,
+                "resource_id": resource_id,
+                "resource_name": name or "(名称なし)",
+                "status": "母集団あり",
+                "region_count": 0,
+                "quiz_count": 0,
+            },
+        )
+        item["resource_name"] = name or item["resource_name"]
+        item["region_count"] = max(item["region_count"], regions)
+        item["quiz_count"] = max(item["quiz_count"], quizzes)
+
+    items = [GameDungeonAdminItem(**item) for item in result.values()]
+    return sorted(items, key=lambda item: (item.user_email, item.resource_name))
+
+
+async def rebuild_dungeon_enemy_pools(
+    user_id: UUIDy,
+    resource_id: UUIDy,
+) -> dict[str, int]:
+    """一つのユーザー別ダンジョンの敵表示を母集団から再構成する."""
+    previous = await read_state(user_id)
+    if previous.save.battle or (
+        previous.save.run and previous.save.run.phase == "battle"
+    ):
+        raise HTTPException(409, "戦闘中は敵セットを再構築できません。")
+
+    key = to_uuid(resource_id).hex
+    updated = previous.model_copy(deep=True)
+    if updated.save.run and updated.save.run.resourceId.replace("-", "").lower() == key:
+        content, regions, quizzes = rebuild_content_enemy_pools(
+            updated.save.content,
+            key,
+        )
+        updated.save.content = content
+    else:
+        parked = next(
+            (
+                value
+                for stored_id, value in updated.save.dungeons.items()
+                if stored_id.replace("-", "").lower() == key
+            ),
+            None,
+        )
+        if parked is None:
+            raise HTTPException(404, "対象ダンジョンが見つかりません。")
+        content, regions, quizzes = rebuild_content_enemy_pools(
+            parked.content,
+            key,
+        )
+        parked.content = content
+
+    if not regions:
+        return {"dungeon_count": 0, "region_count": 0, "quiz_count": 0}
+    updated.revision = previous.revision + 1
+    rows = await compare_and_save(
+        user_id,
+        StateUpdate(revision=previous.revision, save=updated.save),
+        updated,
+    )
+    if not rows:
+        raise HTTPException(409, "冒険状態が更新されました。再試行してください。")
+    return {"dungeon_count": 1, "region_count": regions, "quiz_count": quizzes}
