@@ -3,20 +3,39 @@
 from tanbun.conftest import async_fixture, mark_async_test
 from tanbun.feature.quiz.domain.parts import QuizType
 from tanbun.feature.quiz.learning.fixture import (
+    answer_test_quiz,
     create_learning_test_resource,
     fx_learning,
+    generate_test_quizzes,
     learning_resource_id,
 )
 from tanbun.feature.quiz.learning.study_plan.domain import StudyPlanDraft
 from tanbun.feature.quiz.learning.study_plan.repo import (
+    count_prepared_quizzes,
     create_study_plan,
     ensure_default_resource_study_plan,
     fetch_study_plan,
+    list_prepared_quiz_counts,
 )
 from tanbun.feature.user.label import LUser
 from tanbun.feature.user.testing import aregister
 
 u = async_fixture()(fx_learning)
+
+
+@mark_async_test()
+async def test_prepared_counts_include_answered_dungeon_quizzes(u: LUser) -> None:
+    """ゲームと共有するクイズは回答しても作成済み件数から消えない."""
+    resource_id = await learning_resource_id(u.uid)
+    plan = await ensure_default_resource_study_plan(u.uid, resource_id, "ダンジョン")
+    requested_count = 2
+    quizzes = await generate_test_quizzes(resource_id, u.uid, n_quiz=requested_count)
+    assert len(quizzes) == requested_count
+    assert await count_prepared_quizzes(plan.uid, u.uid) == len(quizzes)
+    for index, quiz in enumerate(quizzes):
+        await answer_test_quiz(quiz, u.uid, correctly=index == 0)
+    assert await count_prepared_quizzes(plan.uid, u.uid) == len(quizzes)
+    assert (await list_prepared_quiz_counts(u.uid))[plan.uid] == len(quizzes)
 
 
 @mark_async_test()

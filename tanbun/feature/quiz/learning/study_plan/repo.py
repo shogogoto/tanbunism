@@ -249,7 +249,7 @@ async def count_prepared_quizzes(
     plan_id: UUIDy,
     user_id: UUIDy,
 ) -> int:
-    """Plan対象内の、壊れておらず未回答なクイズを数える."""
+    """Plan対象内の壊れていない作成済みクイズを回答済みも含めて数える."""
     q = """
         MATCH (plan:StudyPlan {uid: $plan_id})-[:OWNED]->(
             user:User {uid: $user_id}
@@ -263,9 +263,6 @@ async def count_prepared_quizzes(
               AND quiz.quiz_type IN plan.quiz_types
               AND NOT EXISTS {
                   MATCH (quiz)-[:BROKEN_BY]->()
-              }
-              AND NOT EXISTS {
-                  MATCH (user)-[:ANSWER]->(:Answer)-[:ANSWER_OF]->(quiz)
               }
             RETURN count(DISTINCT quiz) AS prepared_count
         }
@@ -284,7 +281,7 @@ async def count_prepared_quizzes(
 async def list_prepared_quiz_counts(
     user_id: UUIDy,
 ) -> dict[UUID, int]:
-    """所有する全Planの準備済みクイズ数を一括取得する."""
+    """所有する全Planの作成済みクイズ数を回答済みも含めて一括取得する."""
     q = """
         MATCH (plan:StudyPlan)-[:OWNED]->(user:User {uid: $user_id})
         CALL (plan, user) {
@@ -296,9 +293,6 @@ async def list_prepared_quiz_counts(
               AND quiz.quiz_type IN plan.quiz_types
               AND NOT EXISTS {
                   MATCH (quiz)-[:BROKEN_BY]->()
-              }
-              AND NOT EXISTS {
-                  MATCH (user)-[:ANSWER]->(:Answer)-[:ANSWER_OF]->(quiz)
               }
             RETURN count(DISTINCT quiz) AS prepared_count
         }
