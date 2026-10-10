@@ -90,6 +90,7 @@ class EnemyBalanceSimulationResult(BaseModel, frozen=True):
     achievement: int
     pool_quiz_count: int
     average_relations: int
+    balance: GameBalance
     min_encounter_enemies: int
     max_encounter_enemies: int
     enemies: list[SimulatedEnemy]
@@ -133,6 +134,7 @@ def simulate_enemy_balance(
         achievement=request.achievement,
         pool_quiz_count=pool_quiz_count,
         average_relations=request.average_relations,
+        balance=request.balance,
         min_encounter_enemies=encounter_lower,
         max_encounter_enemies=encounter_upper,
         enemies=enemies,

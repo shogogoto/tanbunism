@@ -107,6 +107,7 @@ def test_enemy_simulation_uses_production_roster_and_stat_calculations() -> None
         ),
     )
     expected_hp, expected_attack = balance.enemy_stats(100, 3, 2)
+    assert result.balance == balance
     assert result.pool_quiz_count == 15
     assert [enemy.quiz_count for enemy in result.enemies] == [5, 5, 5]
     assert {(enemy.hp, enemy.attack) for enemy in result.enemies} == {
