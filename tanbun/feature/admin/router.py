@@ -11,6 +11,7 @@ from tanbun.feature.entry.resource.import_settings import (
     update_resource_import_settings,
 )
 from tanbun.feature.game.access import AdventureAccess, reset_adventure_access
+from tanbun.feature.game.admin import rebuild_user_enemy_pools
 from tanbun.feature.game.balance import (
     GameBalance,
     get_game_balance,
@@ -113,6 +114,15 @@ async def save_battle_settings(
 async def reset_user_adventure(user_id: UUID, _admin: AdminUser) -> AdventureAccess:
     """指定ユーザーの冒険待ち時間だけ解除する。復習・攻略実績は変更しない."""
     return await reset_adventure_access(user_id)
+
+
+@router.post("/users/{user_id}/game/enemies/rebuild")
+async def rebuild_user_game_enemies(
+    user_id: UUID,
+    _admin: AdminUser,
+) -> dict[str, int]:
+    """保存済みの領域別クイズ母集団から敵セットを再構成する."""
+    return await rebuild_user_enemy_pools(user_id)
 
 
 @router.get("/settings/resource-power")
