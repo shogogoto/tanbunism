@@ -16,10 +16,12 @@ from tanbun.feature.quiz.learning.fixture import (
 )
 from tanbun.feature.quiz.learning.study_plan.domain import StudyPlan, StudyPlanDraft
 from tanbun.feature.quiz.learning.study_plan.errors import (
+    DefaultStudyPlanDeletionError,
     StudyPlanNotFoundError,
 )
 from tanbun.feature.quiz.learning.study_plan.repo import create_study_plan
 from tanbun.feature.quiz.learning.study_plan.usecase import (
+    delete_study_plan,
     prepare_additional_study_plan_quizzes,
     recommend_quizzes_for_study_plan,
 )
@@ -28,6 +30,37 @@ from tanbun.feature.user.testing import aregister
 
 u = async_fixture()(fx_learning)
 MIN_RECOMMENDED_OPTIONS = 2
+
+
+@mark_async_test()
+async def test_delete_rejects_default_game_study_plan(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """削除前にゲーム連携済みの既定Planを拒否する."""
+    plan = StudyPlan(
+        uid=uuid4(),
+        name="ゲーム連携",
+        resource_ids=[uuid4()],
+        quiz_types=[QuizType.TERM2SENT],
+        n_quiz=5,
+        n_option=4,
+        created=datetime.now(tz=TZ),
+        default_resource_plan=True,
+    )
+    delete_repo = AsyncMock()
+    monkeypatch.setattr(
+        "tanbun.feature.quiz.learning.study_plan.usecase.fetch_study_plan",
+        AsyncMock(return_value=plan),
+    )
+    monkeypatch.setattr(
+        "tanbun.feature.quiz.learning.study_plan.usecase.delete_study_plan_in_repo",
+        delete_repo,
+    )
+
+    with pytest.raises(DefaultStudyPlanDeletionError):
+        await delete_study_plan(plan.uid, uuid4())
+
+    delete_repo.assert_not_awaited()
 
 
 @mark_async_test()

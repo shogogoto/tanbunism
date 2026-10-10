@@ -288,6 +288,7 @@ async def delete_study_plan(
     q = """
         MATCH (plan: StudyPlan {uid: $plan_id})
             -[:OWNED]->(:User {uid: $user_id})
+        WHERE plan.auto_resource_uid IS NULL
         DETACH DELETE plan
         RETURN count(*) AS deleted
     """

@@ -23,6 +23,7 @@ from tanbun.feature.quiz.learning.study_plan.domain import (
     StudyPlanPreparationStatus,
 )
 from tanbun.feature.quiz.learning.study_plan.errors import (
+    DefaultStudyPlanDeletionError,
     StudyPlanNotFoundError,
     StudyPlanResourceAccessError,
 )
@@ -102,6 +103,13 @@ async def delete_study_plan(
     user_id: UUIDy,
 ) -> None:
     """所有するStudyPlanを削除."""
+    plan = await fetch_study_plan(plan_id, user_id)
+    if plan is None:
+        msg = f"StudyPlanが見つかりません: {plan_id}"
+        raise StudyPlanNotFoundError(msg=msg)
+    if plan.default_resource_plan:
+        msg = "ゲームで使用する既定の学習計画は削除できません。"
+        raise DefaultStudyPlanDeletionError(msg)
     if not await delete_study_plan_in_repo(plan_id, user_id):
         msg = f"StudyPlanが見つかりません: {plan_id}"
         raise StudyPlanNotFoundError(msg=msg)

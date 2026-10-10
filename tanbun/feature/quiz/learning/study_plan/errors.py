@@ -17,6 +17,12 @@ class StudyPlanNotFoundError(DomainError):
     status_code = status.HTTP_404_NOT_FOUND
 
 
+class DefaultStudyPlanDeletionError(DomainError):
+    """ゲーム連携された既定StudyPlanは削除できない."""
+
+    status_code = status.HTTP_409_CONFLICT
+
+
 class StudyPlanResourceAccessError(DomainError):
     """StudyPlanへ登録できないresourceが指定された."""
 

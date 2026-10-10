@@ -27,6 +27,9 @@ from tanbun.feature.quiz.learning.study_plan.domain import (
     StudyPlanDraft,
     StudyPlanPreparationStatus,
 )
+from tanbun.feature.quiz.learning.study_plan.repo import (
+    ensure_default_resource_study_plan,
+)
 from tanbun.feature.quiz.learning.study_plan.schema import (
     QuizRecommendationResponse,
 )
@@ -113,6 +116,30 @@ async def test_study_plan_crud_api(ac: AsyncClient, u: LUser):
         headers=headers,
     )
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@mark_async_test()
+async def test_default_resource_study_plan_cannot_be_deleted(
+    ac: AsyncClient,
+    u: LUser,
+):
+    """ゲーム連携されたResource既定Planは削除できない."""
+    resource_id = await learning_resource_id(u.uid)
+    plan = await ensure_default_resource_study_plan(u.uid, resource_id, "既定")
+    assert plan.default_resource_plan
+
+    response = await ac.delete(
+        f"/quiz/study-plans/{plan.uid}",
+        headers=await aauth_header(email=u.email),
+    )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert "ゲームで使用する既定" in response.json()["message"]
+    response = await ac.get(
+        f"/quiz/study-plans/{plan.uid}",
+        headers=await aauth_header(email=u.email),
+    )
+    assert response.status_code == status.HTTP_200_OK
 
 
 @mark_async_test()
