@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, model_validator
 from tanbun.feature.domain.types import UUIDy, to_uuid
 
 from .access import SLOT_SECONDS, get_adventure_access
+from .balance import Allocation
 from .settings import get_battle_settings
 
 MAX_SNAPSHOT_BYTES = 1000000
@@ -29,7 +30,7 @@ class Run(BaseModel):
     attack: int = Field(ge=0, le=100000)
     defense: int = Field(ge=0, le=100000)
     moves: int = Field(ge=0, le=5)
-    kills: int = Field(ge=0, le=3)
+    kills: int = Field(ge=0, le=10000)
     enemyHp: int = Field(ge=0, le=100000)
     enemyMaxHp: int = Field(ge=1, le=100000)
     quizCursor: int = Field(ge=0)
@@ -41,6 +42,16 @@ class Run(BaseModel):
     answerDeadline: int | None = Field(default=None, ge=0)
     answerSeconds: int | None = Field(default=None, ge=1, le=1500)
     enemyId: str | None = Field(default=None, max_length=200)
+
+
+class BattleMarker(BaseModel):
+    """途中のHP/選択は保存せず、未精算の戦闘と撤退先だけを保存する."""
+
+    id: str
+    turn: int = Field(default=0, ge=0)
+    region: int = Field(ge=0)
+    checkpoint: str = Field(default="@entrance", max_length=64)
+    enemies: list[str] = Field(min_length=1, max_length=20)
 
 
 class GameSave(BaseModel):
@@ -55,6 +66,8 @@ class GameSave(BaseModel):
     run: Run | None = None
     content: dict | None = None
     battleFeedback: str | None = Field(default=None, max_length=1000)
+    allocation: Allocation = Field(default_factory=Allocation)
+    battle: BattleMarker | None = None
     maps: dict[str, "DungeonMap"] = Field(default_factory=dict, max_length=1000)
     dungeons: dict[str, "ParkedDungeon"] = Field(default_factory=dict, max_length=1000)
 
@@ -205,6 +218,9 @@ def known_dungeons(save: GameSave) -> list[str]:
 async def write_state(user_id: UUIDy, update: StateUpdate) -> GameState:
     """別端末の更新を上書きせず、保存と入場権を同時に確定する."""
     previous = await read_state(user_id)
+    validate_snapshot_battle(previous, update)
+    # Allocation has its own budget validation and must not be overwritten by snapshots.
+    update.save.allocation = previous.save.allocation
     run = update.save.run
     old = previous.save.run
     merge_exploration(previous.save, update.save)
@@ -269,6 +285,14 @@ async def write_state(user_id: UUIDy, update: StateUpdate) -> GameState:
             "冒険状態または冒険権が別の画面で更新されました。最新の状態を読み直してください。",
         )
     return state
+
+
+def validate_snapshot_battle(previous: GameState, update: StateUpdate) -> None:
+    """専用API以外から戦闘マーカーを作成・削除させない."""
+    if update.save.battle is not None:
+        raise HTTPException(422, "戦闘マーカーは遭遇APIで発行します。")
+    if previous.save.battle:
+        raise HTTPException(409, "戦闘中はターン精算または撤退を使用してください。")
 
 
 def merge_exploration(previous: GameSave, updated: GameSave) -> None:

@@ -27,6 +27,25 @@ async def create_answer(
     user_uid: UUIDy,  # 回答者idは必須にする。回答したければユーザー登録しろ、という導線
 ) -> Answer:
     """回答の永続化."""
+    notifications = []
+    async with adb.transaction:
+        answer, notifications = await create_answer_in_transaction(
+            quiz_uid,
+            selected_uids,
+            user_uid,
+        )
+    await dispatch_saved_notifications(user_uid, notifications)
+    return answer
+
+
+async def create_answer_in_transaction(
+    quiz_uid: UUID,
+    selected_uids: list[str],
+    user_uid: UUIDy,
+    *,
+    is_correct: bool | None = None,
+) -> tuple[Answer, list]:
+    """呼び出し元のトランザクションで回答・XPを保存。通知はcommit後に配送する."""
     answer_uid = uuid4()
     now = datetime.now(tz=TZ)
 
@@ -46,35 +65,37 @@ async def create_answer(
         RETURN ans, u
     """
 
-    is_correct = await fetch_is_correct(quiz_uid, selected_uids)
+    if is_correct is None:
+        is_correct = await fetch_is_correct(quiz_uid, selected_uids)
     notifications = []
-    async with adb.transaction:
-        rows, _ = await adb.cypher_query(
-            q,
-            params={
-                "quiz_uid": quiz_uid.hex,
-                "selected_uids": [to_uuid(u).hex for u in selected_uids],
-                "answer_uid": answer_uid.hex,
-                "now": now.isoformat(),
-                "is_correct": is_correct,
-                "user_uid": to_uuid(user_uid).hex,
-            },
-        )
-        if rows:
-            notifications = await record_answer_xp(user_uid, answer_uid)
+    _rows, _ = await adb.cypher_query(
+        q,
+        params={
+            "quiz_uid": quiz_uid.hex,
+            "selected_uids": [to_uuid(u).hex for u in selected_uids],
+            "answer_uid": answer_uid.hex,
+            "now": now.isoformat(),
+            "is_correct": is_correct,
+            "user_uid": to_uuid(user_uid).hex,
+        },
+    )
+    # UNWIND [] returns no rows even though the Answer was created (no-option quiz).
+    exists, _ = await adb.cypher_query(
+        "MATCH (a:Answer {uid:$uid}) RETURN a.uid",
+        {"uid": answer_uid.hex},
+    )
+    if exists:
+        notifications = await record_answer_xp(user_uid, answer_uid)
 
-    await dispatch_saved_notifications(user_uid, notifications)
-
-    for row in rows:
-        _, u = row
+    if exists:
         return Answer(
             answer_uid=answer_uid,
             quiz_uid=quiz_uid,
             selected=selected_uids,
-            who=u.get("uid"),
+            who=to_uuid(user_uid),
             is_correct=is_correct,
             created=now,
-        )
+        ), notifications
 
     msg = "回答の永続化失敗"
     raise AnswerFailedError(msg)

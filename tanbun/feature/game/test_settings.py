@@ -7,7 +7,33 @@ from neomodel import adb
 from tanbun.conftest import mark_async_test
 from tanbun.feature.user.testing import aauth_header, aregister
 
+from .balance import GameBalance
 from .settings import BattleSettings
+
+
+@mark_async_test()
+async def test_game_balance_permissions_and_live_settings(ac: AsyncClient):
+    """ゲーム補正の変更は管理者のみ。通常ユーザーは最新設定を読める."""
+    user = await aregister("game-balance@example.com")
+    headers = await aauth_header(user.email)
+    path = "/admin/settings/game-balance"
+    defaults = GameBalance().model_dump()
+    assert (await ac.get(path)).status_code == 401
+    assert (await ac.put(path, headers=headers, json=defaults)).status_code == 403
+    assert (await ac.get("/game/balance", headers=headers)).json() == defaults
+    user.is_superuser = True
+    await user.save()
+    changed = defaults | {"power_hp": 2, "max_enemies": 12, "base_seconds": 60}
+    assert (await ac.put(path, headers=headers, json=changed)).json() == changed
+    assert (await ac.get("/game/balance", headers=headers)).json() == changed
+    for field, value in (
+        ("max_enemies", 21),
+        ("regions_per_enemy", 0),
+        ("power_hp", -1),
+    ):
+        assert (
+            await ac.put(path, headers=headers, json=changed | {field: value})
+        ).status_code == 422
 
 
 @mark_async_test()

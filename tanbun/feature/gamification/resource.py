@@ -239,6 +239,7 @@ async def fetch_resource_growth(
     owned_only: bool = False,
     coefficient: int | None = None,
     power_weights: PowerWeights | None = None,
+    only_resource: UUIDy | None = None,
 ) -> list[ResourceGrowth]:
     """現在の構造は再計算し、XPは保存した実績だけを集計する."""
     if coefficient is None:
@@ -248,11 +249,11 @@ async def fetch_resource_growth(
     rows, _ = await adb.cypher_query(
         """
         MATCH (resource:Resource)
-        WHERE EXISTS {
+        WHERE ($resource_id IS NULL OR resource.uid = $resource_id) AND (EXISTS {
             MATCH (resource)-[:PARENT*0..]->()-[:OWNED]->(:User {uid: $user_id})
         } OR (NOT $owned_only AND EXISTS {
             MATCH (:ResourceXpEvent {user_id: $user_id, resource_id: resource.uid})
-        })
+        }))
         WITH DISTINCT resource
         OPTIONAL MATCH (resource)-[:STATS]->(cache:ResourceStatsCache)
         CALL (resource, cache) {
@@ -297,7 +298,11 @@ async def fetch_resource_growth(
             abstraction_count
         ORDER BY resource.title
     """,
-        params={"user_id": to_uuid(user_id).hex, "owned_only": owned_only},
+        params={
+            "user_id": to_uuid(user_id).hex,
+            "owned_only": owned_only,
+            "resource_id": to_uuid(only_resource).hex if only_resource else None,
+        },
     )
     result = []
     for (

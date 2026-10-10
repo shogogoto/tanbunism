@@ -5,10 +5,66 @@ from fastapi import APIRouter, Response
 from tanbun.feature.user.router_util import ActiveUser
 
 from .access import AdventureAccess, consume_adventure_access, get_adventure_access
+from .balance import Allocation, GameBalance, get_game_balance
+from .combat import (
+    CombatContext,
+    EncounterRequest,
+    TurnRequest,
+    abandon_combat,
+    combat_context,
+    next_turn,
+    set_allocation,
+    settle_turn,
+    start_combat,
+)
 from .knowledge import KnowledgeValidation, valid_knowledge
 from .state import GameState, StateUpdate, read_state, recover_state, write_state
 
 router = APIRouter(prefix="/game", tags=["game"])
+
+
+@router.get("/balance")
+async def read_balance(user: ActiveUser, response: Response) -> GameBalance:
+    """クライアントの表示用設定."""
+    response.headers["Cache-Control"] = "no-store"
+    return await get_game_balance()
+
+
+@router.get("/battle/context")
+async def read_combat_context(user: ActiveUser, response: Response) -> CombatContext:
+    """能力値は既存の敵でも最新値を返す."""
+    response.headers["Cache-Control"] = "no-store"
+    return await combat_context(user.uid)
+
+
+@router.post("/battle/start")
+async def begin_combat(user: ActiveUser, body: EncounterRequest) -> GameState:
+    """遭遇開始マーカーを保存."""
+    return await start_combat(user.uid, body)
+
+
+@router.post("/battle/turn")
+async def resolve_combat(user: ActiveUser, body: TurnRequest) -> dict:
+    """確定回答とゲーム結果の一括保存."""
+    return await settle_turn(user.uid, body)
+
+
+@router.post("/battle/next")
+async def begin_next_turn(user: ActiveUser, body: TurnRequest) -> GameState:
+    """結果確認後に持ち時間を開始."""
+    return await next_turn(user.uid, body)
+
+
+@router.post("/battle/abandon")
+async def retreat_unfinished_combat(user: ActiveUser) -> GameState:
+    """再読み込みで未完了戦闘を撤退扱いにする."""
+    return await abandon_combat(user.uid)
+
+
+@router.put("/allocation")
+async def edit_allocation(user: ActiveUser, body: Allocation) -> GameState:
+    """育成ポイントの振り直し."""
+    return await set_allocation(user.uid, body)
 
 
 @router.post("/knowledge/validate")

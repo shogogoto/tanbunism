@@ -11,6 +11,11 @@ from tanbun.feature.entry.resource.import_settings import (
     update_resource_import_settings,
 )
 from tanbun.feature.game.access import AdventureAccess, reset_adventure_access
+from tanbun.feature.game.balance import (
+    GameBalance,
+    get_game_balance,
+    update_game_balance,
+)
 from tanbun.feature.game.settings import (
     BattleSettings,
     get_battle_settings,
@@ -75,6 +80,18 @@ from .user_transfer import (
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.get("/settings/game-balance")
+async def read_game_balance(_admin: AdminUser) -> GameBalance:
+    """現在のゲームバランス."""
+    return await get_game_balance()
+
+
+@router.put("/settings/game-balance")
+async def save_game_balance(body: GameBalance, _admin: AdminUser) -> GameBalance:
+    """既存の敵にも反映する補正値を保存する."""
+    return await update_game_balance(body)
 
 
 @router.get("/settings/battle")
