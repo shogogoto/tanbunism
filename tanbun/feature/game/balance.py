@@ -31,10 +31,12 @@ class GameBalance(BaseModel, frozen=True):
     max_enemies: int = Field(default=8, ge=1, le=20)
     regions_per_enemy: int = Field(default=2, ge=1, le=100)
     enemy_types: int = Field(default=3, ge=1, le=20)
+    enemy_types_per_region: int = Field(default=0, ge=0, le=20)
     min_quizzes_per_enemy: int = Field(default=1, ge=1, le=100)
     max_quizzes_per_enemy: int = Field(default=100, ge=1, le=100)
     min_enemies: int = Field(default=1, ge=1, le=20)
     max_encounter_enemies: int = Field(default=3, ge=1, le=20)
+    max_encounter_enemies_per_region: int = Field(default=0, ge=0, le=20)
 
     @model_validator(mode="after")
     def valid_enemy_ranges(self) -> "GameBalance":
@@ -46,6 +48,20 @@ class GameBalance(BaseModel, frozen=True):
             msg = "同時出現数の下限は上限以下にしてください。"
             raise ValueError(msg)
         return self
+
+    def enemy_type_count(self, region: int) -> int:
+        """領域1を基準に、達成度帯ごとの種類数を求める."""
+        return min(20, self.enemy_types + max(0, region) * self.enemy_types_per_region)
+
+    def encounter_range(self, available: int, region: int) -> tuple[int, int]:
+        """本番と試算で共通の遭遇数。実在する敵数を超えない."""
+        upper = min(
+            available,
+            20,
+            self.max_encounter_enemies
+            + max(0, region) * self.max_encounter_enemies_per_region,
+        )
+        return min(self.min_enemies, upper), upper
 
     def enemy_stats(
         self,

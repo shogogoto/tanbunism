@@ -191,8 +191,7 @@ async def start_combat(user_id: UUIDy, body: EncounterRequest) -> GameState:
             422,
             "有効な戦闘クイズがありません。候補を更新してください。",
         )
-    upper = min(len(unique), context.balance.max_encounter_enemies)
-    lower = min(context.balance.min_enemies, upper)
+    lower, upper = context.balance.encounter_range(len(unique), body.region)
     count = lower + randbelow(upper - lower + 1)
     chosen = sample(list(unique.values()), count)
     updated = previous.model_copy(deep=True)

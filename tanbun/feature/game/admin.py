@@ -29,9 +29,11 @@ from tanbun.feature.quiz.repo.restore import restore_quiz_sources
 
 from .balance import GameBalance, get_game_balance
 from .population import MAX_REGION_LEVEL, replace_region_pool
+from .population import REGION_QUIZ_COUNT as QUIZZES_PER_REGION_LEVEL
+from .roster import assign_enemy_quizzes as _assign_enemy_quizzes
+from .roster import enemy_identity
 from .state import GameState, StateUpdate, compare_and_save, read_state
 
-QUIZZES_PER_REGION_LEVEL = 5
 _scheduled_pool_rebuilds: set[tuple[str, str]] = set()
 logger = logging.getLogger(__name__)
 
@@ -104,6 +106,7 @@ def simulate_enemy_balance(
     quiz_groups = _assign_enemy_quizzes(
         list(range(pool_quiz_count)),
         request.balance,
+        request.achievement - 1,
     )
     enemies = []
     for index, quiz_indexes in enumerate(quiz_groups):
@@ -111,7 +114,7 @@ def simulate_enemy_balance(
             request.power,
             request.average_relations,
             request.achievement - 1,
-            variation_key=f"simulation:{request.achievement}:{index + 1}",
+            variation_key=enemy_identity("simulation", request.achievement - 1, index),
         )
         enemies.append(
             SimulatedEnemy(
@@ -125,11 +128,10 @@ def simulate_enemy_balance(
                 ),
             ),
         )
-    encounter_upper = min(
+    encounter_lower, encounter_upper = request.balance.encounter_range(
         len(enemies),
-        request.balance.max_encounter_enemies,
+        request.achievement - 1,
     )
-    encounter_lower = min(request.balance.min_enemies, encounter_upper)
     return EnemyBalanceSimulationResult(
         power=request.power,
         achievement=request.achievement,
@@ -160,33 +162,6 @@ def _legacy_pool_ids(
             if quizzes[index].get("quiz_id")
         ),
     )
-
-
-def _assign_enemy_quizzes(indices: list[int], balance: GameBalance) -> list[list[int]]:
-    """重複なしで敵種類数へクイズを分配する."""
-    count = min(
-        balance.enemy_types,
-        max(1, len(indices) // balance.min_quizzes_per_enemy),
-    )
-    if not count:
-        return []
-    indices = indices[: count * balance.max_quizzes_per_enemy]
-    minimum = min(balance.min_quizzes_per_enemy, len(indices) // count)
-    groups: list[list[int]] = [[] for _ in range(count)]
-    cursor = 0
-    for group in groups:
-        for _ in range(minimum):
-            group.append(indices[cursor])
-            cursor += 1
-    while cursor < len(indices):
-        eligible = [g for g in groups if len(g) < balance.max_quizzes_per_enemy]
-        if not eligible:
-            break
-        min_size = min(map(len, eligible))
-        next_group = next(group for group in eligible if len(group) == min_size)
-        next_group.append(indices[cursor])
-        cursor += 1
-    return groups
 
 
 def _rebuild_region(
@@ -223,14 +198,15 @@ def _rebuild_region(
         stored_id = quiz["quiz_id"]
         stored_ids.append(stored_id)
         indices.append(index)
-    groups = _assign_enemy_quizzes(indices, balance)
+    groups = _assign_enemy_quizzes(indices, balance, region)
     if not groups:
         return stored_ids, []
     enemies = []
     for enemy_index, group in enumerate(groups):
-        old = old_by_id.get(f"{resource_id}:{region}:enemy:{enemy_index}", {})
+        enemy_id = enemy_identity(resource_id, region, enemy_index)
+        old = old_by_id.get(enemy_id, {})
         enemies.append({
-            "id": f"{resource_id}:{region}:enemy:{enemy_index}",
+            "id": enemy_id,
             "name": old.get("name", f"領域 {region + 1}の敵 {enemy_index + 1}"),
             "quizIndex": group[0],
             "quizIndexes": group,

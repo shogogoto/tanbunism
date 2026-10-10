@@ -28,6 +28,7 @@ from .population import (
     get_or_prepare_region_pool,
 )
 from .preparation import preparation_status, schedule_dungeon_quizzes
+from .roster import assign_enemy_quizzes, enemy_identity
 from .state import GameState, StateUpdate, read_state, recover_state, write_state
 
 router = APIRouter(prefix="/game", tags=["game"])
@@ -176,9 +177,21 @@ async def _region_pool_response(
 ) -> dict[str, object]:
     pool = await get_or_prepare_region_pool(user_id, resource_id, level, legacy_ids)
     balance = await get_game_balance()
+    quiz_ids = pool["quiz_ids"]
+    groups = assign_enemy_quizzes(list(range(len(quiz_ids))), balance, level - 1)
     return {
         **pool,
-        "enemy_types": balance.enemy_types,
+        "enemies": [
+            {
+                "id": enemy_identity(resource_id.hex, level - 1, index),
+                "name": f"領域 {level}の敵 {index + 1}",
+                "quiz_ids": [quiz_ids[position] for position in group],
+            }
+            for index, group in enumerate(groups)
+        ]
+        if pool["ready"]
+        else [],
+        "enemy_types": balance.enemy_type_count(level - 1),
         "min_quizzes_per_enemy": balance.min_quizzes_per_enemy,
         "max_quizzes_per_enemy": balance.max_quizzes_per_enemy,
     }

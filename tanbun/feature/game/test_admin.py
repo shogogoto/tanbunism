@@ -1,12 +1,20 @@
 """管理者による領域別敵セット補修."""
 # ruff: noqa: PLR2004
 
+from asyncio import run
+from importlib import import_module
+from unittest.mock import AsyncMock
+from uuid import uuid4
+
+import pytest
+
 from .admin import (
     EnemyBalanceSimulationRequest,
     rebuild_content_enemy_pools,
     simulate_enemy_balance,
 )
 from .balance import GameBalance
+from .router import _region_pool_response
 
 
 def test_rebuild_migrates_legacy_enemy_assignments_without_widening_pool() -> None:
@@ -110,12 +118,88 @@ def test_enemy_simulation_uses_production_roster_and_stat_calculations() -> None
     assert result.pool_quiz_count == 15
     assert [enemy.quiz_count for enemy in result.enemies] == [5, 5, 5]
     assert [(enemy.hp, enemy.attack) for enemy in result.enemies] == [
-        balance.enemy_stats(100, 3, 2, variation_key=f"simulation:3:{index}")
-        for index in range(1, 4)
+        balance.enemy_stats(100, 3, 2, variation_key=f"simulation:2:enemy:{index}")
+        for index in range(3)
     ]
     assert len({(enemy.hp, enemy.attack) for enemy in result.enemies}) > 1
     assert result.min_encounter_enemies == 2
     assert result.max_encounter_enemies == 3
+
+
+def test_region_growth_is_shared_by_rebuild_and_simulation() -> None:
+    """領域の成長設定を本番の再構成と試算が同じ式で適用する."""
+    balance = GameBalance(
+        enemy_types=3,
+        enemy_types_per_region=1,
+        max_encounter_enemies=2,
+        max_encounter_enemies_per_region=1,
+    )
+    result = simulate_enemy_balance(
+        EnemyBalanceSimulationRequest(
+            balance=balance,
+            power=100,
+            achievement=3,
+            average_relations=3,
+        ),
+    )
+    content = {
+        "quizzes": [{"quiz_id": f"q{index}"} for index in range(15)],
+        "regionQuizPools": {"2": [f"q{index}" for index in range(15)]},
+        "regionEnemies": {"2": []},
+    }
+    rebuilt, _, _ = rebuild_content_enemy_pools(content, "simulation", balance=balance)
+    assert rebuilt is not None
+    enemies = rebuilt["regionEnemies"]["2"]
+    assert len(enemies) == len(result.enemies) == 5
+    assert [len(enemy["quizIndexes"]) for enemy in enemies] == [
+        enemy.quiz_count for enemy in result.enemies
+    ]
+    assert [balance.enemy_stats(100, 3, 2, enemy["id"]) for enemy in enemies] == [
+        (enemy.hp, enemy.attack) for enemy in result.enemies
+    ]
+    assert (result.min_encounter_enemies, result.max_encounter_enemies) == (1, 4)
+    assert balance.encounter_range(5, 2) == (1, 4)
+    assert balance.enemy_type_count(100) == 20
+    assert balance.encounter_range(30, 100) == (1, 20)
+
+
+def test_region_api_returns_server_roster_and_waits_for_complete_population(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """クライアントには共有処理で分配したIDセットを返し、未準備なら空にする."""
+    module = import_module("tanbun.feature.game.router")
+    balance = GameBalance(enemy_types_per_region=1)
+    pool = {"ready": True, "quiz_ids": [f"q{index}" for index in range(15)]}
+    monkeypatch.setattr(
+        module,
+        "get_or_prepare_region_pool",
+        AsyncMock(return_value=pool),
+    )
+    monkeypatch.setattr(module, "get_game_balance", AsyncMock(return_value=balance))
+    user_id, resource_id = uuid4(), uuid4()
+    response = run(_region_pool_response(user_id, resource_id, 3))
+    enemies = response["enemies"]
+    assert len(enemies) == 5
+    assert len({quiz for enemy in enemies for quiz in enemy["quiz_ids"]}) == 15
+    assert enemies[0]["id"] == f"{resource_id.hex}:2:enemy:0"
+    assert [len(enemy["quiz_ids"]) for enemy in enemies] == [3, 3, 3, 3, 3]
+    pool["ready"] = False
+    assert run(_region_pool_response(user_id, resource_id, 3))["enemies"] == []
+
+
+def test_variance_is_stable_and_zero_restores_unvaried_stats() -> None:
+    """同じIDは再計算で揺れず、0%では全て同じ基礎値になる."""
+    balance = GameBalance(enemy_variance_percent=50)
+    pairs = [balance.enemy_stats(100, 3, 0, f"enemy:{index}") for index in range(20)]
+    assert pairs == [
+        balance.enemy_stats(100, 3, 0, f"enemy:{index}") for index in range(20)
+    ]
+    assert len(set(pairs)) > 1
+    uniform = GameBalance(enemy_variance_percent=0)
+    assert (
+        len({uniform.enemy_stats(100, 3, 0, f"enemy:{index}") for index in range(20)})
+        == 1
+    )
 
 
 def test_reroll_selects_a_distinct_cumulative_pool_from_prepared_quizzes() -> None:
