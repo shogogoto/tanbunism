@@ -106,13 +106,14 @@ def test_enemy_simulation_uses_production_roster_and_stat_calculations() -> None
             average_relations=3,
         ),
     )
-    expected_hp, expected_attack = balance.enemy_stats(100, 3, 2)
     assert result.balance == balance
     assert result.pool_quiz_count == 15
     assert [enemy.quiz_count for enemy in result.enemies] == [5, 5, 5]
-    assert {(enemy.hp, enemy.attack) for enemy in result.enemies} == {
-        (expected_hp, expected_attack),
-    }
+    assert [(enemy.hp, enemy.attack) for enemy in result.enemies] == [
+        balance.enemy_stats(100, 3, 2, variation_key=f"simulation:3:{index}")
+        for index in range(1, 4)
+    ]
+    assert len({(enemy.hp, enemy.attack) for enemy in result.enemies}) > 1
     assert result.min_encounter_enemies == 2
     assert result.max_encounter_enemies == 3
 

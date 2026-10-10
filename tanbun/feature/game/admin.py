@@ -111,6 +111,7 @@ def simulate_enemy_balance(
             request.power,
             request.average_relations,
             request.achievement - 1,
+            variation_key=f"simulation:{request.achievement}:{index + 1}",
         )
         enemies.append(
             SimulatedEnemy(

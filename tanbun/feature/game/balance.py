@@ -1,5 +1,6 @@
 """現在の知識量に連動するゲームバランス。敵の能力値は保存しない."""
 
+from hashlib import blake2b
 from math import ceil, log1p
 
 from neomodel import adb
@@ -26,6 +27,7 @@ class GameBalance(BaseModel, frozen=True):
     relation_cap: int = Field(default=30, ge=0, le=1000)
     region_hp: int = Field(default=5, ge=0, le=100)
     region_attack: int = Field(default=2, ge=0, le=100)
+    enemy_variance_percent: float = Field(default=10, ge=0, le=50, allow_inf_nan=False)
     max_enemies: int = Field(default=8, ge=1, le=20)
     regions_per_enemy: int = Field(default=2, ge=1, le=100)
     enemy_types: int = Field(default=3, ge=1, le=20)
@@ -45,28 +47,42 @@ class GameBalance(BaseModel, frozen=True):
             raise ValueError(msg)
         return self
 
-    def enemy_stats(self, power: int, relations: int, region: int) -> tuple[int, int]:
+    def enemy_stats(
+        self,
+        power: int,
+        relations: int,
+        region: int,
+        variation_key: str = "",
+    ) -> tuple[int, int]:
         """Powerはlog補正、単文の関係数は上限付き。検索の重みには依存しない."""
         scale = log1p(max(0, power))
         delta = min(self.relation_cap, max(0, relations))
+        hp = ceil(
+            self.enemy_hp
+            + scale * self.power_hp
+            + delta * self.relation_hp
+            + region * self.region_hp,
+        )
+        attack = ceil(
+            self.enemy_attack
+            + scale * self.power_attack
+            + delta * self.relation_attack
+            + region * self.region_attack,
+        )
+        if self.enemy_variance_percent and variation_key:
+            digest = blake2b(variation_key.encode(), digest_size=8).digest()
+            normalized = int.from_bytes(digest, "big") / (2**64 - 1)
+            factor = 1 + (normalized * 2 - 1) * self.enemy_variance_percent / 100
+            hp = ceil(hp * factor)
+            attack = ceil(attack * factor)
         return (
             min(
                 100000,
-                ceil(
-                    self.enemy_hp
-                    + scale * self.power_hp
-                    + delta * self.relation_hp
-                    + region * self.region_hp,
-                ),
+                hp,
             ),
             min(
                 100000,
-                ceil(
-                    self.enemy_attack
-                    + scale * self.power_attack
-                    + delta * self.relation_attack
-                    + region * self.region_attack,
-                ),
+                attack,
             ),
         )
 

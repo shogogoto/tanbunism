@@ -132,7 +132,12 @@ def derive_enemies(
                 / len(valid),
             )
             selected_index = selected.get(item["id"])
-            hp, attack = balance.enemy_stats(power, relation_count, region)
+            hp, attack = balance.enemy_stats(
+                power,
+                relation_count,
+                region,
+                variation_key=item["id"],
+            )
             enemies.append(
                 EnemyStats(
                     id=item["id"],
