@@ -6,7 +6,7 @@ from tanbun.feature.user.router_util import ActiveUser
 
 from .access import AdventureAccess, consume_adventure_access, get_adventure_access
 from .knowledge import KnowledgeValidation, valid_knowledge
-from .state import GameState, StateUpdate, read_state, write_state
+from .state import GameState, StateUpdate, read_state, recover_state, write_state
 
 router = APIRouter(prefix="/game", tags=["game"])
 
@@ -33,6 +33,13 @@ async def get_game_state(user: ActiveUser, response: Response) -> GameState:
 async def put_game_state(user: ActiveUser, update: StateUpdate) -> GameState:
     """更新番号を確認して冒険を保存する."""
     return await write_state(user.uid, update)
+
+
+@router.post("/state/recover")
+async def recover_game_state(user: ActiveUser, response: Response) -> GameState:
+    """時計枠の歩数補充を原子的に保存する。累積もHP回復もしない."""
+    response.headers["Cache-Control"] = "no-store"
+    return await recover_state(user.uid)
 
 
 @router.get("/adventure-access")

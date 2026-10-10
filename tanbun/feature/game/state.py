@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from tanbun.feature.domain.types import UUIDy, to_uuid
 
-from .access import SLOT_SECONDS
+from .access import SLOT_SECONDS, get_adventure_access
 from .settings import get_battle_settings
 
 MAX_SNAPSHOT_BYTES = 1000000
@@ -40,6 +40,7 @@ class Run(BaseModel):
     phase: Literal["path", "battle", "rest", "defeated", "cleared"]
     answerDeadline: int | None = Field(default=None, ge=0)
     answerSeconds: int | None = Field(default=None, ge=1, le=1500)
+    enemyId: str | None = Field(default=None, max_length=200)
 
 
 class GameSave(BaseModel):
@@ -154,6 +155,40 @@ async def read_state(user_id: UUIDy) -> GameState:
     return state
 
 
+async def recover_state(user_id: UUIDy) -> GameState:
+    """時計枠が回復したら残歩数に関わらず補充。HP・戦闘・現在地は維持する."""
+    state = await read_state(user_id)
+    run = state.save.run
+    if not run or run.phase == "defeated" or not run.hp:
+        return state
+    if not (await get_adventure_access(user_id)).available:
+        return state
+    next_state = state.model_copy(deep=True)
+    runs = [
+        next_state.save.run,
+        *(item.run for item in next_state.save.dungeons.values()),
+    ]
+    for current in runs:
+        if current and current.phase != "defeated" and current.hp:
+            current.moves = 0
+            if current.phase == "rest":
+                current.phase = "path"
+    next_state.revision += 1
+    update = StateUpdate(
+        revision=state.revision,
+        save=next_state.save,
+        consume_access=True,
+    )
+    # Reuse the lock/revision/clock-slot CAS, including recovery from two devices.
+    try:
+        rows = await compare_and_save(user_id, update, next_state)
+    except TransientError as cause:
+        if cause.code != "Neo.TransientError.Transaction.DeadlockDetected":
+            raise
+        return await read_state(user_id)
+    return next_state if rows else await read_state(user_id)
+
+
 def known_dungeons(save: GameSave) -> list[str]:
     """旧保存の攻略済み・攻略中も補完する。存在しない過去の履歴は作らない."""
     return list(
@@ -194,10 +229,21 @@ async def write_state(user_id: UUIDy, update: StateUpdate) -> GameState:
             run.answerSeconds = old.answerSeconds
         else:
             quizzes = (update.save.content or {}).get("quizzes", [])
+            enemies = (update.save.content or {}).get("regionEnemies", {})
+            enemy = next(
+                (
+                    enemy
+                    for pool in enemies.values()
+                    for enemy in pool
+                    if enemy.get("id") == run.enemyId
+                ),
+                None,
+            )
+            quiz_index = (
+                enemy.get("quizIndex", run.quizCursor) if enemy else run.quizCursor
+            )
             kind = (
-                quizzes[run.quizCursor % len(quizzes)].get("quiz_type")
-                if quizzes
-                else None
+                quizzes[quiz_index % len(quizzes)].get("quiz_type") if quizzes else None
             )
             if kind not in {"sent2term", "term2sent", "pair2rel", "rel2pair"}:
                 raise HTTPException(422, "戦闘クイズの種類が見つかりません。")

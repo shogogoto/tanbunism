@@ -3,11 +3,91 @@
 import asyncio
 
 from httpx import AsyncClient
+from pytest_mock import MockerFixture
 
 from tanbun.conftest import mark_async_test
 from tanbun.feature.user.testing import aauth_header, aregister
 
 from .state import GameSave, Run
+
+
+@mark_async_test()
+async def test_clock_recovery_keeps_location_hp_and_battle(
+    ac: AsyncClient,
+    mocker: MockerFixture,
+) -> None:
+    """残歩数も自動補充し、二端末でも一回だけ。戦闘期限と開拓を保持する."""
+    clock = mocker.patch("tanbun.feature.game.access.time", return_value=36000)
+    state_clock = mocker.patch("tanbun.feature.game.state.time", return_value=36000)
+    user = await aregister("game-recovery@example.com")
+    headers = await aauth_header(user.email)
+    run = Run(
+        resourceId="book",
+        name="本",
+        hp=24,
+        maxHp=35,
+        attack=10,
+        defense=1,
+        moves=2,
+        kills=1,
+        enemyHp=10,
+        enemyMaxHp=20,
+        quizCursor=0,
+        readIds=["a"],
+        phase="battle",
+        enemyId="book:0:quiz",
+    )
+    content = {
+        "quizzes": [{"quiz_type": "term2sent"}, {"quiz_type": "pair2rel"}],
+        "regionEnemies": {"0": [{"id": "book:0:quiz", "quizIndex": 1}]},
+    }
+    response = await ac.put(
+        "/game/state",
+        headers=headers,
+        json={
+            "revision": 0,
+            "consume_access": True,
+            "save": GameSave(
+                run=run,
+                content=content,
+                maps={
+                    "book": {
+                        "current": "a",
+                        "places": [{"id": "a", "region": 0}],
+                        "edges": [],
+                    },
+                },
+            ).model_dump(),
+        },
+    )
+    assert response.is_success, response.text
+    before = response.json()
+    assert before["save"]["run"]["answerSeconds"] == 45  # noqa: PLR2004
+    path = "/game/state/recover"
+    assert (await ac.post(path)).status_code == 401  # noqa: PLR2004
+    assert (await ac.post(path, headers=headers)).json() == before
+    clock.return_value = state_clock.return_value = 37800
+    responses = await asyncio.gather(
+        *(ac.post(path, headers=headers) for _ in range(2)),
+    )
+    for response in responses:
+        assert response.is_success, response.text
+        recovered = response.json()
+        assert recovered["revision"] == before["revision"] + 1
+        assert recovered["save"]["run"] == {**before["save"]["run"], "moves": 0}
+        assert recovered["save"]["maps"] == before["save"]["maps"]
+        assert recovered["save"]["content"] == content
+    assert not (await ac.get("/game/adventure-access", headers=headers)).json()[
+        "available"
+    ]
+    # A resting outing becomes movable at the next boundary, without healing.
+    recovered["save"]["run"].update(phase="rest", moves=5)
+    assert (await ac.put("/game/state", headers=headers, json=recovered)).is_success
+    clock.return_value = state_clock.return_value = 39600
+    resting = (await ac.post(path, headers=headers)).json()["save"]["run"]
+    assert resting["phase"] == "path"
+    assert resting["moves"] == 0
+    assert resting["hp"] == run.hp
 
 
 @mark_async_test()
