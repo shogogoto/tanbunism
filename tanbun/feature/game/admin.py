@@ -1,19 +1,38 @@
 """管理者向けのゲームスナップショット補修."""
 
+import logging
 import secrets
 from typing import Any
 from uuid import UUID
 
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 from neomodel import adb
 from pydantic import BaseModel, Field, ValidationError
 
 from tanbun.feature.domain.types import UUIDy, to_uuid
+from tanbun.feature.notification.domain import NewNotification, NotificationKind
+from tanbun.feature.notification.usecase import notify_user
+from tanbun.feature.quiz.learning.study_plan.preparation_control import (
+    UserPreparationLimitError,
+    quiz_preparation_controller,
+)
+from tanbun.feature.quiz.learning.study_plan.preparation_settings import (
+    get_quiz_preparation_settings,
+)
+from tanbun.feature.quiz.learning.study_plan.repo import (
+    ensure_default_resource_study_plan,
+)
+from tanbun.feature.quiz.learning.study_plan.usecase import (
+    prepare_additional_study_plan_quizzes,
+)
+from tanbun.feature.quiz.repo.restore import restore_quiz_sources
 
 from .population import replace_region_pool
 from .state import GameState, StateUpdate, compare_and_save, read_state
 
 QUIZZES_PER_REGION_LEVEL = 5
+_scheduled_pool_rebuilds: set[tuple[str, str]] = set()
+logger = logging.getLogger(__name__)
 
 
 class GameDungeonAdminItem(BaseModel, frozen=True):
@@ -398,7 +417,8 @@ async def list_game_dungeons() -> list[GameDungeonAdminItem]:
 async def rebuild_dungeon_enemy_pools(
     user_id: UUIDy,
     resource_id: UUIDy,
-) -> dict[str, int]:
+    background_tasks: BackgroundTasks | None = None,
+) -> dict[str, int | bool]:
     """一つのダンジョンの母集団を再選出し、敵とグラフを同期する."""
     previous = await read_state(user_id)
     if previous.save.battle or (
@@ -406,6 +426,240 @@ async def rebuild_dungeon_enemy_pools(
     ):
         raise HTTPException(409, "戦闘中は敵セットを再構築できません。")
 
+    key = to_uuid(resource_id).hex
+    source_content = _dungeon_content(previous, key)
+    required = _required_pool_quiz_count(source_content)
+    available = len(
+        {
+            str(quiz.get("quiz_id", "")).replace("-", "").lower()
+            for quiz in (source_content or {}).get("quizzes", [])
+            if quiz.get("quiz_id")
+        },
+    )
+    if required and available < required:
+        if background_tasks is None:
+            raise HTTPException(
+                409,
+                "クイズを準備しています。完了後に再度お試しください。",
+            )
+        await _schedule_pool_rebuild(
+            user_id,
+            resource_id,
+            required - available,
+            background_tasks,
+        )
+        return {
+            "dungeon_count": 0,
+            "region_count": 0,
+            "quiz_count": 0,
+            "preparing": True,
+        }
+
+    return await _rebuild_dungeon_enemy_pools_now(user_id, resource_id)
+
+
+def _dungeon_content(state: GameState, resource_key: str) -> dict[str, Any] | None:
+    if (
+        state.save.run
+        and state.save.run.resourceId.replace("-", "").lower() == resource_key
+    ):
+        return state.save.content
+    parked = next(
+        (
+            dungeon
+            for resource_id, dungeon in state.save.dungeons.items()
+            if resource_id.replace("-", "").lower() == resource_key
+        ),
+        None,
+    )
+    return parked.content if parked else None
+
+
+def _required_pool_quiz_count(content: dict[str, Any] | None) -> int:
+    if not content:
+        return 0
+    keys = list(
+        dict.fromkeys([
+            *(content.get("regionQuizPools") or {}),
+            *(content.get("regionEnemies") or {}),
+        ]),
+    )
+    return (max(map(int, keys)) + 1) * QUIZZES_PER_REGION_LEVEL if keys else 0
+
+
+async def _prepare_and_rebuild_pool(
+    user_id: UUIDy,
+    resource_id: UUIDy,
+    additional_count: int,
+) -> None:
+    key = to_uuid(resource_id).hex
+    try:
+        state = await read_state(user_id)
+        content = _dungeon_content(state, key)
+        if content is None:
+            return
+        rows, _ = await adb.cypher_query(
+            "MATCH (r:Resource {uid: $uid}) RETURN r.title",
+            {"uid": key},
+        )
+        plan = await ensure_default_resource_study_plan(
+            user_id,
+            resource_id,
+            (rows[0][0] if rows else None) or "ダンジョン",
+        )
+        preparation = await prepare_additional_study_plan_quizzes(
+            plan.uid,
+            user_id,
+            additional_count,
+            send_notification=False,
+        )
+        await _sync_study_plan_quizzes(user_id, resource_id, plan.uid, content)
+        await _rebuild_dungeon_enemy_pools_now(user_id, resource_id)
+        await notify_user(
+            user_id,
+            NewNotification(
+                kind=NotificationKind.QUIZ_PREPARATION_COMPLETE,
+                title="ダンジョンのクイズ準備完了",
+                description="クイズを追加し、母集団と敵セットを再選出しました。",
+                href="/admin",
+            ),
+        )
+        logger.info(
+            "Prepared %d quizzes and rebuilt dungeon pools for user %s resource %s",
+            preparation.added_count,
+            user_id,
+            resource_id,
+        )
+    except Exception as error:
+        logger.exception(
+            "Queued dungeon quiz preparation/rebuild failed for %s",
+            resource_id,
+        )
+        try:
+            await notify_user(
+                user_id,
+                NewNotification(
+                    kind=NotificationKind.QUIZ_PREPARATION_FAILED,
+                    title="ダンジョンのクイズ準備に失敗しました",
+                    description=(
+                        str(error).strip() or "時間をおいて再度お試しください。"
+                    )[:500],
+                    href="/admin",
+                ),
+            )
+        except Exception:
+            logger.exception("Failed to notify about dungeon quiz preparation failure")
+    finally:
+        _scheduled_pool_rebuilds.discard((to_uuid(user_id).hex, key))
+
+
+async def _sync_study_plan_quizzes(
+    user_id: UUIDy,
+    resource_id: UUIDy,
+    plan_id: UUIDy,
+    content: dict[str, Any],
+) -> None:
+    key = to_uuid(resource_id).hex
+    required = _required_pool_quiz_count(content)
+    quiz_rows, _ = await adb.cypher_query(
+        """
+            MATCH (plan:StudyPlan {uid: $plan_id})-[:STUDY]->(resource:Resource)
+            MATCH (user:User {uid: $user_id})-[:LEARN]->(quiz:Quiz)
+                -[:QUIZ_TARGET]->(sentence:Sentence)
+            WHERE sentence.resource_uid = resource.uid
+              AND quiz.quiz_type IN plan.quiz_types
+              AND NOT EXISTS { MATCH (quiz)-[:BROKEN_BY]->() }
+            RETURN DISTINCT quiz.uid
+            ORDER BY quiz.uid
+            LIMIT $limit
+            """,
+        {
+            "plan_id": to_uuid(plan_id).hex,
+            "user_id": to_uuid(user_id).hex,
+            "limit": required,
+        },
+    )
+    sources = await restore_quiz_sources([row[0] for row in quiz_rows])
+    readable = [source.to_readable().model_dump(mode="json") for source in sources]
+    updated = await read_state(user_id)
+    latest_content = _dungeon_content(updated, key)
+    if latest_content is None:
+        return
+    by_id = {
+        str(quiz.get("quiz_id", "")).replace("-", "").lower(): quiz
+        for quiz in [*(latest_content.get("quizzes") or []), *readable]
+        if quiz.get("quiz_id")
+    }
+    _replace_dungeon_content(
+        updated,
+        key,
+        {**latest_content, "quizzes": list(by_id.values())},
+    )
+    await _save_admin_state(user_id, updated)
+
+
+async def _schedule_pool_rebuild(
+    user_id: UUIDy,
+    resource_id: UUIDy,
+    additional_count: int,
+    background_tasks: BackgroundTasks,
+) -> None:
+    key = (to_uuid(user_id).hex, to_uuid(resource_id).hex)
+    if key in _scheduled_pool_rebuilds:
+        return
+    settings = await get_quiz_preparation_settings()
+    try:
+        await quiz_preparation_controller.reserve(
+            user_id,
+            max_jobs_per_user=settings.max_concurrent_jobs_per_user,
+        )
+    except UserPreparationLimitError as error:
+        raise HTTPException(409, str(error)) from error
+    _scheduled_pool_rebuilds.add(key)
+    background_tasks.add_task(
+        quiz_preparation_controller.execute,
+        user_id,
+        max_concurrent_jobs=settings.max_concurrent_jobs,
+        operation=_prepare_and_rebuild_pool,
+        args=(user_id, resource_id, additional_count),
+    )
+
+
+def _replace_dungeon_content(
+    state: GameState,
+    key: str,
+    content: dict[str, Any],
+) -> None:
+    if state.save.run and state.save.run.resourceId.replace("-", "").lower() == key:
+        state.save.content = content
+        return
+    for resource_id, dungeon in state.save.dungeons.items():
+        if resource_id.replace("-", "").lower() == key:
+            dungeon.content = content
+            return
+
+
+async def _save_admin_state(user_id: UUIDy, state: GameState) -> None:
+    expected_revision = state.revision
+    state.revision = expected_revision + 1
+    rows = await compare_and_save(
+        user_id,
+        StateUpdate(revision=expected_revision, save=state.save),
+        state,
+    )
+    if not rows:
+        raise HTTPException(409, "冒険状態が更新されました。再試行してください。")
+
+
+async def _rebuild_dungeon_enemy_pools_now(
+    user_id: UUIDy,
+    resource_id: UUIDy,
+) -> dict[str, int]:
+    previous = await read_state(user_id)
+    if previous.save.battle or (
+        previous.save.run and previous.save.run.phase == "battle"
+    ):
+        raise HTTPException(409, "戦闘中は敵セットを再構築できません。")
     key = to_uuid(resource_id).hex
     updated = previous.model_copy(deep=True)
     if updated.save.run and updated.save.run.resourceId.replace("-", "").lower() == key:

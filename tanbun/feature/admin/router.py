@@ -3,7 +3,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
 
 from tanbun.feature.entry.resource.import_settings import (
     ResourceImportSettings,
@@ -99,9 +99,10 @@ async def rebuild_user_dungeon_enemies(
     user_id: UUID,
     resource_id: UUID,
     _admin: AdminUser,
-) -> dict[str, int]:
+    background_tasks: BackgroundTasks,
+) -> dict[str, int | bool]:
     """指定したダンジョンの母集団と敵セットを再選出する."""
-    return await rebuild_dungeon_enemy_pools(user_id, resource_id)
+    return await rebuild_dungeon_enemy_pools(user_id, resource_id, background_tasks)
 
 
 @router.get("/settings/game-balance")
