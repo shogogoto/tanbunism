@@ -100,7 +100,7 @@ async def rebuild_user_dungeon_enemies(
     resource_id: UUID,
     _admin: AdminUser,
 ) -> dict[str, int]:
-    """指定したユーザー別ダンジョンの敵セットだけを再構成する."""
+    """指定したダンジョンの母集団と敵セットを再選出する."""
     return await rebuild_dungeon_enemy_pools(user_id, resource_id)
 
 

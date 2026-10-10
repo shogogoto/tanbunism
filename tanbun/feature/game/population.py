@@ -138,6 +138,16 @@ async def _save_region_pool(
     )
 
 
+async def replace_region_pool(
+    user_id: UUIDy,
+    resource_id: UUIDy,
+    level: int,
+    quiz_ids: list[str],
+) -> None:
+    """管理者による母集団再選出をグラフ上の正本へ保存する."""
+    await _save_region_pool(user_id, resource_id, level, quiz_ids)
+
+
 async def get_or_prepare_region_pool(
     user_id: UUIDy,
     resource_id: UUIDy,

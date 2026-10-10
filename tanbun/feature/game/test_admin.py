@@ -54,3 +54,36 @@ def test_rebuild_uses_explicit_population_and_drops_missing_quizzes() -> None:
             "quizIndex": 1,
         },
     ]
+
+
+def test_reroll_selects_a_distinct_cumulative_pool_from_prepared_quizzes() -> None:
+    """再選出では母集団を累積し、同じクイズを重ねない."""
+    content = {
+        "quizzes": [{"quiz_id": f"quiz-{index}"} for index in range(1, 16)],
+        "regionQuizPools": {
+            "0": [f"quiz-{index}" for index in range(1, 6)],
+            "1": [f"quiz-{index}" for index in range(1, 11)],
+            "2": [f"quiz-{index}" for index in range(1, 16)],
+        },
+        "regionEnemies": {"0": [], "1": [], "2": []},
+    }
+
+    rebuilt, regions, quiz_count = rebuild_content_enemy_pools(
+        content,
+        "book",
+        reroll=True,
+    )
+
+    assert rebuilt is not None
+    pools = rebuilt["regionQuizPools"]
+    assert regions == len(content["regionQuizPools"])
+    assert quiz_count == sum(len(pool) for pool in pools.values())
+    assert [len(pools[str(region)]) for region in range(3)] == [
+        5,
+        10,
+        15,
+    ]
+    assert len(set(pools["2"])) == len(content["quizzes"])
+    assert pools["0"] == pools["1"][:5]
+    assert pools["1"] == pools["2"][:10]
+    assert pools["0"] != content["regionQuizPools"]["0"]

@@ -1,15 +1,19 @@
 """管理者向けのゲームスナップショット補修."""
 
+import secrets
 from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException
 from neomodel import adb
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from tanbun.feature.domain.types import UUIDy, to_uuid
 
+from .population import replace_region_pool
 from .state import GameState, StateUpdate, compare_and_save, read_state
+
+QUIZZES_PER_REGION_LEVEL = 5
 
 
 class GameDungeonAdminItem(BaseModel, frozen=True):
@@ -22,6 +26,22 @@ class GameDungeonAdminItem(BaseModel, frozen=True):
     status: str
     region_count: int
     quiz_count: int
+    regions: list["GameDungeonRegionPool"] = Field(default_factory=list)
+
+
+class GameDungeonRegionQuiz(BaseModel, frozen=True):
+    """管理画面で確認する母集団クイズの要約."""
+
+    quiz_id: str
+    quiz_type: str
+    statement: str
+
+
+class GameDungeonRegionPool(BaseModel, frozen=True):
+    """一つの領域に固定されたクイズ母集団."""
+
+    level: int
+    quizzes: list[GameDungeonRegionQuiz]
 
 
 def _legacy_pool_ids(
@@ -90,11 +110,53 @@ def _rebuild_region(
     return stored_ids, enemies
 
 
+def _rerolled_region_pools(
+    quizzes: list[dict[str, Any]],
+    old_pools: dict[str, list[str]],
+    region_keys: list[str],
+) -> dict[str, list[str]]:
+    """準備済みクイズを重複なくシャッフルし、領域ごとの累積セットを作る."""
+    candidates = list(
+        dict.fromkeys(str(quiz["quiz_id"]) for quiz in quizzes if quiz.get("quiz_id")),
+    )
+    required = (max(map(int, region_keys)) + 1) * QUIZZES_PER_REGION_LEVEL
+    if len(candidates) < required:
+        raise HTTPException(
+            409,
+            f"母集団の再選出には準備済みクイズが{required}問必要です。現在は{len(candidates)}問です。",
+        )
+    secrets.SystemRandom().shuffle(candidates)
+    previous_ids = [
+        quiz_id
+        for region_key in sorted(region_keys, key=int)
+        for quiz_id in old_pools.get(region_key, [])
+        if isinstance(quiz_id, str)
+    ]
+    previous_unique = list(dict.fromkeys(previous_ids))
+    if (
+        len(candidates) > len(previous_unique)
+        and candidates[: len(previous_unique)] == previous_unique
+    ):
+        candidates = candidates[1:] + candidates[:1]
+    first_region = min(region_keys, key=int)
+    old_first_pool = old_pools.get(first_region, [])
+    if len(candidates) > len(old_first_pool) and set(
+        candidates[: len(old_first_pool)],
+    ) == set(old_first_pool):
+        candidates = candidates[1:] + candidates[:1]
+    return {
+        region_key: candidates[: (int(region_key) + 1) * QUIZZES_PER_REGION_LEVEL]
+        for region_key in sorted(region_keys, key=int)
+    }
+
+
 def rebuild_content_enemy_pools(
     content: dict[str, Any] | None,
     resource_id: str,
+    *,
+    reroll: bool = False,
 ) -> tuple[dict[str, Any] | None, int, int]:
-    """既存の各領域のクイズ母集団を明示し、敵配列をそこから再構成する."""
+    """保存済み母集団または再選出した母集団から敵配列を組み立てる."""
     if not content:
         return content, 0, 0
 
@@ -110,13 +172,19 @@ def rebuild_content_enemy_pools(
     if not region_keys:
         return content, 0, 0
 
+    replacement_pools = (
+        _rerolled_region_pools(quizzes, old_pools, region_keys) if reroll else {}
+    )
+
     rebuilt_regions = {
         str(region_key): _rebuild_region(
             str(region_key),
             resource_id=resource_id,
             quizzes=quizzes,
             quiz_by_id=quiz_by_id,
-            pool_ids=old_pools.get(region_key),
+            pool_ids=(
+                replacement_pools[region_key] if reroll else old_pools.get(region_key)
+            ),
             previous_enemies=old_enemies.get(region_key, []),
         )
         for region_key in region_keys
@@ -229,6 +297,45 @@ def _snapshot_pool_counts(content: dict[str, Any] | None) -> tuple[int, int]:
     return len(keys), len(quiz_ids)
 
 
+def _snapshot_region_pools(
+    content: dict[str, Any] | None,
+) -> list[GameDungeonRegionPool]:
+    if not content:
+        return []
+    quizzes = content.get("quizzes") or []
+    quizzes_by_id = {
+        str(quiz.get("quiz_id", "")).replace("-", "").lower(): quiz
+        for quiz in quizzes
+        if quiz.get("quiz_id")
+    }
+    pools = content.get("regionQuizPools") or {}
+    if not pools:
+        pools = {
+            region: _legacy_pool_ids(enemies, quizzes)
+            for region, enemies in (content.get("regionEnemies") or {}).items()
+        }
+    result = []
+    for region_key, quiz_ids in sorted(pools.items(), key=lambda item: int(item[0])):
+        region_quizzes = []
+        for quiz_id in quiz_ids:
+            quiz = quizzes_by_id.get(str(quiz_id).replace("-", "").lower())
+            if quiz:
+                region_quizzes.append(
+                    GameDungeonRegionQuiz(
+                        quiz_id=str(quiz_id),
+                        quiz_type=str(quiz.get("quiz_type", "")),
+                        statement=str(quiz.get("statement", "")),
+                    ),
+                )
+        result.append(
+            GameDungeonRegionPool(
+                level=int(region_key) + 1,
+                quizzes=region_quizzes,
+            ),
+        )
+    return result
+
+
 async def list_game_dungeons() -> list[GameDungeonAdminItem]:
     """スナップショットとグラフの母集団を合わせて管理一覧を返す."""
     rows, _ = await adb.cypher_query(
@@ -252,6 +359,7 @@ async def list_game_dungeons() -> list[GameDungeonAdminItem]:
                 "status": dungeon["status"],
                 "region_count": region_count,
                 "quiz_count": quiz_count,
+                "regions": _snapshot_region_pools(dungeon["content"]),
             }
 
     graph_rows, _ = await adb.cypher_query(
@@ -276,6 +384,7 @@ async def list_game_dungeons() -> list[GameDungeonAdminItem]:
                 "status": "母集団あり",
                 "region_count": 0,
                 "quiz_count": 0,
+                "regions": [],
             },
         )
         item["resource_name"] = name or item["resource_name"]
@@ -290,7 +399,7 @@ async def rebuild_dungeon_enemy_pools(
     user_id: UUIDy,
     resource_id: UUIDy,
 ) -> dict[str, int]:
-    """一つのユーザー別ダンジョンの敵表示を母集団から再構成する."""
+    """一つのダンジョンの母集団を再選出し、敵とグラフを同期する."""
     previous = await read_state(user_id)
     if previous.save.battle or (
         previous.save.run and previous.save.run.phase == "battle"
@@ -303,6 +412,7 @@ async def rebuild_dungeon_enemy_pools(
         content, regions, quizzes = rebuild_content_enemy_pools(
             updated.save.content,
             key,
+            reroll=True,
         )
         updated.save.content = content
     else:
@@ -319,11 +429,14 @@ async def rebuild_dungeon_enemy_pools(
         content, regions, quizzes = rebuild_content_enemy_pools(
             parked.content,
             key,
+            reroll=True,
         )
         parked.content = content
 
     if not regions:
         return {"dungeon_count": 0, "region_count": 0, "quiz_count": 0}
+    for region_key, quiz_ids in (content.get("regionQuizPools") or {}).items():
+        await replace_region_pool(user_id, resource_id, int(region_key) + 1, quiz_ids)
     updated.revision = previous.revision + 1
     rows = await compare_and_save(
         user_id,
