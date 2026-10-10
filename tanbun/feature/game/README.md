@@ -9,6 +9,17 @@ User properties, intentionally absent from public/editable account schemas.
 No new schema/index install is required; no orphan nodes are created. Deleting a
 User also removes these fields. They must not be copied as learning history.
 
+# Dungeon quiz populations
+
+The stable quiz population is stored in Neo4j, scoped to a user and resource:
+`User-[:HAS_DUNGEON]->Dungeon-[:BASED_ON]->Resource`, then
+`Dungeon-[:HAS_REGION]->DungeonRegion-[:POPULATION_QUIZ {position}]->Quiz`.
+Each region contains a cumulative ordered prefix of five additional prepared
+quizzes per achievement level. `GET /game/dungeons/{resource_id}/regions/{level}/quiz-pool`
+returns or creates the population after verifying that the default StudyPlan has
+enough usable quizzes. The client snapshot keeps a projection for battle display;
+legacy snapshot pools are validated and migrated through the matching POST route.
+
 HP, battles, routes and dungeon clears are shared server snapshots with revision
 checks. Combat rules remain a client-side prototype; these APIs
 authorize starting/resuming an event, not validate every combat action. Learning

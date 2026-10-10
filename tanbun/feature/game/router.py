@@ -2,7 +2,8 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Response
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Response
+from pydantic import BaseModel, Field
 
 from tanbun.feature.quiz.learning.study_plan.repo import adventure_quiz_progress
 from tanbun.feature.user.router_util import ActiveUser
@@ -21,10 +22,21 @@ from .combat import (
     start_combat,
 )
 from .knowledge import KnowledgeValidation, valid_knowledge
+from .population import (
+    MAX_LEGACY_POOL_SIZE,
+    MAX_REGION_LEVEL,
+    get_or_prepare_region_pool,
+)
 from .preparation import preparation_status, schedule_dungeon_quizzes
 from .state import GameState, StateUpdate, read_state, recover_state, write_state
 
 router = APIRouter(prefix="/game", tags=["game"])
+
+
+class RegionQuizPoolSeed(BaseModel):
+    """既存スナップショットの母集団をグラフへ移行する入力."""
+
+    quiz_ids: list[str] = Field(min_length=1, max_length=MAX_LEGACY_POOL_SIZE)
 
 
 @router.get("/balance")
@@ -125,6 +137,40 @@ async def get_dungeon_preparation(
     )
     _plan_id, prepared_regions = await adventure_quiz_progress(user.uid, resource_id)
     return preparation_status(state, prepared_regions, resource_id.hex)
+
+
+@router.get("/dungeons/{resource_id}/regions/{level}/quiz-pool")
+async def get_dungeon_region_quiz_pool(
+    resource_id: UUID,
+    level: int,
+    user: ActiveUser,
+    response: Response,
+) -> dict[str, object]:
+    """領域レベルごとに固定した累積クイズ母集団を返す."""
+    if not 1 <= level <= MAX_REGION_LEVEL:
+        raise HTTPException(422, "領域レベルは1から20の範囲で指定してください。")
+    response.headers["Cache-Control"] = "no-store"
+    return await get_or_prepare_region_pool(user.uid, resource_id, level)
+
+
+@router.post("/dungeons/{resource_id}/regions/{level}/quiz-pool")
+async def migrate_dungeon_region_quiz_pool(
+    resource_id: UUID,
+    level: int,
+    seed: RegionQuizPoolSeed,
+    user: ActiveUser,
+    response: Response,
+) -> dict[str, object]:
+    """既存スナップショットの固定母集団を検証してグラフへ移行する."""
+    if not 1 <= level <= MAX_REGION_LEVEL:
+        raise HTTPException(422, "領域レベルは1から20の範囲で指定してください。")
+    response.headers["Cache-Control"] = "no-store"
+    return await get_or_prepare_region_pool(
+        user.uid,
+        resource_id,
+        level,
+        seed.quiz_ids,
+    )
 
 
 @router.post("/state/recover")

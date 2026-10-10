@@ -19,6 +19,7 @@ from tanbun.feature.entry.label import (
     LResource,
     LResourceStatsCache,
 )
+from tanbun.feature.game.label import LDungeon, LDungeonRegion
 from tanbun.feature.gamification.label import LResourceXpEvent
 from tanbun.feature.media.label import LImageCleanup, LImageCleanupQueue
 from tanbun.feature.quiz.label import LAnswer, LQuiz
@@ -46,6 +47,8 @@ ASYNC_LABELS = (
     LResourceXpEvent,
     LPageRankQueue,
     LPageRankJob,
+    LDungeon,
+    LDungeonRegion,
 )
 
 _constraint_locks: WeakKeyDictionary = WeakKeyDictionary()
