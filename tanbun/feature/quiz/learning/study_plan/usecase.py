@@ -294,12 +294,13 @@ async def recommend_quizzes_for_study_plan(
     quiz_type: QuizType | None = None,
     *,
     generate_missing: bool = True,
+    limit: int | None = None,
 ) -> list[QuizRecommendation]:
     """保存されたStudyPlanの設定でクイズを推薦."""
     plan = await get_study_plan(plan_id, user_id)
 
     # 過去に保存された少ない出題数でも、選択した各形式を最低1問は試す。
-    n_quiz = max(plan.n_quiz, len(plan.quiz_types))
+    n_quiz = max(limit if limit is not None else plan.n_quiz, len(plan.quiz_types))
     quotient, remainder = divmod(n_quiz, len(plan.quiz_types))
     quiz_types = (
         [quiz_type]

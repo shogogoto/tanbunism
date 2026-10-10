@@ -16,6 +16,8 @@ from tanbun.feature.quiz.learning.study_plan.errors import (
     StudyPlanCreateError,
 )
 
+QUIZZES_PER_ADVENTURE_REGION = 5
+
 
 async def fetch_study_plan(
     plan_id: UUIDy,
@@ -35,7 +37,8 @@ async def fetch_study_plan(
             plan.n_quiz,
             plan.n_option,
             plan.created,
-            COLLECT(resource.uid)
+            COLLECT(resource.uid),
+            plan.auto_resource_uid IS NOT NULL
     """
     rows, _ = await adb.cypher_query(
         q,
@@ -47,7 +50,16 @@ async def fetch_study_plan(
     if not rows:
         return None
 
-    uid, name, quiz_types, n_quiz, n_option, created, resource_ids = rows[0]
+    (
+        uid,
+        name,
+        quiz_types,
+        n_quiz,
+        n_option,
+        created,
+        resource_ids,
+        default_resource_plan,
+    ) = rows[0]
     return StudyPlan(
         uid=uid,
         name=name,
@@ -56,6 +68,7 @@ async def fetch_study_plan(
         n_quiz=n_quiz,
         n_option=n_option,
         created=neo4j_dt_validator(created),
+        default_resource_plan=default_resource_plan,
     )
 
 
@@ -178,6 +191,45 @@ async def ensure_default_resource_study_plan(
     return plan
 
 
+async def adventure_quiz_progress(
+    user_id: UUIDy,
+    resource_id: UUIDy,
+) -> tuple[UUID | None, int]:
+    """Resource既定Planの冒険向け準備済み領域数."""
+    rows, _ = await adb.cypher_query(
+        """MATCH (plan:StudyPlan {auto_resource_uid: $resource_id})
+            -[:OWNED]->(:User {uid: $user_id})
+        RETURN plan.uid, coalesce(plan.adventure_prepared_regions, 0)""",
+        {
+            "resource_id": to_uuid(resource_id).hex,
+            "user_id": to_uuid(user_id).hex,
+        },
+    )
+    return (to_uuid(rows[0][0]), rows[0][1]) if rows else (None, 0)
+
+
+async def complete_adventure_quiz_region(
+    user_id: UUIDy,
+    plan_id: UUIDy,
+    region: int,
+) -> bool:
+    """一つの達成領域の準備を記録し、推薦件数を5問広げる."""
+    rows, _ = await adb.cypher_query(
+        """MATCH (plan:StudyPlan {uid: $plan_id})
+            -[:OWNED]->(:User {uid: $user_id})
+        WITH plan, coalesce(plan.adventure_prepared_regions, 0) AS current
+        WHERE current = $region
+        SET plan.adventure_prepared_regions = $region + 1
+        RETURN plan.uid""",
+        {
+            "plan_id": to_uuid(plan_id).hex,
+            "user_id": to_uuid(user_id).hex,
+            "region": region,
+        },
+    )
+    return bool(rows)
+
+
 async def update_study_plan(
     plan_id: UUIDy,
     user_id: UUIDy,
@@ -196,8 +248,12 @@ async def update_study_plan(
             plan.name = $name,
             plan.quiz_types = $quiz_types,
             plan.n_quiz = $n_quiz,
-            plan.n_option = $n_option
-        REMOVE plan.auto_resource_uid
+            plan.n_option = $n_option,
+            plan.auto_resource_uid = CASE
+                WHEN size($resource_ids) = 1
+                    AND plan.auto_resource_uid = $resource_ids[0]
+                THEN plan.auto_resource_uid
+                ELSE null END
         WITH plan
         OPTIONAL MATCH (plan)-[old:STUDY]->()
         DELETE old

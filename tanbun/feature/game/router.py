@@ -1,7 +1,10 @@
 """認証済みユーザー本人の冒険権API."""
 
-from fastapi import APIRouter, Response
+from uuid import UUID
 
+from fastapi import APIRouter, BackgroundTasks, Response
+
+from tanbun.feature.quiz.learning.study_plan.repo import adventure_quiz_progress
 from tanbun.feature.user.router_util import ActiveUser
 
 from .access import AdventureAccess, consume_adventure_access, get_adventure_access
@@ -18,6 +21,7 @@ from .combat import (
     start_combat,
 )
 from .knowledge import KnowledgeValidation, valid_knowledge
+from .preparation import preparation_status, schedule_dungeon_quizzes
 from .state import GameState, StateUpdate, read_state, recover_state, write_state
 
 router = APIRouter(prefix="/game", tags=["game"])
@@ -79,16 +83,48 @@ async def validate_game_knowledge(
 
 
 @router.get("/state")
-async def get_game_state(user: ActiveUser, response: Response) -> GameState:
+async def get_game_state(
+    user: ActiveUser,
+    response: Response,
+    background_tasks: BackgroundTasks,
+) -> GameState:
     """認証中のアカウントの冒険を読み出す."""
     response.headers["Cache-Control"] = "no-store"
-    return await read_state(user.uid)
+    state = await read_state(user.uid)
+    await schedule_dungeon_quizzes(user.uid, state, background_tasks)
+    return state
 
 
 @router.put("/state")
-async def put_game_state(user: ActiveUser, update: StateUpdate) -> GameState:
+async def put_game_state(
+    user: ActiveUser,
+    update: StateUpdate,
+    background_tasks: BackgroundTasks,
+) -> GameState:
     """更新番号を確認して冒険を保存する."""
-    return await write_state(user.uid, update)
+    state = await write_state(user.uid, update)
+    await schedule_dungeon_quizzes(user.uid, state, background_tasks)
+    return state
+
+
+@router.get("/dungeons/{resource_id}/preparation")
+async def get_dungeon_preparation(
+    resource_id: UUID,
+    user: ActiveUser,
+    response: Response,
+    background_tasks: BackgroundTasks,
+) -> dict[str, int]:
+    """準備済み領域を返し、開拓済みの追加準備があれば再開する."""
+    response.headers["Cache-Control"] = "no-store"
+    state = await read_state(user.uid)
+    await schedule_dungeon_quizzes(
+        user.uid,
+        state,
+        background_tasks,
+        [resource_id.hex],
+    )
+    _plan_id, prepared_regions = await adventure_quiz_progress(user.uid, resource_id)
+    return preparation_status(state, prepared_regions, resource_id.hex)
 
 
 @router.post("/state/recover")

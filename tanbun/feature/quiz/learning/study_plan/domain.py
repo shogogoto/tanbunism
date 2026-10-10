@@ -39,6 +39,7 @@ class StudyPlan(StudyPlanDraft, frozen=True):
 
     uid: UUID
     created: datetime
+    default_resource_plan: bool = False
 
 
 class StudyPlanPreparationStatus(BaseModel, frozen=True):

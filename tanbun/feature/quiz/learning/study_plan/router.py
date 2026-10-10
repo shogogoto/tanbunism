@@ -1,8 +1,9 @@
 """StudyPlan API."""
 
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response, status
 
 from tanbun.feature.quiz.domain.parts import QuizType
 from tanbun.feature.quiz.learning.study_plan.domain import (
@@ -161,6 +162,7 @@ async def recommend_study_plan_quizzes_api(
     quiz_type: QuizType | None = None,
     *,
     generate_missing: bool = True,
+    limit: Annotated[int | None, Query(ge=1, le=100)] = None,
 ) -> list[QuizRecommendationResponse]:
     """StudyPlanの設定で回答可能なクイズを推薦."""
     recommendations = await recommend_quizzes_for_study_plan(
@@ -168,6 +170,7 @@ async def recommend_study_plan_quizzes_api(
         user.uid,
         quiz_type,
         generate_missing=generate_missing,
+        limit=limit,
     )
     return [
         QuizRecommendationResponse.from_domain(recommendation)
