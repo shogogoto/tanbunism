@@ -30,6 +30,11 @@ from tanbun.feature.game.settings import (
     get_battle_settings,
     update_battle_settings,
 )
+from tanbun.feature.game.simulation import (
+    CombatSimulationRequest,
+    CombatSimulationResult,
+    simulate_combat,
+)
 from tanbun.feature.gamification.power import (
     PowerWeights,
     get_power_weights,
@@ -133,6 +138,15 @@ async def simulate_game_balance(
 async def read_battle_settings(_admin: AdminUser) -> BattleSettings:
     """戦闘の基本秒数・種類別の重みを取得する."""
     return await get_battle_settings()
+
+
+@router.post("/settings/game-balance/simulate-combat")
+async def simulate_game_combat(
+    body: CombatSimulationRequest,
+    _admin: AdminUser,
+) -> CombatSimulationResult:
+    """Read-only damage estimates using live combat rules."""
+    return simulate_combat(body)
 
 
 @router.put("/settings/battle")

@@ -18,6 +18,7 @@ from tanbun.feature.quiz.answering.repo import create_answer_in_transaction
 from tanbun.feature.quiz.chain.usecase import expand_quiz_chain
 
 from .balance import Allocation, GameBalance, get_game_balance
+from .damage import enemy_damage
 from .state import BattleMarker, GameState, StateUpdate, compare_and_save, read_state
 
 MOVES_PER_EVENT = 5
@@ -255,10 +256,9 @@ async def settle_turn(user_id: UUIDy, body: TurnRequest) -> dict:
         raise HTTPException(422, "未正解の敵は撃破できません。")
     stats = previous.save.allocation.stats(context.balance)
     damage = sum(
-        max(
-            1,
-            (enemies[e].attack if e in enemies else context.balance.enemy_attack)
-            - stats["defense"],
+        enemy_damage(
+            (enemies[e].attack if e in enemies else context.balance.enemy_attack),
+            stats["defense"],
         )
         for e in marker.enemies
         if not results.get(e)
@@ -385,7 +385,7 @@ async def abandon_combat(user_id: UUIDy) -> GameState:
         damage = (
             0
             if state.save.battleFeedback
-            else max(1, balance.enemy_attack - stats["defense"])
+            else enemy_damage(balance.enemy_attack, stats["defense"])
         )
         for key, value in stats.items():
             setattr(run, key, value)

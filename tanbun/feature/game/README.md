@@ -41,6 +41,13 @@ It is part of the account snapshot and uses the same revision checks.
 
 # Battle timing
 
+Admin game balance also provides a read-only one-on-one combat simulation.
+Correct answers deal the player's attack to the enemy (enemies have no defense).
+Incorrect or unanswered questions deal `max(1, enemy attack - player defense)`
+to the player, using the same damage function as turn settlement and retreat.
+The estimate returns both independent outcomes and lethal answer counts; it does
+not create answers, grant XP, change HP, or persist simulated game state.
+
 Admin > Battle configures basic seconds (default 30) and four quiz-type weights:
 sent2term 1.0, term2sent 1.2, pair2rel 1.5, rel2pair 1.5. Seconds are rounded up.
 `/admin/settings/battle` requires a superuser and stores config in AdminSettings.
