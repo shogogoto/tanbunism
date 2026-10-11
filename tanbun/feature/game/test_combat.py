@@ -19,6 +19,7 @@ from tanbun.feature.user.label import LUser
 from . import combat
 from .balance import Allocation, GameBalance, update_game_balance
 from .combat import EncounterRequest, TurnRequest
+from .damage import damage_range
 from .state import GameSave, GameState, Run, StateUpdate, read_state, write_state
 
 u = async_fixture()(fx_u)
@@ -130,10 +131,13 @@ async def test_unanswered_retreat_is_once_and_keeps_discovery(u: LUser):
     """再読み込みは全問未回答のダメージだけ。履歴/XPなし、歩数/開拓は維持."""
     await encounter(u)
     context = await combat.combat_context(u.uid)
-    damage = sum(max(1, e.attack - 1) for e in context.enemies)
+    damage_ranges = [
+        damage_range(e.attack, 1, context.balance) for e in context.enemies
+    ]
     saved = await combat.abandon_combat(u.uid)
     assert saved.save.battle is None
-    assert saved.save.run.hp == max(0, 35 - damage)
+    assert max(0, 35 - sum(row[2] for row in damage_ranges)) <= saved.save.run.hp
+    assert saved.save.run.hp <= 35 - sum(row[0] for row in damage_ranges)
     assert saved.save.run.moves == 1
     dungeon = saved.save.maps[saved.save.run.resourceId]
     assert dungeon.current == "@entrance"
