@@ -1,12 +1,13 @@
 """管理者による領域別敵セット補修."""
 # ruff: noqa: PLR2004
 
-from asyncio import run
 from importlib import import_module
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+
+from tanbun.conftest import mark_async_test
 
 from .admin import (
     EnemyBalanceSimulationRequest,
@@ -151,7 +152,8 @@ def test_region_growth_is_shared_by_rebuild_and_simulation() -> None:
     assert balance.encounter_range(30, 100) == (20, 20)
 
 
-def test_region_api_returns_server_roster_and_waits_for_complete_population(
+@mark_async_test()
+async def test_region_api_returns_server_roster_and_waits_for_complete_population(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """クライアントには共有処理で分配したIDセットを返し、未準備なら空にする."""
@@ -165,7 +167,7 @@ def test_region_api_returns_server_roster_and_waits_for_complete_population(
     )
     monkeypatch.setattr(module, "get_game_balance", AsyncMock(return_value=balance))
     user_id, resource_id = uuid4(), uuid4()
-    response = run(_region_pool_response(user_id, resource_id, 3))
+    response = await _region_pool_response(user_id, resource_id, 3)
     enemies = response["enemies"]
     assert len(enemies) == 5
     assert all(len(enemy["quiz_ids"]) == 3 for enemy in enemies)
@@ -173,7 +175,7 @@ def test_region_api_returns_server_roster_and_waits_for_complete_population(
     assert enemies[0]["id"] == f"{resource_id.hex}:2:enemy:0"
     assert [len(enemy["quiz_ids"]) for enemy in enemies] == [3, 3, 3, 3, 3]
     pool["ready"] = False
-    assert run(_region_pool_response(user_id, resource_id, 3))["enemies"] == []
+    assert (await _region_pool_response(user_id, resource_id, 3))["enemies"] == []
 
 
 def test_variance_is_stable_and_zero_restores_unvaried_stats() -> None:

@@ -1,6 +1,8 @@
 """管理者の戦闘設定と出題期限の共有."""
 # ruff: noqa: PLR2004
 
+from unittest.mock import AsyncMock
+
 from httpx import AsyncClient
 from neomodel import adb
 
@@ -60,8 +62,16 @@ async def test_battle_settings_permissions_and_validation(ac: AsyncClient):
 
 
 @mark_async_test()
-async def test_deadline_is_shared_preserved_and_starts_after_feedback(ac: AsyncClient):
+async def test_deadline_is_shared_preserved_and_starts_after_feedback(
+    ac: AsyncClient,
+    monkeypatch,
+):
     """サーバー発行の期限は端末変更で延長せず、新問と管理設定を反映する."""
+    # This tests legacy snapshot timing, not resource ownership/preparation.
+    monkeypatch.setattr(
+        "tanbun.feature.game.router.schedule_dungeon_quizzes",
+        AsyncMock(),
+    )
     user = await aregister("battle-deadline@example.com")
     headers = await aauth_header(user.email)
     payload = {
@@ -89,7 +99,9 @@ async def test_deadline_is_shared_preserved_and_starts_after_feedback(ac: AsyncC
         },
     }
     path = "/game/state"
-    first = (await ac.put(path, headers=headers, json=payload)).json()
+    response = await ac.put(path, headers=headers, json=payload)
+    assert response.status_code == 200, response.json()
+    first = response.json()
     run = first["save"]["run"]
     assert run["answerSeconds"] == 45
     assert run["answerDeadline"] != 9999999999999

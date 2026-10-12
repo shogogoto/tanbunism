@@ -1,5 +1,11 @@
 # Adventure rights
 
+Game async tests share the session loop managed by pytest-asyncio. Use
+`@mark_async_test()` and `await`, not `asyncio.run()` inside synchronous tests:
+the latter unsets the current loop and breaks later tests in the full CI run.
+Snapshot-only API fixtures isolate quiz preparation; preparation behavior is
+tested separately with resource-backed integration tests.
+
 One right per server-clock half-hour slot (:00/:30), no accumulation. GET is
 read-only; POST consumes the authenticated user's current slot under a User-node
 write lock. Admin reset clears only the target user's consumed-slot marker.

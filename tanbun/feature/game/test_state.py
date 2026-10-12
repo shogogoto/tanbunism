@@ -1,7 +1,9 @@
 """冒険スナップショットの端末間共有と競合."""
 
 import asyncio
+from unittest.mock import AsyncMock
 
+import pytest
 from httpx import AsyncClient
 from pytest_mock import MockerFixture
 
@@ -9,6 +11,15 @@ from tanbun.conftest import mark_async_test
 from tanbun.feature.user.testing import aauth_header, aregister
 
 from .state import GameSave, Run
+
+
+@pytest.fixture(autouse=True)
+def isolate_quiz_preparation(monkeypatch):
+    """State fixtures use opaque IDs; preparation has its own resource-backed tests."""
+    monkeypatch.setattr(
+        "tanbun.feature.game.router.schedule_dungeon_quizzes",
+        AsyncMock(),
+    )
 
 
 @mark_async_test()

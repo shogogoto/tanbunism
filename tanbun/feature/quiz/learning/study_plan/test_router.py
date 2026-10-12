@@ -134,7 +134,7 @@ async def test_default_resource_study_plan_cannot_be_deleted(
     )
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert "ゲームで使用する既定" in response.json()["message"]
+    assert "ゲームで使用する既定" in response.json()["detail"]["message"]
     response = await ac.get(
         f"/quiz/study-plans/{plan.uid}",
         headers=await aauth_header(email=u.email),
@@ -218,7 +218,8 @@ async def test_study_plan_recommendation_api(ac: AsyncClient, u: LUser):
     preparation = StudyPlanPreparationStatus.model_validate(
         preparation_response.json(),
     )
-    assert preparation.prepared_quiz_count == 0
+    # Answering does not remove a usable quiz from the shared dungeon population.
+    assert preparation.prepared_quiz_count == 1
 
 
 @mark_async_test()
