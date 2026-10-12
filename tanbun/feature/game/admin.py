@@ -1,7 +1,7 @@
 """管理者向けのゲームスナップショット補修."""
 
 import logging
-import secrets
+from random import Random
 from typing import Any
 from uuid import UUID
 
@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, ValidationError
 from tanbun.feature.domain.types import UUIDy, to_uuid
 from tanbun.feature.notification.domain import NewNotification, NotificationKind
 from tanbun.feature.notification.usecase import notify_user
+from tanbun.feature.quiz.learning.selection.domain import QuizFillStrategy
 from tanbun.feature.quiz.learning.study_plan.preparation_control import (
     UserPreparationLimitError,
     quiz_preparation_controller,
@@ -26,6 +27,7 @@ from tanbun.feature.quiz.learning.study_plan.usecase import (
     prepare_additional_study_plan_quizzes,
 )
 from tanbun.feature.quiz.repo.restore import restore_quiz_sources
+from tanbun.feature.repo.pagerank import cached_rank
 
 from .balance import GameBalance, get_game_balance
 from .population import MAX_REGION_LEVEL, replace_region_pool
@@ -72,7 +74,7 @@ class EnemyBalanceSimulationRequest(BaseModel, frozen=True):
     balance: GameBalance
     power: int = Field(ge=0, le=1_000_000_000)
     achievement: int = Field(ge=1, le=MAX_REGION_LEVEL)
-    average_relations: int = Field(ge=0, le=1_000_000)
+    average_relations: int = Field(default=0, ge=0, le=1_000_000)
 
 
 class SimulatedEnemy(BaseModel, frozen=True):
@@ -96,6 +98,11 @@ class EnemyBalanceSimulationResult(BaseModel, frozen=True):
     min_encounter_enemies: int
     max_encounter_enemies: int
     enemies: list[SimulatedEnemy]
+    requested_enemy_types: int
+    requested_quiz_count: int
+    assigned_quiz_count: int
+    unassigned_quiz_count: int
+    warnings: list[str]
 
 
 def simulate_enemy_balance(
@@ -107,6 +114,7 @@ def simulate_enemy_balance(
         list(range(pool_quiz_count)),
         request.balance,
         request.achievement - 1,
+        rng=Random(0),  # noqa: S311 - reproducible read-only simulation
     )
     enemies = []
     for index, quiz_indexes in enumerate(quiz_groups):
@@ -132,6 +140,14 @@ def simulate_enemy_balance(
         len(enemies),
         request.achievement - 1,
     )
+    assigned = len({index for group in quiz_groups for index in group})
+    requested_types = request.balance.enemy_type_count(request.achievement - 1)
+    requested_size = request.balance.enemy_quiz_count(request.achievement - 1)
+    warnings = []
+    if requested_size > pool_quiz_count:
+        warnings.append("母集団不足のため固定クイズ数を減らしました。")
+    if len(enemies) < requested_types:
+        warnings.append("異なるクイズセットが不足するため敵の種類数を減らしました。")
     return EnemyBalanceSimulationResult(
         power=request.power,
         achievement=request.achievement,
@@ -141,6 +157,11 @@ def simulate_enemy_balance(
         min_encounter_enemies=encounter_lower,
         max_encounter_enemies=encounter_upper,
         enemies=enemies,
+        requested_enemy_types=requested_types,
+        requested_quiz_count=requested_size,
+        assigned_quiz_count=assigned,
+        unassigned_quiz_count=pool_quiz_count - assigned,
+        warnings=warnings,
     )
 
 
@@ -174,7 +195,7 @@ def _rebuild_region(
     previous_enemies: list[dict[str, Any]],
     balance: GameBalance,
 ) -> tuple[list[str], list[dict[str, Any]]]:
-    """母集団を重複なく固定クイズセットに分けた敵ロスターを作る."""
+    """母集団から、共有可能だが全体は異なる固定セットを作る."""
     region = int(region_key)
     old_by_id = {str(enemy.get("id")): enemy for enemy in previous_enemies}
     source_ids = (
@@ -219,7 +240,7 @@ def _rerolled_region_pools(
     old_pools: dict[str, list[str]],
     region_keys: list[str],
 ) -> dict[str, list[str]]:
-    """準備済みクイズを重複なくシャッフルし、領域ごとの累積セットを作る."""
+    """重要度順の準備済みクイズから、領域ごとの累積セットを作る."""
     candidates = list(
         dict.fromkeys(str(quiz["quiz_id"]) for quiz in quizzes if quiz.get("quiz_id")),
     )
@@ -229,25 +250,7 @@ def _rerolled_region_pools(
             409,
             f"母集団の再選出には準備済みクイズが{required}問必要です。現在は{len(candidates)}問です。",
         )
-    secrets.SystemRandom().shuffle(candidates)
-    previous_ids = [
-        quiz_id
-        for region_key in sorted(region_keys, key=int)
-        for quiz_id in old_pools.get(region_key, [])
-        if isinstance(quiz_id, str)
-    ]
-    previous_unique = list(dict.fromkeys(previous_ids))
-    if (
-        len(candidates) > len(previous_unique)
-        and candidates[: len(previous_unique)] == previous_unique
-    ):
-        candidates = candidates[1:] + candidates[:1]
-    first_region = min(region_keys, key=int)
-    old_first_pool = old_pools.get(first_region, [])
-    if len(candidates) > len(old_first_pool) and set(
-        candidates[: len(old_first_pool)],
-    ) == set(old_first_pool):
-        candidates = candidates[1:] + candidates[:1]
+    # Production supplies PageRank-ordered candidates; preserve cumulative prefixes.
     return {
         region_key: candidates[: (int(region_key) + 1) * QUIZZES_PER_REGION_LEVEL]
         for region_key in sorted(region_keys, key=int)
@@ -511,6 +514,8 @@ async def rebuild_dungeon_enemy_pools(
     user_id: UUIDy,
     resource_id: UUIDy,
     background_tasks: BackgroundTasks | None = None,
+    *,
+    reroll: bool = True,
 ) -> dict[str, int | bool]:
     """一つのダンジョンの母集団を再選出し、敵とグラフを同期する."""
     previous = await read_state(user_id)
@@ -521,6 +526,12 @@ async def rebuild_dungeon_enemy_pools(
 
     key = to_uuid(resource_id).hex
     source_content = _dungeon_content(previous, key)
+    if not reroll:
+        return await _rebuild_dungeon_enemy_pools_now(
+            user_id,
+            resource_id,
+            reroll=False,
+        )
     required = _required_pool_quiz_count(source_content)
     available = len(
         {
@@ -548,7 +559,7 @@ async def rebuild_dungeon_enemy_pools(
             "preparing": True,
         }
 
-    return await _rebuild_dungeon_enemy_pools_now(user_id, resource_id)
+    return await _rebuild_dungeon_enemy_pools_now(user_id, resource_id, reroll=reroll)
 
 
 def _dungeon_content(state: GameState, resource_key: str) -> dict[str, Any] | None:
@@ -605,6 +616,7 @@ async def _prepare_and_rebuild_pool(
             user_id,
             additional_count,
             send_notification=False,
+            strategy=QuizFillStrategy.PAGERANK,
         )
         await _sync_study_plan_quizzes(user_id, resource_id, plan.uid, content)
         await _rebuild_dungeon_enemy_pools_now(user_id, resource_id)
@@ -655,15 +667,16 @@ async def _sync_study_plan_quizzes(
     key = to_uuid(resource_id).hex
     required = _required_pool_quiz_count(content)
     quiz_rows, _ = await adb.cypher_query(
-        """
-            MATCH (plan:StudyPlan {uid: $plan_id})-[:STUDY]->(resource:Resource)
-            MATCH (user:User {uid: $user_id})-[:LEARN]->(quiz:Quiz)
+        f"""
+            MATCH (plan:StudyPlan {{uid: $plan_id}})-[:STUDY]->(resource:Resource)
+            MATCH (user:User {{uid: $user_id}})-[:LEARN]->(quiz:Quiz)
                 -[:QUIZ_TARGET]->(sentence:Sentence)
             WHERE sentence.resource_uid = resource.uid
               AND quiz.quiz_type IN plan.quiz_types
-              AND NOT EXISTS { MATCH (quiz)-[:BROKEN_BY]->() }
-            RETURN DISTINCT quiz.uid
-            ORDER BY quiz.uid
+              AND NOT EXISTS {{ MATCH (quiz)-[:BROKEN_BY]->() }}
+            WITH quiz, max(coalesce({cached_rank("sentence", "resource")}, 0)) AS rank
+            RETURN quiz.uid
+            ORDER BY rank DESC, quiz.uid
             LIMIT $limit
             """,
         {
@@ -747,6 +760,8 @@ async def _save_admin_state(user_id: UUIDy, state: GameState) -> None:
 async def _rebuild_dungeon_enemy_pools_now(
     user_id: UUIDy,
     resource_id: UUIDy,
+    *,
+    reroll: bool = True,
 ) -> dict[str, int]:
     previous = await read_state(user_id)
     balance = await get_game_balance()
@@ -756,11 +771,31 @@ async def _rebuild_dungeon_enemy_pools_now(
         raise HTTPException(409, "戦闘中は敵セットを再構築できません。")
     key = to_uuid(resource_id).hex
     updated = previous.model_copy(deep=True)
+    target = _dungeon_content(updated, key)
+    if target and reroll:
+        rows, _ = await adb.cypher_query(
+            f"""MATCH (resource:Resource {{uid:$resource}})
+            MATCH (quiz:Quiz)-[:QUIZ_TARGET]->(sentence:Sentence)
+            WHERE sentence.resource_uid=$resource
+              AND quiz.uid IN $ids
+            RETURN quiz.uid,
+                max(coalesce({cached_rank("sentence", "resource")}, 0)) AS rank
+            ORDER BY rank DESC, quiz.uid ASC""",
+            {
+                "resource": key,
+                "ids": [to_uuid(q["quiz_id"]).hex for q in target.get("quizzes", [])],
+            },
+        )
+        priority = {str(row[0]): i for i, row in enumerate(rows)}
+        target["quizzes"] = sorted(
+            target.get("quizzes", []),
+            key=lambda q: priority.get(to_uuid(q["quiz_id"]).hex, len(priority)),
+        )
     if updated.save.run and updated.save.run.resourceId.replace("-", "").lower() == key:
         content, regions, quizzes = rebuild_content_enemy_pools(
             updated.save.content,
             key,
-            reroll=True,
+            reroll=reroll,
             balance=balance,
         )
         updated.save.content = content
@@ -778,21 +813,27 @@ async def _rebuild_dungeon_enemy_pools_now(
         content, regions, quizzes = rebuild_content_enemy_pools(
             parked.content,
             key,
-            reroll=True,
+            reroll=reroll,
             balance=balance,
         )
         parked.content = content
 
     if not regions:
         return {"dungeon_count": 0, "region_count": 0, "quiz_count": 0}
-    for region_key, quiz_ids in (content.get("regionQuizPools") or {}).items():
-        await replace_region_pool(user_id, resource_id, int(region_key) + 1, quiz_ids)
     updated.revision = previous.revision + 1
-    rows = await compare_and_save(
-        user_id,
-        StateUpdate(revision=previous.revision, save=updated.save),
-        updated,
-    )
-    if not rows:
-        raise HTTPException(409, "冒険状態が更新されました。再試行してください。")
+    async with adb.transaction:
+        for region_key, quiz_ids in (content.get("regionQuizPools") or {}).items():
+            await replace_region_pool(
+                user_id,
+                resource_id,
+                int(region_key) + 1,
+                quiz_ids,
+            )
+        rows = await compare_and_save(
+            user_id,
+            StateUpdate(revision=previous.revision, save=updated.save),
+            updated,
+        )
+        if not rows:
+            raise HTTPException(409, "冒険状態が更新されました。再試行してください。")
     return {"dungeon_count": 1, "region_count": regions, "quiz_count": quizzes}

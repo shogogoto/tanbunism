@@ -15,6 +15,7 @@ from tanbun.feature.quiz.learning.selection.domain import (
     QuizTargetPool,
 )
 from tanbun.feature.quiz.repo.restore import KNOWLEDGE_REL_TYPES
+from tanbun.feature.repo.pagerank import cached_rank
 from tanbun.feature.tanbun.repo.clause import OrderBy
 from tanbun.feature.tanbun.repo.cypher import q_stats
 
@@ -243,6 +244,17 @@ async def fetch_target_ids(  # noqa: PLR0917
         ids = [uid for uid in ids if to_uuid(uid) not in excludes]
 
     match order:
+        case QuizTargetOrder.PAGERANK:
+            rows, _ = await adb.cypher_query(
+                f"""MATCH (sentence:Sentence)
+                WHERE sentence.uid IN $ids
+                MATCH (resource:Resource {{uid:sentence.resource_uid}})
+                RETURN sentence.uid,
+                    coalesce({cached_rank("sentence", "resource")}, 0) AS rank
+                ORDER BY rank DESC, sentence.uid ASC LIMIT $limit""",
+                {"ids": [to_uuid(uid).hex for uid in ids], "limit": limit},
+            )
+            ids = [to_uuid(row[0]) for row in rows]
         case QuizTargetOrder.HIGH_SCORE:
             ids = await fetch_sort_by_score(ids, limit=limit)
         case QuizTargetOrder.LOW_SCORE:

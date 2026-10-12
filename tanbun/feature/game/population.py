@@ -7,6 +7,7 @@ from uuid import UUID, uuid5
 from neomodel import adb
 
 from tanbun.feature.domain.types import UUIDy, to_uuid
+from tanbun.feature.repo.pagerank import cached_rank
 
 REGION_QUIZ_COUNT = 5
 MAX_REGION_LEVEL = 20
@@ -46,18 +47,19 @@ async def _available_quiz_ids(
     limit: int,
 ) -> list[str]:
     rows, _ = await adb.cypher_query(
-        """
-        MATCH (plan:StudyPlan {auto_resource_uid: $resource_uid})
-            -[:OWNED]->(user:User {uid: $user_uid})
+        f"""
+        MATCH (plan:StudyPlan {{auto_resource_uid: $resource_uid}})
+            -[:OWNED]->(user:User {{uid: $user_uid}})
+        MATCH (resource:Resource {{uid: $resource_uid}})
         MATCH (user)-[:LEARN]->(quiz:Quiz)-[:QUIZ_TARGET]->(
-            sentence:Sentence {resource_uid: $resource_uid}
+            sentence:Sentence {{resource_uid: $resource_uid}}
         )
         WHERE quiz.quiz_type IN plan.quiz_types
           AND NOT quiz.uid IN $excluded
-          AND NOT EXISTS { MATCH (quiz)-[:BROKEN_BY]->() }
-        WITH DISTINCT quiz
+          AND NOT EXISTS {{ MATCH (quiz)-[:BROKEN_BY]->() }}
+        WITH quiz, max(coalesce({cached_rank("sentence", "resource")}, 0)) AS rank
         RETURN quiz.uid
-        ORDER BY quiz.created ASC, quiz.uid ASC
+        ORDER BY rank DESC, quiz.created ASC, quiz.uid ASC
         LIMIT $limit
         """,
         {

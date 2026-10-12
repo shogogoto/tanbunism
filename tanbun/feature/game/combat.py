@@ -1,7 +1,6 @@
 """操作はブラウザ、戦闘の開始・精算・撤退はrevision付きで保存する."""
 
 import json
-from random import sample
 from secrets import choice, randbelow
 from time import time
 from uuid import uuid4
@@ -151,6 +150,20 @@ def derive_enemies(
                     region=region,
                 ),
             )
+    by_id = {enemy.id: enemy for enemy in enemies}
+    for instance in (content.get("battle") or {}).get("enemies", []):
+        if instance in by_id:
+            continue
+        base = by_id.get(instance.split("#", 1)[0])
+        if base:
+            enemies.append(
+                base.model_copy(
+                    update={
+                        "id": instance,
+                        "quizIndex": selected.get(instance, base.quizIndex),
+                    },
+                ),
+            )
     return enemies
 
 
@@ -194,7 +207,19 @@ async def start_combat(user_id: UUIDy, body: EncounterRequest) -> GameState:
         )
     lower, upper = context.balance.encounter_range(len(unique), body.region)
     count = lower + randbelow(upper - lower + 1)
-    chosen = sample(list(unique.values()), count)
+    occurrences: dict[str, int] = {}
+    chosen = []
+    for _ in range(count):
+        enemy = choice(list(unique.values()))
+        ordinal = occurrences.get(enemy.id, 0)
+        occurrences[enemy.id] = ordinal + 1
+        chosen.append(
+            enemy.model_copy(
+                update={
+                    "id": enemy.id if ordinal == 0 else f"{enemy.id}#{ordinal}",
+                },
+            ),
+        )
     updated = previous.model_copy(deep=True)
     updated.save.battle = BattleMarker(
         id=uuid4().hex,

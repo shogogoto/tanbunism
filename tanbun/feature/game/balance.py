@@ -22,6 +22,7 @@ class GameBalance(BaseModel, frozen=True):
     enemy_attack: int = Field(default=12, ge=1, le=1000)
     power_hp: float = Field(default=1, ge=0, le=100, allow_inf_nan=False)
     power_attack: float = Field(default=0.5, ge=0, le=100, allow_inf_nan=False)
+    # Retained solely for reading old settings/clients; no longer affect gameplay.
     relation_hp: float = Field(default=1, ge=0, le=100, allow_inf_nan=False)
     relation_attack: float = Field(default=0.3, ge=0, le=100, allow_inf_nan=False)
     relation_cap: int = Field(default=30, ge=0, le=1000)
@@ -34,7 +35,14 @@ class GameBalance(BaseModel, frozen=True):
     max_enemies: int = Field(default=8, ge=1, le=20)
     regions_per_enemy: int = Field(default=2, ge=1, le=100)
     enemy_types: int = Field(default=3, ge=1, le=20)
-    enemy_types_per_region: int = Field(default=0, ge=0, le=20)
+    enemy_types_per_region: int = Field(default=1, ge=0, le=20)
+    quizzes_per_enemy_coefficient: float = Field(
+        default=1,
+        gt=0,
+        le=5,
+        allow_inf_nan=False,
+    )
+    encounter_growth_rate: float = Field(default=0.2, ge=0, le=10, allow_inf_nan=False)
     min_quizzes_per_enemy: int = Field(default=1, ge=1, le=100)
     max_quizzes_per_enemy: int = Field(default=100, ge=1, le=100)
     min_enemies: int = Field(default=1, ge=1, le=20)
@@ -57,36 +65,33 @@ class GameBalance(BaseModel, frozen=True):
         return min(20, self.enemy_types + max(0, region) * self.enemy_types_per_region)
 
     def encounter_range(self, available: int, region: int) -> tuple[int, int]:
-        """本番と試算で共通の遭遇数。実在する敵数を超えない."""
-        upper = min(
-            available,
-            20,
-            self.max_encounter_enemies
-            + max(0, region) * self.max_encounter_enemies_per_region,
-        )
-        return min(self.min_enemies, upper), upper
+        """両端を成長させる。同じ種類の複数出現を許す(安全上限20)."""
+        if not available:
+            return 0, 0
+        factor = 1 + max(0, region) * self.encounter_growth_rate
+        lower = min(20, max(1, ceil(self.min_enemies * factor)))
+        upper = min(20, max(lower, ceil(self.max_encounter_enemies * factor)))
+        return lower, upper
+
+    def enemy_quiz_count(self, region: int) -> int:
+        """表示領域番号から固定セットの問数を算出する(切り上げ)."""
+        count = ceil((max(0, region) + 1) * self.quizzes_per_enemy_coefficient)
+        return min(100, max(1, count))
 
     def enemy_stats(
         self,
         power: int,
-        relations: int,
+        relations: int,  # noqa: ARG002 - compatibility with existing callers
         region: int,
         variation_key: str = "",
     ) -> tuple[int, int]:
-        """Powerはlog補正、単文の関係数は上限付き。検索の重みには依存しない."""
+        """Powerのlog補正・領域補正・固定個体差。関係数は使用しない."""
         scale = log1p(max(0, power))
-        delta = min(self.relation_cap, max(0, relations))
         hp = ceil(
-            self.enemy_hp
-            + scale * self.power_hp
-            + delta * self.relation_hp
-            + region * self.region_hp,
+            self.enemy_hp + scale * self.power_hp + region * self.region_hp,
         )
         attack = ceil(
-            self.enemy_attack
-            + scale * self.power_attack
-            + delta * self.relation_attack
-            + region * self.region_attack,
+            self.enemy_attack + scale * self.power_attack + region * self.region_attack,
         )
         if self.enemy_variance_percent and variation_key:
             digest = blake2b(variation_key.encode(), digest_size=8).digest()

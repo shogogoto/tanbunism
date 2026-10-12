@@ -17,6 +17,7 @@ class QuizTargetOrder(StrEnum):
     LOW_SCORE = auto()
     LOW_ACCURACY = auto()
     RANDOM = auto()
+    PAGERANK = auto()
 
 
 class QuizFillStrategy(StrEnum):
@@ -25,11 +26,16 @@ class QuizFillStrategy(StrEnum):
     COVERAGE = auto()
     REVIEW = auto()
     IMPORTANCE = auto()
+    PAGERANK = auto()
 
     @property
     def target_selection(self) -> tuple[QuizTargetPool, QuizTargetOrder]:
         """クイズ対象の母集団と並び順."""
         return {
+            QuizFillStrategy.PAGERANK: (
+                QuizTargetPool.UNCOVERED,
+                QuizTargetOrder.PAGERANK,
+            ),
             QuizFillStrategy.COVERAGE: (
                 QuizTargetPool.UNCOVERED,
                 QuizTargetOrder.RANDOM,

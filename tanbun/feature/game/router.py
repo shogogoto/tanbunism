@@ -195,8 +195,8 @@ async def _region_pool_response(
         if pool["ready"]
         else [],
         "enemy_types": balance.enemy_type_count(level - 1),
-        "min_quizzes_per_enemy": balance.min_quizzes_per_enemy,
-        "max_quizzes_per_enemy": balance.max_quizzes_per_enemy,
+        "min_quizzes_per_enemy": balance.enemy_quiz_count(level - 1),
+        "max_quizzes_per_enemy": balance.enemy_quiz_count(level - 1),
     }
 
 

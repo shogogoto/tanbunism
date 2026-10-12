@@ -153,6 +153,7 @@ async def prepare_additional_study_plan_quizzes(
     additional_count: int,
     *,
     send_notification: bool = True,
+    strategy: QuizFillStrategy = QuizFillStrategy.COVERAGE,
 ) -> PrepareStudyPlanResult:
     """Planの形式・Resourceへ未coverageのクイズを追加する."""
     plan = await get_study_plan(plan_id, user_id)
@@ -171,7 +172,7 @@ async def prepare_additional_study_plan_quizzes(
             resource_id,
             user_id,
             quiz_type,
-            QuizFillStrategy.COVERAGE,
+            strategy,
             CandidateType.ALL,
             n_quiz=count,
             n_option=plan.n_option,
@@ -186,7 +187,7 @@ async def prepare_additional_study_plan_quizzes(
                 resource_id,
                 user_id,
                 quiz_type,
-                QuizFillStrategy.COVERAGE,
+                strategy,
                 CandidateType.ALL,
                 n_quiz=remaining,
                 n_option=plan.n_option,

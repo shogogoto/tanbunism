@@ -1,6 +1,7 @@
 """戦闘開始・一括回答・再送・撤退・育成ポイントの回帰テスト."""
 # ruff: noqa: PLR2004
 
+import operator
 from unittest.mock import AsyncMock
 
 import pytest
@@ -27,7 +28,9 @@ u = async_fixture()(fx_u)
 
 async def encounter(user: LUser) -> GameState:
     """本物の出題・リソースから二体の敵を準備する."""
-    await update_game_balance(GameBalance(min_enemies=2, max_encounter_enemies=2))
+    await update_game_balance(
+        GameBalance(min_enemies=2, max_encounter_enemies=2, encounter_growth_rate=0),
+    )
     target = await LSentence.nodes.first(val="ccc")
     quizzes = [
         (
@@ -127,12 +130,38 @@ async def test_batch_answer_receipt_and_live_enemy_stats(u: LUser):
 
 
 @mark_async_test()
+async def test_duplicate_types_have_independent_assignments(u: LUser, monkeypatch):
+    """Repeated enemy types keep distinct instance IDs and independently settle."""
+    monkeypatch.setattr(combat, "choice", operator.itemgetter(0))
+    state = await encounter(u)
+    marker = state.save.battle
+    assert marker.enemies == ["enemy0", "enemy0#1"]
+    context = await combat.combat_context(u.uid)
+    assert {enemy.id for enemy in context.enemies} >= set(marker.enemies)
+    selected = answers(state)
+    result = await combat.settle_turn(
+        u.uid,
+        TurnRequest(
+            battle_id=marker.id,
+            turn=0,
+            answers={"enemy0#1": selected["enemy0#1"]},
+            defeated=["enemy0#1"],
+        ),
+    )
+    assert result["results"] == {"enemy0#1": True}
+    assert result["damage"] > 0
+    assert result["state"]["save"]["battle"]["enemies"] == ["enemy0"]
+
+
+@mark_async_test()
 async def test_unanswered_retreat_is_once_and_keeps_discovery(u: LUser):
     """再読み込みは全問未回答のダメージだけ。履歴/XPなし、歩数/開拓は維持."""
-    await encounter(u)
+    state = await encounter(u)
     context = await combat.combat_context(u.uid)
     damage_ranges = [
-        damage_range(e.attack, 1, context.balance) for e in context.enemies
+        damage_range(e.attack, 1, context.balance)
+        for e in context.enemies
+        if e.id in state.save.battle.enemies
     ]
     saved = await combat.abandon_combat(u.uid)
     assert saved.save.battle is None

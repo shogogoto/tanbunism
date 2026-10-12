@@ -7,6 +7,7 @@ from fastapi import BackgroundTasks
 from neomodel import adb
 
 from tanbun.feature.entry.resource.repo.owner import check_entry_owner
+from tanbun.feature.quiz.learning.selection.domain import QuizFillStrategy
 from tanbun.feature.quiz.learning.study_plan.preparation_control import (
     UserPreparationLimitError,
     quiz_preparation_controller,
@@ -96,6 +97,7 @@ async def _prepare_resource_to_frontier(user_id: UUID, resource_id: str) -> None
                 user_id,
                 int(pool["required_quizzes"]) - int(pool["available_quizzes"]),
                 send_notification=False,
+                strategy=QuizFillStrategy.PAGERANK,
             )
             pool = await get_or_prepare_region_pool(user_id, resource_id, level)
         if not pool["ready"]:

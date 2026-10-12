@@ -39,22 +39,9 @@ def test_rebuild_migrates_legacy_enemy_assignments_without_widening_pool() -> No
     assert quiz_count == len(["quiz-1", "quiz-3"])
     assert rebuilt is not None
     assert rebuilt["regionQuizPools"] == {"0": ["quiz-1", "quiz-3"]}
-    assert rebuilt["regionEnemies"] == {
-        "0": [
-            {
-                "id": "book:0:enemy:0",
-                "name": "領域 1の敵 1",
-                "quizIndex": 0,
-                "quizIndexes": [0],
-            },
-            {
-                "id": "book:0:enemy:1",
-                "name": "領域 1の敵 2",
-                "quizIndex": 2,
-                "quizIndexes": [2],
-            },
-        ],
-    }
+    enemies = rebuilt["regionEnemies"]["0"]
+    assert {tuple(enemy["quizIndexes"]) for enemy in enemies} == {(0,), (2,)}
+    assert [enemy["id"] for enemy in enemies] == ["book:0:enemy:0", "book:0:enemy:1"]
 
 
 def test_rebuild_uses_explicit_population_and_drops_missing_quizzes() -> None:
@@ -93,14 +80,15 @@ def test_rebuild_assigns_multiple_fixed_quizzes_to_each_enemy_type() -> None:
     enemies = rebuilt["regionEnemies"]["0"]
     assert len(enemies) == 3
     assigned = [index for enemy in enemies for index in enemy["quizIndexes"]]
-    assert sorted(assigned) == list(range(5))
-    assert max(len(enemy["quizIndexes"]) for enemy in enemies) == 2
+    assert len(set(assigned)) == 3
+    assert all(len(enemy["quizIndexes"]) == 1 for enemy in enemies)
 
 
 def test_enemy_simulation_uses_production_roster_and_stat_calculations() -> None:
     """試算のロスター配分と能力値は本番の計算関数と一致する."""
     balance = GameBalance(
         enemy_types=3,
+        enemy_types_per_region=0,
         min_quizzes_per_enemy=2,
         max_quizzes_per_enemy=6,
         min_enemies=2,
@@ -116,14 +104,14 @@ def test_enemy_simulation_uses_production_roster_and_stat_calculations() -> None
     )
     assert result.balance == balance
     assert result.pool_quiz_count == 15
-    assert [enemy.quiz_count for enemy in result.enemies] == [5, 5, 5]
+    assert [enemy.quiz_count for enemy in result.enemies] == [3, 3, 3]
     assert [(enemy.hp, enemy.attack) for enemy in result.enemies] == [
         balance.enemy_stats(100, 3, 2, variation_key=f"simulation:2:enemy:{index}")
         for index in range(3)
     ]
     assert len({(enemy.hp, enemy.attack) for enemy in result.enemies}) > 1
-    assert result.min_encounter_enemies == 2
-    assert result.max_encounter_enemies == 3
+    assert result.min_encounter_enemies == 3
+    assert result.max_encounter_enemies == 5
 
 
 def test_region_growth_is_shared_by_rebuild_and_simulation() -> None:
@@ -157,10 +145,10 @@ def test_region_growth_is_shared_by_rebuild_and_simulation() -> None:
     assert [balance.enemy_stats(100, 3, 2, enemy["id"]) for enemy in enemies] == [
         (enemy.hp, enemy.attack) for enemy in result.enemies
     ]
-    assert (result.min_encounter_enemies, result.max_encounter_enemies) == (1, 4)
-    assert balance.encounter_range(5, 2) == (1, 4)
+    assert (result.min_encounter_enemies, result.max_encounter_enemies) == (2, 3)
+    assert balance.encounter_range(5, 2) == (2, 3)
     assert balance.enemy_type_count(100) == 20
-    assert balance.encounter_range(30, 100) == (1, 20)
+    assert balance.encounter_range(30, 100) == (20, 20)
 
 
 def test_region_api_returns_server_roster_and_waits_for_complete_population(
@@ -180,7 +168,8 @@ def test_region_api_returns_server_roster_and_waits_for_complete_population(
     response = run(_region_pool_response(user_id, resource_id, 3))
     enemies = response["enemies"]
     assert len(enemies) == 5
-    assert len({quiz for enemy in enemies for quiz in enemy["quiz_ids"]}) == 15
+    assert all(len(enemy["quiz_ids"]) == 3 for enemy in enemies)
+    assert len({tuple(enemy["quiz_ids"]) for enemy in enemies}) == 5
     assert enemies[0]["id"] == f"{resource_id.hex}:2:enemy:0"
     assert [len(enemy["quiz_ids"]) for enemy in enemies] == [3, 3, 3, 3, 3]
     pool["ready"] = False
@@ -232,4 +221,4 @@ def test_reroll_selects_a_distinct_cumulative_pool_from_prepared_quizzes() -> No
     assert len(set(pools["2"])) == len(content["quizzes"])
     assert pools["0"] == pools["1"][:5]
     assert pools["1"] == pools["2"][:10]
-    assert pools["0"] != content["regionQuizPools"]["0"]
+    assert pools["0"] == [quiz["quiz_id"] for quiz in content["quizzes"][:5]]

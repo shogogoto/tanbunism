@@ -108,9 +108,16 @@ async def rebuild_user_dungeon_enemies(
     resource_id: UUID,
     _admin: AdminUser,
     background_tasks: BackgroundTasks,
+    *,
+    reroll: bool = True,
 ) -> dict[str, int | bool]:
     """指定したダンジョンの母集団と敵セットを再選出する."""
-    return await rebuild_dungeon_enemy_pools(user_id, resource_id, background_tasks)
+    return await rebuild_dungeon_enemy_pools(
+        user_id,
+        resource_id,
+        background_tasks,
+        reroll=reroll,
+    )
 
 
 @router.get("/settings/game-balance")
