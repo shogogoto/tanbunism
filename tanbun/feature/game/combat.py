@@ -1,6 +1,7 @@
 """操作はブラウザ、戦闘の開始・精算・撤退はrevision付きで保存する."""
 
 import json
+from collections.abc import Callable
 from secrets import choice, randbelow
 from time import time
 from uuid import uuid4
@@ -65,10 +66,12 @@ class CombatContext(BaseModel):
 async def combat_context(
     user_id: UUIDy,
     state: GameState | None = None,
+    *,
+    balance: GameBalance | None = None,
 ) -> CombatContext:
     """固定された全領域の敵をまとめて評価。イベントや秒ごとの問い合わせはしない."""
     state = state or await read_state(user_id)
-    balance = await get_game_balance()
+    balance = balance or await get_game_balance()
     run, content = state.save.run, state.save.content or {}
     if not run:
         return CombatContext(balance=balance, enemies=[])
@@ -205,21 +208,7 @@ async def start_combat(user_id: UUIDy, body: EncounterRequest) -> GameState:
             422,
             "有効な戦闘クイズがありません。候補を更新してください。",
         )
-    lower, upper = context.balance.encounter_range(len(unique), body.region)
-    count = lower + randbelow(upper - lower + 1)
-    occurrences: dict[str, int] = {}
-    chosen = []
-    for _ in range(count):
-        enemy = choice(list(unique.values()))
-        ordinal = occurrences.get(enemy.id, 0)
-        occurrences[enemy.id] = ordinal + 1
-        chosen.append(
-            enemy.model_copy(
-                update={
-                    "id": enemy.id if ordinal == 0 else f"{enemy.id}#{ordinal}",
-                },
-            ),
-        )
+    chosen = select_encounter(list(unique.values()), context.balance, body.region)
     updated = previous.model_copy(deep=True)
     updated.save.battle = BattleMarker(
         id=uuid4().hex,
@@ -235,14 +224,42 @@ async def start_combat(user_id: UUIDy, body: EncounterRequest) -> GameState:
     for key, value in stats.items():
         setattr(next_run, key, value)
     next_run.hp = min(next_run.hp, next_run.maxHp)
-    next_run.enemyHp = (
-        0  # Legacy fields remain for old snapshots, never store combat HP.
-    )
+    next_run.enemyHp = 0
     next_run.enemyMaxHp = 1
     next_run.answerDeadline = int(time() * 1000) + stats["answerSeconds"] * 1000
     async with adb.transaction:
         await persist(user_id, previous, updated)
     return updated
+
+
+def select_encounter(
+    enemies: list[EnemyStats],
+    balance: GameBalance,
+    region: int,
+    *,
+    pick: Callable | None = None,
+    draw: Callable | None = None,
+) -> list[EnemyStats]:
+    """Live and practice battles share count/type/instance selection."""
+    lower, upper = balance.encounter_range(len(enemies), region)
+    if not upper:
+        return []
+    pick, draw = pick or choice, draw or randbelow
+    count = lower + draw(upper - lower + 1)
+    occurrences: dict[str, int] = {}
+    chosen = []
+    for _ in range(count):
+        enemy = pick(enemies)
+        ordinal = occurrences.get(enemy.id, 0)
+        occurrences[enemy.id] = ordinal + 1
+        chosen.append(
+            enemy.model_copy(
+                update={
+                    "id": enemy.id if ordinal == 0 else f"{enemy.id}#{ordinal}",
+                },
+            ),
+        )
+    return chosen
 
 
 async def read_receipt(user_id: UUIDy, body: TurnRequest) -> dict | None:

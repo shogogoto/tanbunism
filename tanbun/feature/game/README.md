@@ -61,6 +61,23 @@ It is part of the account snapshot and uses the same revision checks.
 
 # Battle timing
 
+Admin game balance includes interactive practice battles using the live
+MultiBattle UI. Practice preparation reads an existing saved dungeon population,
+rebuilds a disposable roster from draft balance settings, and derives player
+stats from the selected user's allocation or a practice-only override. It does
+not generate quizzes or write state. Practice turn endpoints share readable
+quiz correctness, damage ranges, encounter selection and turn transitions with
+live combat, but never create answers, grant XP, consume adventure rights, or
+persist outcomes. These endpoints require superuser privileges.
+
+The browser holds the session, comparison history and parameter snapshots.
+Replaying reuses the initial snapshot and seed, restarting only its timer/HP.
+Input changes do not alter an active trial. Player damage uses the same live
+frontend function with a seeded draw; incoming damage/questions use a seeded
+server calculator. Feedback time is excluded from reported answering time.
+Practice hides reporting and editable detail navigation. Only quizzes for the
+selected region are carried in turn requests, not the whole knowledge map.
+
 Admin game balance also provides a read-only one-on-one combat simulation. Damage
 is `floor(attack * attack_multiplier - defense / defense_divisor)`, varied by
 the configured random percentage and clamped to at least one (except a player

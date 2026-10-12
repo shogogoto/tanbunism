@@ -25,6 +25,14 @@ from tanbun.feature.game.balance import (
     get_game_balance,
     update_game_balance,
 )
+from tanbun.feature.game.practice import (
+    PracticeRequest,
+    PracticeSession,
+    PracticeTurn,
+    next_practice_turn,
+    practice_turn,
+    prepare_practice,
+)
 from tanbun.feature.game.settings import (
     BattleSettings,
     get_battle_settings,
@@ -35,6 +43,7 @@ from tanbun.feature.game.simulation import (
     CombatSimulationResult,
     simulate_combat,
 )
+from tanbun.feature.game.state import GameState
 from tanbun.feature.gamification.power import (
     PowerWeights,
     get_power_weights,
@@ -94,6 +103,24 @@ from .user_transfer import (
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.post("/settings/game-balance/practice")
+async def start_practice(body: PracticeRequest, _admin: AdminUser) -> PracticeSession:
+    """Build a disposable battle; never generate quizzes or save game state."""
+    return await prepare_practice(body)
+
+
+@router.post("/settings/game-balance/practice/turn")
+async def resolve_practice(body: PracticeTurn, _admin: AdminUser) -> dict:
+    """Calculate a practice turn without answers, XP or other persistent writes."""
+    return practice_turn(body)
+
+
+@router.post("/settings/game-balance/practice/next")
+async def continue_practice(body: PracticeSession, _admin: AdminUser) -> GameState:
+    """Advance only the browser-owned simulation state."""
+    return next_practice_turn(body)
 
 
 @router.get("/game/dungeons")

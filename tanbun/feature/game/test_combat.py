@@ -3,6 +3,7 @@
 
 import operator
 from unittest.mock import AsyncMock
+from uuid import UUID
 
 import pytest
 from fastapi import HTTPException
@@ -21,9 +22,33 @@ from . import combat
 from .balance import Allocation, GameBalance, update_game_balance
 from .combat import EncounterRequest, TurnRequest
 from .damage import damage_range
+from .practice import PracticeRequest, PracticeTurn, practice_turn, prepare_practice
 from .state import GameSave, GameState, Run, StateUpdate, read_state, write_state
 
 u = async_fixture()(fx_u)
+
+
+@mark_async_test()
+async def test_practice_reads_live_content_without_changing_state_or_answers(u: LUser):
+    """Actual DB sources are read, but practice never alters the existing battle."""
+    original = await encounter(u)
+    session = await prepare_practice(
+        PracticeRequest(
+            user_id=u.uid,
+            resource_id=UUID(original.save.run.resourceId),
+            level=3,
+            balance=GameBalance(power_hp=2),
+        ),
+    )
+    marker = session.state.save.battle
+    practice_turn(
+        PracticeTurn(
+            session=session,
+            turn=TurnRequest(battle_id=marker.id, turn=marker.turn, retreat=True),
+        ),
+    )
+    assert await read_state(u.uid) == original
+    assert (await adb.cypher_query("MATCH (a:Answer) RETURN count(a)"))[0][0][0] == 0
 
 
 async def encounter(user: LUser) -> GameState:
