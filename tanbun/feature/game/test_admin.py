@@ -2,7 +2,7 @@
 # ruff: noqa: PLR2004
 
 from importlib import import_module
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
@@ -176,6 +176,45 @@ async def test_region_api_returns_server_roster_and_waits_for_complete_populatio
     assert [len(enemy["quiz_ids"]) for enemy in enemies] == [3, 3, 3, 3, 3]
     pool["ready"] = False
     assert (await _region_pool_response(user_id, resource_id, 3))["enemies"] == []
+
+
+@mark_async_test()
+async def test_region_hydration_restores_only_the_authorized_fixed_population(
+    monkeypatch,
+):
+    """おすすめ順位によらず母集団IDのクイズを復元し、本人の使用権を確認する."""
+    module = import_module("tanbun.feature.game.router")
+    ids = [uuid4().hex for _ in range(5)]
+    monkeypatch.setattr(
+        module,
+        "get_or_prepare_region_pool",
+        AsyncMock(return_value={"ready": True, "quiz_ids": ids}),
+    )
+    monkeypatch.setattr(
+        module,
+        "get_game_balance",
+        AsyncMock(return_value=GameBalance()),
+    )
+    validate = AsyncMock(return_value=True)
+    monkeypatch.setattr(module, "_validate_quiz_ids", validate)
+    sources = []
+    for quiz_id in ids:
+        source = Mock()
+        source.to_readable.return_value.model_dump.return_value = {"quiz_id": quiz_id}
+        sources.append(source)
+    restore = AsyncMock(return_value=sources)
+    monkeypatch.setattr(module, "restore_quiz_sources", restore)
+    user, resource = uuid4(), uuid4()
+    response = await _region_pool_response(user, resource, 1, include_quizzes=True)
+    assert [quiz["quiz_id"] for quiz in response["quizzes"]] == ids
+    validate.assert_awaited_once_with(user, resource, ids)
+    restore.assert_awaited_once_with(ids)
+    validate.return_value = False
+    restore.reset_mock()
+    with pytest.raises(module.HTTPException) as exc:
+        await _region_pool_response(user, resource, 1, include_quizzes=True)
+    assert exc.value.status_code == 409
+    restore.assert_not_awaited()
 
 
 def test_variance_is_stable_and_zero_restores_unvaried_stats() -> None:

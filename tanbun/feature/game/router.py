@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Response
 from pydantic import BaseModel, Field
 
+from tanbun.feature.quiz.repo.restore import restore_quiz_sources
 from tanbun.feature.user.router_util import ActiveUser
 
 from .access import AdventureAccess, consume_adventure_access, get_adventure_access
@@ -24,6 +25,7 @@ from .knowledge import KnowledgeValidation, valid_knowledge
 from .population import (
     MAX_LEGACY_POOL_SIZE,
     MAX_REGION_LEVEL,
+    _validate_quiz_ids,
     get_or_prepare_region_pool,
 )
 from .preparation import (
@@ -149,12 +151,19 @@ async def get_dungeon_region_quiz_pool(
     level: int,
     user: ActiveUser,
     response: Response,
+    *,
+    include_quizzes: bool = False,
 ) -> dict[str, object]:
     """領域レベルごとに固定した累積クイズ母集団を返す."""
     if not 1 <= level <= MAX_REGION_LEVEL:
         raise HTTPException(422, "領域レベルは1から20の範囲で指定してください。")
     response.headers["Cache-Control"] = "no-store"
-    return await _region_pool_response(user.uid, resource_id, level)
+    return await _region_pool_response(
+        user.uid,
+        resource_id,
+        level,
+        include_quizzes=include_quizzes,
+    )
 
 
 @router.post("/dungeons/{resource_id}/regions/{level}/quiz-pool")
@@ -164,12 +173,20 @@ async def migrate_dungeon_region_quiz_pool(
     seed: RegionQuizPoolSeed,
     user: ActiveUser,
     response: Response,
+    *,
+    include_quizzes: bool = False,
 ) -> dict[str, object]:
     """既存スナップショットの固定母集団を検証してグラフへ移行する."""
     if not 1 <= level <= MAX_REGION_LEVEL:
         raise HTTPException(422, "領域レベルは1から20の範囲で指定してください。")
     response.headers["Cache-Control"] = "no-store"
-    return await _region_pool_response(user.uid, resource_id, level, seed.quiz_ids)
+    return await _region_pool_response(
+        user.uid,
+        resource_id,
+        level,
+        seed.quiz_ids,
+        include_quizzes=include_quizzes,
+    )
 
 
 async def _region_pool_response(
@@ -177,13 +194,27 @@ async def _region_pool_response(
     resource_id: UUID,
     level: int,
     legacy_ids: list[str] | None = None,
+    *,
+    include_quizzes: bool = False,
 ) -> dict[str, object]:
     pool = await get_or_prepare_region_pool(user_id, resource_id, level, legacy_ids)
     balance = await get_game_balance()
     quiz_ids = pool["quiz_ids"]
     groups = assign_enemy_quizzes(list(range(len(quiz_ids))), balance, level - 1)
+    hydrated = {}
+    if include_quizzes and pool["ready"]:
+        if not await _validate_quiz_ids(user_id, resource_id, quiz_ids):
+            raise HTTPException(
+                409,
+                "領域の母集団に使用できないクイズがあります。母集団を再構成してください。",
+            )
+        sources = await restore_quiz_sources(quiz_ids)
+        hydrated["quizzes"] = [
+            source.to_readable().model_dump(mode="json") for source in sources
+        ]
     return {
         **pool,
+        **hydrated,
         "enemies": [
             {
                 "id": enemy_identity(resource_id.hex, level - 1, index),
