@@ -26,8 +26,21 @@ class GameBalance(BaseModel, frozen=True):
     relation_hp: float = Field(default=1, ge=0, le=100, allow_inf_nan=False)
     relation_attack: float = Field(default=0.3, ge=0, le=100, allow_inf_nan=False)
     relation_cap: int = Field(default=30, ge=0, le=1000)
+    # Legacy additive values are retained for old settings/clients only.
     region_hp: int = Field(default=5, ge=0, le=100)
     region_attack: int = Field(default=2, ge=0, le=100)
+    region_hp_growth_percent: float = Field(
+        default=20,
+        ge=0,
+        le=1000,
+        allow_inf_nan=False,
+    )
+    region_attack_growth_percent: float = Field(
+        default=20,
+        ge=0,
+        le=1000,
+        allow_inf_nan=False,
+    )
     enemy_variance_percent: float = Field(default=10, ge=0, le=50, allow_inf_nan=False)
     damage_attack_multiplier: float = Field(default=1, ge=0, le=10, allow_inf_nan=False)
     damage_defense_divisor: float = Field(default=2, gt=0, le=100, allow_inf_nan=False)
@@ -85,28 +98,29 @@ class GameBalance(BaseModel, frozen=True):
         region: int,
         variation_key: str = "",
     ) -> tuple[int, int]:
-        """Powerのlog補正・領域補正・固定個体差。関係数は使用しない."""
+        """Powerのlog補正に領域成長率・固定個体差を掛ける."""
         scale = log1p(max(0, power))
-        hp = ceil(
-            self.enemy_hp + scale * self.power_hp + region * self.region_hp,
+        level = max(0, region)
+        hp = (self.enemy_hp + scale * self.power_hp) * (
+            1 + level * self.region_hp_growth_percent / 100
         )
-        attack = ceil(
-            self.enemy_attack + scale * self.power_attack + region * self.region_attack,
+        attack = (self.enemy_attack + scale * self.power_attack) * (
+            1 + level * self.region_attack_growth_percent / 100
         )
         if self.enemy_variance_percent and variation_key:
             digest = blake2b(variation_key.encode(), digest_size=8).digest()
             normalized = int.from_bytes(digest, "big") / (2**64 - 1)
             factor = 1 + (normalized * 2 - 1) * self.enemy_variance_percent / 100
-            hp = ceil(hp * factor)
-            attack = ceil(attack * factor)
+            hp *= factor
+            attack *= factor
         return (
             min(
                 100000,
-                hp,
+                ceil(hp),
             ),
             min(
                 100000,
-                attack,
+                ceil(attack),
             ),
         )
 
