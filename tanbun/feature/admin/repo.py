@@ -248,7 +248,7 @@ async def list_users() -> list[AdminUserItem]:
         MATCH (user:User)
         OPTIONAL MATCH (resource:Resource)-[:PARENT|OWNED]->*(user)
         RETURN user.uid, user.email, user.display_name, user.username,
-            user.is_active, user.is_superuser, user.created,
+            user.avatar_url, user.is_active, user.is_superuser, user.created,
             count(DISTINCT resource) AS resource_count
         ORDER BY user.is_superuser DESC, user.created DESC, user.email
         """,
@@ -259,6 +259,7 @@ async def list_users() -> list[AdminUserItem]:
             email=email,
             display_name=display_name,
             username=username,
+            avatar_url=avatar_url,
             is_active=is_active,
             is_superuser=is_superuser,
             created=created,
@@ -269,6 +270,7 @@ async def list_users() -> list[AdminUserItem]:
             email,
             display_name,
             username,
+            avatar_url,
             is_active,
             is_superuser,
             created,

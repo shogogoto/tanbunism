@@ -84,6 +84,7 @@ class AdminUserItem(BaseModel, frozen=True):
     email: str
     display_name: str | None
     username: str | None
+    avatar_url: str | None = None
     is_active: bool
     is_superuser: bool
     created: Neo4jDateTime

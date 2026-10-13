@@ -341,6 +341,7 @@ async def test_admin_can_suspend_and_restore_user(ac: AsyncClient) -> None:
     assert users.status_code == status.HTTP_200_OK
     target_item = next(item for item in users.json() if item["email"] == target.email)
     assert target_item["is_active"] is True
+    assert "avatar_url" in target_item
     resources = await ac.get(
         f"/admin/users/{target.uid}/resources",
         headers=headers,
