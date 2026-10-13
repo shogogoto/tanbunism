@@ -95,6 +95,28 @@ async def test_legacy_completion_is_limited_by_usable_quizzes(monkeypatch):
 
 
 @mark_async_test()
+async def test_newly_opened_dungeon_prepares_initial_quizzes_before_any_exploration(
+    monkeypatch,
+):
+    """開拓0地点でも最初の領域の5問を準備する."""
+    complete, generate, user, resource = setup_preparation(monkeypatch)
+    monkeypatch.setattr(preparation, "_frontier", lambda *_: 0)
+    monkeypatch.setattr(
+        preparation,
+        "get_or_prepare_region_pool",
+        AsyncMock(
+            side_effect=[
+                {"ready": False, "required_quizzes": 5, "available_quizzes": 0},
+                {"ready": True, "required_quizzes": 5, "available_quizzes": 5},
+            ],
+        ),
+    )
+    await preparation._prepare_resource_to_frontier(user, resource)
+    assert generate.await_args.args[2] == 5
+    complete.assert_not_awaited()
+
+
+@mark_async_test()
 async def test_repairs_legacy_completion_without_incrementing_it(monkeypatch):
     """Repair missing quizzes even if the stored completion counter is ahead."""
     complete, generate, user_id, resource_id = setup_preparation(monkeypatch)

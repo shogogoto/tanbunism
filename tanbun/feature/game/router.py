@@ -34,7 +34,14 @@ from .preparation import (
     schedule_dungeon_quizzes,
 )
 from .roster import assign_enemy_quizzes, enemy_identity
-from .state import GameState, StateUpdate, read_state, recover_state, write_state
+from .state import (
+    GameState,
+    StateUpdate,
+    read_state,
+    recover_state,
+    refresh_dungeon_unlocks,
+    write_state,
+)
 
 router = APIRouter(prefix="/game", tags=["game"])
 
@@ -109,6 +116,7 @@ async def get_game_state(
     """認証中のアカウントの冒険を読み出す."""
     response.headers["Cache-Control"] = "no-store"
     state = await read_state(user.uid)
+    state = await refresh_dungeon_unlocks(user.uid, state)
     await schedule_dungeon_quizzes(user.uid, state, background_tasks)
     return state
 

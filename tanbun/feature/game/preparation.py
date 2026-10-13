@@ -85,11 +85,11 @@ async def _prepare_resource_to_frontier(user_id: UUID, resource_id: str) -> None
             user_id,
             resource_id,
         )
-        if not plan_id or not target:
+        if not plan_id:
             return
         # Region zero needs the initial five quizzes; each frontier adds five.
         # Use the actual usable population, not generation attempts, as completion.
-        level = min(prepared_regions + 2, target + 1)
+        level = min(prepared_regions + 2, target + 1) if target else 1
         pool = await get_or_prepare_region_pool(user_id, resource_id, level)
         if not pool["ready"]:
             await prepare_additional_study_plan_quizzes(
@@ -158,7 +158,11 @@ async def schedule_dungeon_quizzes(
             resource_id,
         )
         owned = plan_id or await check_entry_owner(user_id, resource_id)
-        if target > prepared_regions and owned:
+        initial_missing = not plan_id or (
+            not target
+            and await count_prepared_quizzes(plan_id, user_id) < REGION_QUIZ_COUNT
+        )
+        if (target > prepared_regions or initial_missing) and owned:
             _scheduled_resources.add(key)
             pending.append(resource_id)
     if not pending:

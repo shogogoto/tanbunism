@@ -15,6 +15,7 @@ from tanbun.feature.domain.types import UUIDy, to_uuid
 from .access import SLOT_SECONDS, get_adventure_access
 from .balance import Allocation
 from .settings import get_battle_settings
+from .unlocks import DungeonUnlock, discover_dungeons
 
 MAX_SNAPSHOT_BYTES = 1000000
 MAX_VISITED_DUNGEONS = 1000
@@ -64,6 +65,7 @@ class GameSave(BaseModel):
         default_factory=list,
         max_length=MAX_VISITED_DUNGEONS,
     )
+    unlockedDungeons: list[DungeonUnlock] = Field(default_factory=list, max_length=1000)
     run: Run | None = None
     content: dict | None = None
     battleFeedback: str | None = Field(default=None, max_length=1000)
@@ -235,6 +237,8 @@ async def write_state(user_id: UUIDy, update: StateUpdate) -> GameState:
         history = list(dict.fromkeys([run.resourceId, *history]))[:MAX_VISITED_DUNGEONS]
     # The server retains history even if a retreat or an older client omits it.
     update.save.visitedDungeons = history
+    update.save.unlockedDungeons = list(previous.save.unlockedDungeons)
+    await discover_dungeons(user_id, update.save)
     if run and run.phase == "battle" and not update.save.battleFeedback:
         if (
             old
@@ -286,6 +290,25 @@ async def write_state(user_id: UUIDy, update: StateUpdate) -> GameState:
             "冒険状態または冒険権が別の画面で更新されました。最新の状態を読み直してください。",
         )
     return state
+
+
+async def refresh_dungeon_unlocks(user_id: UUIDy, state: GameState) -> GameState:
+    """旧データの達成度にも開放を適用し、CASで端末間の重複を防ぐ."""
+    updated = state.model_copy(deep=True)
+    if not await discover_dungeons(user_id, updated.save):
+        return state
+    updated.revision += 1
+    try:
+        rows = await compare_and_save(
+            user_id,
+            StateUpdate(revision=state.revision, save=updated.save),
+            updated,
+        )
+    except TransientError as cause:
+        if cause.code != "Neo.TransientError.Transaction.DeadlockDetected":
+            raise
+        return await read_state(user_id)
+    return updated if rows else await read_state(user_id)
 
 
 def validate_snapshot_battle(previous: GameState, update: StateUpdate) -> None:

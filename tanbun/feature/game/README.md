@@ -65,6 +65,14 @@ including saves from older clients that omit the field. Existing active runs
 and cleared IDs seed history; unstored abandoned visits cannot be reconstructed.
 It is part of the account snapshot and uses the same revision checks.
 
+`unlockedDungeons` records a permanent resource-to-resource road at each
+achievement milestone 3, 6, 9, ... (15 new places per road). Targets are randomly
+selected from owned resources with knowledge, excluding visited/unlocked ones.
+State reads backfill existing milestones under revision checks; state writes
+retain server-selected roads even when an old client omits them. Dungeon travel
+keeps the player's HP/remaining moves and each dungeon's saved map location.
+An opened dungeon with no quizzes queues its initial five before exploration.
+
 # Battle timing
 
 Admin game balance includes interactive practice battles using the live
