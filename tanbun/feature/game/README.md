@@ -76,10 +76,12 @@ An opened dungeon with no quizzes queues its initial five before exploration.
 # Battle timing
 
 Admin game balance includes interactive practice battles using the live
-MultiBattle UI. Practice preparation reads an existing saved dungeon population,
-rebuilds a disposable roster from draft balance settings, and derives player
-stats from the selected user's allocation or a practice-only override. It does
-not generate quizzes or write state. Practice turn endpoints share readable
+MultiBattle UI. The balance UI starts practice from the selected enemy trial
+snapshot: enemy HP/attack remain exactly as calculated, while the player's
+initial values, damage and encounter settings use the current unsaved draft.
+Player selection supplies only the displayed name/avatar. Synthetic correct/
+incorrect quizzes require no saved dungeon or generated study-plan quizzes.
+The legacy saved-dungeon practice endpoint remains available. Practice turn endpoints share readable
 quiz correctness, damage ranges, encounter selection and turn transitions with
 live combat, but never create answers, grant XP, consume adventure rights, or
 persist outcomes. These endpoints require superuser privileges.

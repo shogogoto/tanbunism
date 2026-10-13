@@ -29,9 +29,11 @@ from tanbun.feature.game.practice import (
     PracticeRequest,
     PracticeSession,
     PracticeTurn,
+    SimulatedPracticeRequest,
     next_practice_turn,
     practice_turn,
     prepare_practice,
+    prepare_simulated_practice,
 )
 from tanbun.feature.game.settings import (
     BattleSettings,
@@ -115,6 +117,15 @@ async def start_practice(body: PracticeRequest, _admin: AdminUser) -> PracticeSe
 async def resolve_practice(body: PracticeTurn, _admin: AdminUser) -> dict:
     """Calculate a practice turn without answers, XP or other persistent writes."""
     return practice_turn(body)
+
+
+@router.post("/settings/game-balance/practice/simulation")
+async def start_simulated_practice(
+    body: SimulatedPracticeRequest,
+    _admin: AdminUser,
+) -> PracticeSession:
+    """Practice with selected trial enemies and draft initial player stats."""
+    return prepare_simulated_practice(body)
 
 
 @router.post("/settings/game-balance/practice/next")

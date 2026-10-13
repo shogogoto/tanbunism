@@ -11,6 +11,7 @@ from tanbun.conftest import mark_async_test
 from tanbun.feature.user.testing import aauth_header, aregister
 
 from . import combat, practice
+from .admin import EnemyBalanceSimulationRequest, simulate_enemy_balance
 from .balance import Allocation, GameBalance
 from .combat import CombatContext, TurnRequest, derive_enemies
 from .state import GameSave, GameState, Run
@@ -56,6 +57,57 @@ def source_state(resource):
             allocation=Allocation(hp=1),
         ),
     )
+
+
+def test_practice_uses_enemy_snapshot_and_draft_initial_player_values(monkeypatch):
+    """Enemy trials stay sealed; draft player values require no saved user/dungeon."""
+    snapshot = simulate_enemy_balance(
+        EnemyBalanceSimulationRequest(balance=GameBalance(), power=250, achievement=3),
+    )
+    draft = GameBalance(
+        base_hp=81,
+        base_attack=23,
+        base_defense=7,
+        base_seconds=12,
+        enemy_hp=999,
+        enemy_attack=888,
+        min_enemies=2,
+        max_encounter_enemies=2,
+        encounter_growth_rate=0,
+    )
+    reads = AsyncMock(side_effect=AssertionError("Simulation must not read users"))
+    writes = AsyncMock(side_effect=AssertionError("Simulation must not persist"))
+    monkeypatch.setattr(practice, "read_state", reads)
+    monkeypatch.setattr(combat, "persist", writes)
+    request = practice.SimulatedPracticeRequest(simulation=snapshot, balance=draft)
+    session = practice.prepare_simulated_practice(request)
+    assert session.state.save.allocation == Allocation()
+    assert session.state.save.run.hp == 81
+    assert session.state.save.run.attack == 23
+    assert session.state.save.run.defense == 7
+    assert session.state.save.run.answerSeconds == 12
+    assert len(session.context.enemies) == 2
+    for enemy in session.context.enemies:
+        source = snapshot.enemies[int(enemy.name.rsplit(" ", 1)[1]) - 1]
+        assert (enemy.hp, enemy.attack) == (source.hp, source.attack)
+        assert len(enemy.quizIndexes) == source.quiz_count
+    second = practice.prepare_simulated_practice(request)
+    assert session.context == second.context
+    marker = session.state.save.battle
+    resolved = practice.practice_turn(
+        practice.PracticeTurn(
+            session=session,
+            turn=TurnRequest(
+                battle_id=marker.id,
+                turn=marker.turn,
+                answers={enemy: ["yes"] for enemy in marker.enemies},
+            ),
+        ),
+    )
+    assert all(resolved["results"].values())
+    assert resolved["damage"] == 0
+    reads.assert_not_awaited()
+    writes.assert_not_awaited()
 
 
 async def _prepared(monkeypatch):
@@ -194,9 +246,20 @@ async def test_practice_routes_require_admin(ac, monkeypatch):
         "defeated": [],
         "retreat": True,
     }
+    simulated_body = practice.SimulatedPracticeRequest(
+        simulation=simulate_enemy_balance(
+            EnemyBalanceSimulationRequest(
+                balance=GameBalance(),
+                power=100,
+                achievement=1,
+            ),
+        ),
+        balance=GameBalance(base_hp=81),
+    ).model_dump(mode="json")
     for endpoint, payload in [
         ("turn", {"session": session_body, "turn": turn}),
         ("next", session_body),
+        ("simulation", simulated_body),
     ]:
         assert (await ac.post(f"{path}/{endpoint}", json=payload)).status_code == 401
         assert (
@@ -211,3 +274,6 @@ async def test_practice_routes_require_admin(ac, monkeypatch):
     )
     assert response.status_code == 200
     assert response.json()["state"]["save"]["battle"] is None
+    response = await ac.post(f"{path}/simulation", json=simulated_body, headers=headers)
+    assert response.status_code == 200
+    assert response.json()["state"]["save"]["run"]["hp"] == 81

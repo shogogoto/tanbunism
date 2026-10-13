@@ -2,17 +2,18 @@
 
 from random import Random
 from time import time
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
 from tanbun.feature.quiz.domain.domain import ReadableQuiz
 
-from .admin import _dungeon_content, _legacy_pool_ids
+from .admin import EnemyBalanceSimulationResult, _dungeon_content, _legacy_pool_ids
 from .balance import Allocation, GameBalance
 from .combat import (
     CombatContext,
+    EnemyStats,
     TurnRequest,
     apply_turn_result,
     combat_context,
@@ -20,7 +21,7 @@ from .combat import (
 )
 from .damage import damage_range
 from .roster import assign_enemy_quizzes, enemy_identity
-from .state import BattleMarker, GameSave, GameState, read_state
+from .state import BattleMarker, GameSave, GameState, Run, read_state
 
 
 class PracticeRequest(BaseModel):
@@ -42,6 +43,14 @@ class PracticeSession(BaseModel):
     context: CombatContext
     seed: int = Field(ge=0, le=2**31 - 1)
     server_now: int
+
+
+class SimulatedPracticeRequest(BaseModel):
+    """Use an enemy trial snapshot and the current draft player/damage settings."""
+
+    simulation: EnemyBalanceSimulationResult
+    balance: GameBalance
+    seed: int = Field(default=1, ge=0, le=2**31 - 1)
 
 
 class PracticeTurn(BaseModel):
@@ -134,9 +143,79 @@ async def prepare_practice(body: PracticeRequest) -> PracticeSession:
     )
     state = GameState(save=GameSave(run=run, allocation=allocation, content=content))
     context = await combat_context(body.user_id, state, balance=body.balance)
+    return _begin_practice(state, context, region, body.seed, rng)
+
+
+def prepare_simulated_practice(body: SimulatedPracticeRequest) -> PracticeSession:
+    """Keep trial enemy stats exactly; create no user state or real quizzes."""
+    trial = body.simulation
+    region = trial.achievement - 1
+    quiz_count = max((enemy.quiz_count for enemy in trial.enemies), default=0)
+    quizzes = [
+        {
+            "quiz_id": str(uuid4()),
+            "quiz_type": "sent2term",
+            "prompt": {"subject": "模擬回答", "answer_kind": "term"},
+            "statement": "正解か不正解を選んでください。",
+            "options": {"yes": "正解", "no": "不正解"},
+            "correct": ["yes"],
+            "no_correct_option": False,
+            "created": "2026-01-01T00:00:00Z",
+        }
+        for _ in range(quiz_count)
+    ]
+    allocation = Allocation()
+    stats = allocation.stats(body.balance)
+    state = GameState(
+        save=GameSave(
+            allocation=allocation,
+            content={"knowledge": [], "quizzes": quizzes},
+            run=Run(
+                resourceId="simulation",
+                name=f"Power {trial.power} · 領域 {trial.achievement}",
+                **stats,
+                hp=stats["maxHp"],
+                moves=0,
+                kills=0,
+                enemyHp=0,
+                enemyMaxHp=1,
+                quizCursor=0,
+                readIds=[],
+                phase="battle",
+            ),
+        ),
+    )
+    context = CombatContext(
+        balance=body.balance,
+        enemies=[
+            EnemyStats(
+                id=enemy_identity("simulation", region, enemy.index - 1),
+                name=f"領域 {trial.achievement}の敵 {enemy.index}",
+                quizIndex=0,
+                quizIndexes=list(range(enemy.quiz_count)),
+                hp=enemy.hp,
+                attack=enemy.attack,
+                relations=enemy.relations,
+                region=region,
+            )
+            for enemy in trial.enemies
+            if enemy.quiz_count > 0
+        ],
+    )
+    return _begin_practice(state, context, region, body.seed, _random(body.seed))
+
+
+def _begin_practice(
+    state: GameState,
+    context: CombatContext,
+    region: int,
+    seed: int,
+    rng: Random,
+) -> PracticeSession:
+    """Share encounter draws and turn initialization for both trial sources."""
     chosen = select_encounter(
         context.enemies,
-        body.balance,
+        context.balance,
         region,
         pick=rng.choice,
         draw=rng.randrange,
@@ -145,14 +224,15 @@ async def prepare_practice(body: PracticeRequest) -> PracticeSession:
         raise HTTPException(409, "有効なクイズがありません。母集団を更新してください。")
     context.enemies = chosen
     state.save.battle = BattleMarker(
-        id=f"practice-{body.seed}",
+        id=f"practice-{seed}",
         region=region,
         enemies=[enemy.id for enemy in chosen],
         quizIndices={enemy.id: rng.choice(enemy.quizIndexes) for enemy in chosen},
     )
     now = int(time() * 1000)
+    stats = state.save.allocation.stats(context.balance)
     state.save.run.answerDeadline = now + stats["answerSeconds"] * 1000
-    return PracticeSession(state=state, context=context, seed=body.seed, server_now=now)
+    return PracticeSession(state=state, context=context, seed=seed, server_now=now)
 
 
 def practice_turn(body: PracticeTurn) -> dict:
