@@ -110,6 +110,25 @@ def test_practice_uses_enemy_snapshot_and_draft_initial_player_values(monkeypatc
     writes.assert_not_awaited()
 
 
+def test_simulated_practice_adds_points_to_unsaved_initial_values():
+    """Player points are an explicit disposable override for an enemy snapshot."""
+    balance = GameBalance(base_hp=60, base_attack=17, base_seconds=30)
+    snapshot = simulate_enemy_balance(
+        EnemyBalanceSimulationRequest(balance=balance, power=100, achievement=1),
+    )
+    session = practice.prepare_simulated_practice(
+        practice.SimulatedPracticeRequest(
+            simulation=snapshot,
+            balance=balance,
+            allocation=Allocation(hp=2, attack=9, defense=1, seconds=2),
+        ),
+    )
+    assert session.state.save.run.hp == 70
+    assert session.state.save.run.attack == 35
+    assert session.state.save.run.defense == 2
+    assert session.state.save.run.answerSeconds == 36
+
+
 async def _prepared(monkeypatch):
     """Seed/settings recreate enemies; both source snapshot and DB remain untouched."""
     resource, user = uuid4(), uuid4()
@@ -148,6 +167,45 @@ async def _prepared(monkeypatch):
 async def test_prepare_replays_draft_and_does_not_mutate_source(monkeypatch):
     """Preparation only creates an isolated, reproducible snapshot."""
     await _prepared(monkeypatch)
+
+
+@mark_async_test()
+async def test_dungeon_practice_keeps_saved_enemy_identity_and_quiz_sets(monkeypatch):
+    """Keep actual roster IDs and remap only the selected region's quizzes."""
+    await _prepared(monkeypatch)
+    resource = uuid4()
+    source = source_state(resource)
+    quizzes = source.save.content["quizzes"]
+    source.save.content["regionQuizPools"]["0"] = [
+        quizzes[i]["quiz_id"] for i in [1, 3]
+    ]
+    source.save.content["regionEnemies"] = {
+        "0": [
+            {
+                "id": "saved-enemy",
+                "name": "保存済みの敵",
+                "quizIndex": 1,
+                "quizIndexes": [1, 3],
+            },
+        ],
+    }
+    original = source.model_dump_json()
+    monkeypatch.setattr(practice, "read_state", AsyncMock(return_value=source))
+    session = await practice.prepare_practice(
+        practice.PracticeRequest(
+            user_id=uuid4(),
+            resource_id=resource,
+            level=1,
+            balance=GameBalance(min_enemies=1, max_encounter_enemies=1),
+            allocation=Allocation(),
+        ),
+    )
+    assert len(session.context.enemies) == 1
+    enemy = session.context.enemies[0]
+    assert enemy.id == "saved-enemy"
+    assert enemy.name == "保存済みの敵"
+    assert enemy.quizIndexes == [0, 1]
+    assert source.model_dump_json() == original
 
 
 @mark_async_test()
@@ -235,6 +293,9 @@ async def test_practice_routes_require_admin(ac, monkeypatch):
         "balance": GameBalance().model_dump(),
     }
     path = "/admin/settings/game-balance/practice"
+    allocation_path = f"/admin/users/{user.uid}/game/allocation"
+    assert (await ac.get(allocation_path)).status_code == 401
+    assert (await ac.get(allocation_path, headers=headers)).status_code == 403
     assert (await ac.post(path, json=body)).status_code == 401
     assert (await ac.post(path, json=body, headers=headers)).status_code == 403
     session = await _prepared(monkeypatch)
@@ -277,3 +338,6 @@ async def test_practice_routes_require_admin(ac, monkeypatch):
     response = await ac.post(f"{path}/simulation", json=simulated_body, headers=headers)
     assert response.status_code == 200
     assert response.json()["state"]["save"]["run"]["hp"] == 81
+    response = await ac.get(allocation_path, headers=headers)
+    assert response.status_code == 200
+    assert response.json() == Allocation().model_dump()

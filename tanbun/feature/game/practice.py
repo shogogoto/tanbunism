@@ -50,6 +50,7 @@ class SimulatedPracticeRequest(BaseModel):
 
     simulation: EnemyBalanceSimulationResult
     balance: GameBalance
+    allocation: Allocation = Field(default_factory=Allocation)
     seed: int = Field(default=1, ge=0, le=2**31 - 1)
 
 
@@ -88,32 +89,8 @@ async def prepare_practice(body: PracticeRequest) -> PracticeSession:
     source = source.model_copy(deep=True)
     content = _dungeon_content(source, body.resource_id.hex)
     pool_ids = {str(uid).replace("-", "").lower() for uid in pool}
-    content = {
-        "knowledge": [],
-        "quizzes": [
-            quiz
-            for quiz in content.get("quizzes", [])
-            if str(quiz.get("quiz_id", "")).replace("-", "").lower() in pool_ids
-        ],
-    }
     rng = _random(body.seed)
-    groups = assign_enemy_quizzes(
-        list(range(len(content["quizzes"]))),
-        body.balance,
-        region,
-        rng=rng,
-    )
-    content["regionEnemies"] = {
-        str(region): [
-            {
-                "id": enemy_identity(body.resource_id.hex, region, i),
-                "name": f"領域 {body.level}の敵 {i + 1}",
-                "quizIndex": group[0],
-                "quizIndexes": group,
-            }
-            for i, group in enumerate(groups)
-        ],
-    }
+    content = _practice_content(content, body, pool_ids, rng)
     run = source.save.run
     if not run or run.resourceId.replace("-", "").lower() != body.resource_id.hex:
         run = next(
@@ -146,6 +123,60 @@ async def prepare_practice(body: PracticeRequest) -> PracticeSession:
     return _begin_practice(state, context, region, body.seed, rng)
 
 
+def _practice_content(
+    content: dict,
+    body: PracticeRequest,
+    pool_ids: set[str],
+    rng: Random,
+) -> dict:
+    """Keep saved enemy sets while carrying only this region's readable quizzes."""
+    region = body.level - 1
+    old_quizzes = content.get("quizzes", [])
+    retained = [
+        index
+        for index, quiz in enumerate(old_quizzes)
+        if str(quiz.get("quiz_id", "")).replace("-", "").lower() in pool_ids
+    ]
+    remap = {old: new for new, old in enumerate(retained)}
+    stored_enemies = (content.get("regionEnemies") or {}).get(str(region), [])
+    content = {
+        "knowledge": [],
+        "quizzes": [old_quizzes[index] for index in retained],
+    }
+    if stored_enemies:
+        roster = []
+        for enemy in stored_enemies:
+            indexes = [
+                remap[index]
+                for index in enemy.get("quizIndexes", [enemy.get("quizIndex")])
+                if index in remap
+            ]
+            if indexes:
+                roster.append({
+                    **enemy,
+                    "quizIndex": indexes[0],
+                    "quizIndexes": indexes,
+                })
+    else:
+        groups = assign_enemy_quizzes(
+            list(range(len(content["quizzes"]))),
+            body.balance,
+            region,
+            rng=rng,
+        )
+        roster = [
+            {
+                "id": enemy_identity(body.resource_id.hex, region, i),
+                "name": f"領域 {body.level}の敵 {i + 1}",
+                "quizIndex": group[0],
+                "quizIndexes": group,
+            }
+            for i, group in enumerate(groups)
+        ]
+    content["regionEnemies"] = {str(region): roster}
+    return content
+
+
 def prepare_simulated_practice(body: SimulatedPracticeRequest) -> PracticeSession:
     """Keep trial enemy stats exactly; create no user state or real quizzes."""
     trial = body.simulation
@@ -164,7 +195,7 @@ def prepare_simulated_practice(body: SimulatedPracticeRequest) -> PracticeSessio
         }
         for _ in range(quiz_count)
     ]
-    allocation = Allocation()
+    allocation = body.allocation
     stats = allocation.stats(body.balance)
     state = GameState(
         save=GameSave(

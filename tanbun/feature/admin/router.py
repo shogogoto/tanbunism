@@ -21,6 +21,7 @@ from tanbun.feature.game.admin import (
     simulate_enemy_balance,
 )
 from tanbun.feature.game.balance import (
+    Allocation,
     GameBalance,
     get_game_balance,
     update_game_balance,
@@ -45,7 +46,7 @@ from tanbun.feature.game.simulation import (
     CombatSimulationResult,
     simulate_combat,
 )
-from tanbun.feature.game.state import GameState
+from tanbun.feature.game.state import GameState, read_state
 from tanbun.feature.gamification.power import (
     PowerWeights,
     get_power_weights,
@@ -138,6 +139,12 @@ async def continue_practice(body: PracticeSession, _admin: AdminUser) -> GameSta
 async def get_game_dungeons(_admin: AdminUser) -> list[GameDungeonAdminItem]:
     """ユーザー別の攻略ダンジョンと保存済み母集団を一覧する."""
     return await list_game_dungeons()
+
+
+@router.get("/users/{user_id}/game/allocation")
+async def get_game_user_allocation(user_id: UUID, _admin: AdminUser) -> Allocation:
+    """Read player points for disposable practice without changing their allocation."""
+    return (await read_state(user_id)).save.allocation
 
 
 @router.post("/users/{user_id}/game/dungeons/{resource_id}/enemies/rebuild")
