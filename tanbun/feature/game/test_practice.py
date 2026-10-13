@@ -99,6 +99,32 @@ async def test_prepare_replays_draft_and_does_not_mutate_source(monkeypatch):
 
 
 @mark_async_test()
+async def test_prepare_uses_selected_players_allocation(monkeypatch):
+    """Player selection is independent of dungeon ownership and never changes either."""
+    await _prepared(monkeypatch)
+    resource, owner, player = uuid4(), uuid4(), uuid4()
+    source = source_state(resource)
+    player_state = GameState(save=GameSave(allocation=Allocation(attack=8)))
+    originals = (source.model_dump_json(), player_state.model_dump_json())
+    read = AsyncMock(side_effect=[source, player_state])
+    monkeypatch.setattr(practice, "read_state", read)
+    session = await practice.prepare_practice(
+        practice.PracticeRequest(
+            user_id=owner,
+            player_user_id=player,
+            resource_id=resource,
+            level=1,
+            balance=GameBalance(),
+        ),
+    )
+    assert session.state.save.allocation == player_state.save.allocation
+    assert session.state.save.run.attack == 26
+    assert session.state.save.run.maxHp == 35
+    assert [call.args[0] for call in read.await_args_list] == [owner, player]
+    assert (source.model_dump_json(), player_state.model_dump_json()) == originals
+
+
+@mark_async_test()
 async def test_turn_correctness_timeout_next_and_replay(monkeypatch):
     """Correctness and unanswered damage use live rules without writes."""
     session = await _prepared(monkeypatch)

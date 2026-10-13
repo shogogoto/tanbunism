@@ -27,6 +27,7 @@ class PracticeRequest(BaseModel):
     """Draft settings and existing dungeon content; no generation or writes."""
 
     user_id: UUID
+    player_user_id: UUID | None = None
     resource_id: UUID
     level: int = Field(ge=1, le=20)
     balance: GameBalance
@@ -111,7 +112,14 @@ async def prepare_practice(body: PracticeRequest) -> PracticeSession:
             for key, dungeon in source.save.dungeons.items()
             if key.replace("-", "").lower() == body.resource_id.hex
         )
-    allocation = body.allocation or source.save.allocation
+    player_source = source
+    if (
+        body.allocation is None
+        and body.player_user_id is not None
+        and body.player_user_id != body.user_id
+    ):
+        player_source = await read_state(body.player_user_id)
+    allocation = body.allocation or player_source.save.allocation
     stats = allocation.stats(body.balance)
     run = run.model_copy(
         update={
