@@ -45,6 +45,28 @@ class GameBalance(BaseModel, frozen=True):
     damage_attack_multiplier: float = Field(default=1, ge=0, le=10, allow_inf_nan=False)
     damage_defense_divisor: float = Field(default=2, gt=0, le=100, allow_inf_nan=False)
     damage_variance_percent: float = Field(default=20, ge=0, le=50, allow_inf_nan=False)
+    damage_effect_threshold_1: float = Field(
+        default=-50,
+        gt=-100,
+        lt=100,
+        allow_inf_nan=False,
+    )
+    damage_effect_threshold_2: float = Field(
+        default=50,
+        gt=-100,
+        lt=100,
+        allow_inf_nan=False,
+    )
+    damage_effect_threshold_3: float = Field(
+        default=75,
+        gt=-100,
+        lt=100,
+        allow_inf_nan=False,
+    )
+    damage_effect_label_1: str = Field(default="かすり", min_length=1, max_length=24)
+    damage_effect_label_2: str = Field(default="HIT", min_length=1, max_length=24)
+    damage_effect_label_3: str = Field(default="NICE!", min_length=1, max_length=24)
+    damage_effect_label_4: str = Field(default="会心!", min_length=1, max_length=24)
     max_enemies: int = Field(default=8, ge=1, le=20)
     regions_per_enemy: int = Field(default=2, ge=1, le=100)
     enemy_types: int = Field(default=3, ge=1, le=20)
@@ -70,6 +92,24 @@ class GameBalance(BaseModel, frozen=True):
             raise ValueError(msg)
         if self.min_enemies > self.max_encounter_enemies:
             msg = "同時出現数の下限は上限以下にしてください。"
+            raise ValueError(msg)
+        if not (
+            self.damage_effect_threshold_1
+            < self.damage_effect_threshold_2
+            < self.damage_effect_threshold_3
+        ):
+            msg = "演出の区切りは小さい順に設定してください。"
+            raise ValueError(msg)
+        if any(
+            not label.strip()
+            for label in (
+                self.damage_effect_label_1,
+                self.damage_effect_label_2,
+                self.damage_effect_label_3,
+                self.damage_effect_label_4,
+            )
+        ):
+            msg = "演出の文言を入力してください。"
             raise ValueError(msg)
         return self
 

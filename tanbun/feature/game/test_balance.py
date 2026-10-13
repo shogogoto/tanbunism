@@ -4,6 +4,7 @@
 from math import ceil, log1p
 
 import pytest
+from pydantic import ValidationError
 
 from .balance import GameBalance
 
@@ -44,3 +45,29 @@ def test_old_settings_receive_growth_defaults_without_reinterpreting_values() ->
     assert balance.region_hp_growth_percent == 20
     assert balance.region_attack_growth_percent == 20
     assert balance.enemy_stats(0, 0, 4) == (36, 22)
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"damage_effect_threshold_1": 50},
+        {"damage_effect_threshold_3": 50},
+        {"damage_effect_threshold_1": -100},
+        {"damage_effect_label_1": "   "},
+        {"damage_effect_label_4": ""},
+    ],
+)
+def test_invalid_damage_effect_settings_are_rejected(settings: dict) -> None:
+    """4段階が逆転・消失する区切りや、空の文言を拒否する."""
+    with pytest.raises(ValidationError):
+        GameBalance.model_validate(settings)
+
+
+def test_damage_effect_settings_are_loaded_from_old_settings_and_roundtrip() -> None:
+    """旧設定は4演出の既定値を使い、編集した文言と区切りは保存できる."""
+    old = GameBalance.model_validate({"damage_variance_percent": 10})
+    assert old.damage_effect_threshold_3 == 75
+    changed = old.model_copy(
+        update={"damage_effect_label_4": "大当たり", "damage_effect_threshold_3": 80},
+    )
+    assert GameBalance.model_validate_json(changed.model_dump_json()) == changed
