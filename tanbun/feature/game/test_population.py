@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
+import pytest
 from neomodel import adb
 
 from tanbun.conftest import mark_async_test
@@ -60,3 +61,57 @@ async def test_population_pagerank_order_and_fixed_prefix(monkeypatch):
         3,
     )
     assert [target.hex for target in targets] == [ids[0], ids[9], ids[8]]
+
+
+async def seed_prepared_quizzes(user, resource, ids):
+    """実際の既定Planと同じ形式で準備済みクイズを保存する."""
+    await adb.cypher_query(
+        """CREATE (user:User {uid:$user})
+        CREATE (resource:Resource {uid:$resource})
+        CREATE (plan:StudyPlan {auto_resource_uid:$resource, quiz_types:['SENT2TERM']})
+        CREATE (plan)-[:OWNED]->(user)
+        WITH user UNWIND range(0,4) AS i
+        CREATE (s:Sentence {uid:$ids[i], resource_uid:$resource})
+        CREATE (q:Quiz {uid:$ids[i], quiz_type:'SENT2TERM', created:i})
+        CREATE (user)-[:LEARN]->(q)
+        CREATE (q)-[:QUIZ_TARGET]->(s)""",
+        {"user": user.hex, "resource": resource.hex, "ids": [uid.hex for uid in ids]},
+    )
+
+
+@mark_async_test()
+async def test_legacy_hyphenated_ids_migrate_to_canonical_population():
+    """画面から送るハイフン付きUUIDでもDBのhex IDと照合できる."""
+    user, resource = uuid4(), uuid4()
+    ids = [uuid4() for _ in range(5)]
+    await seed_prepared_quizzes(user, resource, ids)
+    result = await get_or_prepare_region_pool(
+        user,
+        resource,
+        1,
+        [str(uid) for uid in ids],
+    )
+    assert result["ready"]
+    assert result["quiz_ids"] == [uid.hex for uid in ids]
+
+
+@pytest.mark.parametrize("invalid_id", ["deleted", "malformed", "foreign"])
+@mark_async_test()
+async def test_invalid_legacy_pool_falls_back_to_owned_prepared_quizzes(invalid_id):
+    """古い候補が無効でも、本人の準備済みクイズを0問と誤判定しない."""
+    user, resource = uuid4(), uuid4()
+    ids = [uuid4() for _ in range(5)]
+    await seed_prepared_quizzes(user, resource, ids)
+    missing = uuid4().hex
+    if invalid_id == "foreign":
+        await adb.cypher_query(
+            "CREATE (:Quiz {uid:$uid, quiz_type:'SENT2TERM'})",
+            {"uid": missing},
+        )
+    legacy = [uid.hex for uid in ids[:4]] + [
+        "not-a-uuid" if invalid_id == "malformed" else missing,
+    ]
+    result = await get_or_prepare_region_pool(user, resource, 1, legacy)
+    assert result["ready"]
+    assert result["available_quizzes"] == len(ids)
+    assert result["quiz_ids"] == [uid.hex for uid in ids]

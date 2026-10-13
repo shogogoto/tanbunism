@@ -150,6 +150,23 @@ async def replace_region_pool(
     await _save_region_pool(user_id, resource_id, level, quiz_ids)
 
 
+async def _validated_legacy_pool(
+    user_id: UUIDy,
+    resource_id: UUIDy,
+    quiz_ids: list[str],
+) -> list[str]:
+    """Migration hints use canonical UUIDs and never include ineligible quizzes."""
+    if len(quiz_ids) > MAX_LEGACY_POOL_SIZE:
+        return []
+    try:
+        normalized = [to_uuid(quiz_id).hex for quiz_id in quiz_ids]
+    except ValueError:
+        return []
+    return (
+        normalized if await _validate_quiz_ids(user_id, resource_id, normalized) else []
+    )
+
+
 async def get_or_prepare_region_pool(
     user_id: UUIDy,
     resource_id: UUIDy,
@@ -164,20 +181,10 @@ async def get_or_prepare_region_pool(
         existing = await _stored_region_pool(_region_uid(dungeon_uid, level))
         if existing is not None:
             legacy_pool = None
-        elif len(legacy_pool) > MAX_LEGACY_POOL_SIZE or not await _validate_quiz_ids(
-            user_id,
-            resource_id,
-            legacy_pool,
-        ):
-            return {
-                "ready": False,
-                "level": level,
-                "required_quizzes": level * REGION_QUIZ_COUNT,
-                "available_quizzes": 0,
-                "quiz_ids": [],
-            }
         else:
-            seed_ids = legacy_pool
+            seed_ids = await _validated_legacy_pool(user_id, resource_id, legacy_pool)
+            # A stale/invalid snapshot is only a migration hint. Discover the
+            # user's usable prepared quizzes instead of reporting zero here.
     for current_level in range(1, level + 1):
         region_uid = _region_uid(dungeon_uid, current_level)
         stored = await _stored_region_pool(region_uid)
