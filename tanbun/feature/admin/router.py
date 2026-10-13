@@ -126,7 +126,7 @@ async def start_simulated_practice(
     _admin: AdminUser,
 ) -> PracticeSession:
     """Practice with selected trial enemies and draft initial player stats."""
-    return prepare_simulated_practice(body)
+    return await prepare_simulated_practice(body)
 
 
 @router.post("/settings/game-balance/practice/next")

@@ -59,7 +59,10 @@ def source_state(resource):
     )
 
 
-def test_practice_uses_enemy_snapshot_and_draft_initial_player_values(monkeypatch):
+@mark_async_test()
+async def test_practice_uses_enemy_snapshot_and_draft_initial_player_values(
+    monkeypatch,
+):
     """Enemy trials stay sealed; draft player values require no saved user/dungeon."""
     snapshot = simulate_enemy_balance(
         EnemyBalanceSimulationRequest(balance=GameBalance(), power=250, achievement=3),
@@ -80,7 +83,7 @@ def test_practice_uses_enemy_snapshot_and_draft_initial_player_values(monkeypatc
     monkeypatch.setattr(practice, "read_state", reads)
     monkeypatch.setattr(combat, "persist", writes)
     request = practice.SimulatedPracticeRequest(simulation=snapshot, balance=draft)
-    session = practice.prepare_simulated_practice(request)
+    session = await practice.prepare_simulated_practice(request)
     assert session.state.save.allocation == Allocation()
     assert session.state.save.run.hp == 81
     assert session.state.save.run.attack == 23
@@ -91,7 +94,7 @@ def test_practice_uses_enemy_snapshot_and_draft_initial_player_values(monkeypatc
         source = snapshot.enemies[int(enemy.name.rsplit(" ", 1)[1]) - 1]
         assert (enemy.hp, enemy.attack) == (source.hp, source.attack)
         assert len(enemy.quizIndexes) == source.quiz_count
-    second = practice.prepare_simulated_practice(request)
+    second = await practice.prepare_simulated_practice(request)
     assert session.context == second.context
     marker = session.state.save.battle
     resolved = practice.practice_turn(
@@ -110,13 +113,14 @@ def test_practice_uses_enemy_snapshot_and_draft_initial_player_values(monkeypatc
     writes.assert_not_awaited()
 
 
-def test_simulated_practice_adds_points_to_unsaved_initial_values():
+@mark_async_test()
+async def test_simulated_practice_adds_points_to_unsaved_initial_values():
     """Player points are an explicit disposable override for an enemy snapshot."""
     balance = GameBalance(base_hp=60, base_attack=17, base_seconds=30)
     snapshot = simulate_enemy_balance(
         EnemyBalanceSimulationRequest(balance=balance, power=100, achievement=1),
     )
-    session = practice.prepare_simulated_practice(
+    session = await practice.prepare_simulated_practice(
         practice.SimulatedPracticeRequest(
             simulation=snapshot,
             balance=balance,
@@ -127,6 +131,37 @@ def test_simulated_practice_adds_points_to_unsaved_initial_values():
     assert session.state.save.run.attack == 35
     assert session.state.save.run.defense == 2
     assert session.state.save.run.answerSeconds == 36
+
+
+@mark_async_test()
+async def test_simulated_practice_reads_actual_player_without_mutating(monkeypatch):
+    """Use saved player points with draft settings without sharing mutable state."""
+    player = uuid4()
+    source = source_state(uuid4())
+    source.save.allocation = Allocation(hp=2, attack=8, defense=1, seconds=2)
+    original = source.model_dump_json()
+    read = AsyncMock(return_value=source)
+    monkeypatch.setattr(practice, "read_state", read)
+    writes = AsyncMock(side_effect=AssertionError("Practice must not persist"))
+    monkeypatch.setattr(combat, "persist", writes)
+    balance = GameBalance(base_hp=60)
+    snapshot = simulate_enemy_balance(
+        EnemyBalanceSimulationRequest(balance=balance, power=100, achievement=1),
+    )
+    session = await practice.prepare_simulated_practice(
+        practice.SimulatedPracticeRequest(
+            simulation=snapshot,
+            balance=balance,
+            player_user_id=player,
+        ),
+    )
+    read.assert_awaited_once_with(player)
+    assert session.state.save.allocation == source.save.allocation
+    assert session.state.save.run.hp == 70
+    assert session.state.save.run.attack == 26
+    session.state.save.allocation.attack = 0
+    assert source.model_dump_json() == original
+    writes.assert_not_awaited()
 
 
 async def _prepared(monkeypatch):

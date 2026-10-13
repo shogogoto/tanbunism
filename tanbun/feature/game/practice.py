@@ -50,7 +50,8 @@ class SimulatedPracticeRequest(BaseModel):
 
     simulation: EnemyBalanceSimulationResult
     balance: GameBalance
-    allocation: Allocation = Field(default_factory=Allocation)
+    player_user_id: UUID | None = None
+    allocation: Allocation | None = None
     seed: int = Field(default=1, ge=0, le=2**31 - 1)
 
 
@@ -105,7 +106,9 @@ async def prepare_practice(body: PracticeRequest) -> PracticeSession:
         and body.player_user_id != body.user_id
     ):
         player_source = await read_state(body.player_user_id)
-    allocation = body.allocation or player_source.save.allocation
+    allocation = (body.allocation or player_source.save.allocation).model_copy(
+        deep=True,
+    )
     stats = allocation.stats(body.balance)
     run = run.model_copy(
         update={
@@ -177,7 +180,7 @@ def _practice_content(
     return content
 
 
-def prepare_simulated_practice(body: SimulatedPracticeRequest) -> PracticeSession:
+async def prepare_simulated_practice(body: SimulatedPracticeRequest) -> PracticeSession:
     """Keep trial enemy stats exactly; create no user state or real quizzes."""
     trial = body.simulation
     region = trial.achievement - 1
@@ -196,6 +199,13 @@ def prepare_simulated_practice(body: SimulatedPracticeRequest) -> PracticeSessio
         for _ in range(quiz_count)
     ]
     allocation = body.allocation
+    if allocation is None:
+        allocation = (
+            (await read_state(body.player_user_id)).save.allocation
+            if body.player_user_id is not None
+            else Allocation()
+        )
+    allocation = allocation.model_copy(deep=True)
     stats = allocation.stats(body.balance)
     state = GameState(
         save=GameSave(
