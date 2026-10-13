@@ -11,7 +11,7 @@ from uuid import UUID
 import neo4j
 import networkx as nx
 from more_itertools import collapse
-from neomodel.async_.core import AsyncDatabase
+from neomodel import adb
 from neomodel.exceptions import ConstraintValidationFailed, UniqueProperty
 from pydantic import RootModel
 from pydantic_core import Url
@@ -61,7 +61,7 @@ async def fetch_namespace(user_id: UUIDy) -> NameSpace:
         RETURN p, stat, e
     """
     uid = to_uuid(user_id)
-    rows, _ = await AsyncDatabase().cypher_query(
+    rows, _ = await adb.cypher_query(
         q,
         params={"uid": uid.hex},
         resolve_objects=True,
@@ -292,7 +292,7 @@ async def resource_infos_by_resource_uids(
         MATCH (r)-[:STATS]->(stat:ResourceStatsCache)
         RETURN DISTINCT p, stat
         """
-    rows, _ = await AsyncDatabase().cypher_query(
+    rows, _ = await adb.cypher_query(
         q,
         params={"uids": list({uid.hex for uid in resource_uids})},
     )
@@ -323,7 +323,7 @@ async def fetch_entry_detail(entry_uid: UUIDy) -> EntryDetail:
         ORDER BY child.name
     """
     uid = to_uuid(entry_uid)
-    rows, _ = await AsyncDatabase().cypher_query(
+    rows, _ = await adb.cypher_query(
         q,
         params={"uid": uid.hex},
         resolve_objects=True,
@@ -389,7 +389,7 @@ async def fetch_resources_by_user(user_id: UUIDy) -> list[LResource]:
         RETURN r
     """
     uid = to_uuid(user_id)
-    rows, _ = await AsyncDatabase().cypher_query(
+    rows, _ = await adb.cypher_query(
         q,
         params={"uid": uid.hex},
         resolve_objects=True,

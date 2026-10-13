@@ -5,6 +5,7 @@ from math import log1p
 
 from neomodel import adb
 
+from tanbun.config.transactions import atomic
 from tanbun.feature.domain.datetime import TZ
 from tanbun.feature.domain.types import UUIDy, to_uuid
 from tanbun.feature.gamification.resource import record_exposure_xp
@@ -241,7 +242,7 @@ async def record_tanbun_exposure(
         RETURN recorded, count(all_exposures)
         """
     )
-    async with adb.transaction:
+    async with atomic():
         rows, _ = await adb.cypher_query(
             query,
             params={

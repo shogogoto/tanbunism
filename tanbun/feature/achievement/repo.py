@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 from typing import get_args
 
-from neomodel.async_.core import AsyncDatabase
+from neomodel import adb
 
 from tanbun.feature.domain.datetime import TZ
 from tanbun.feature.domain.types import UUIDy, to_uuid
@@ -59,7 +59,7 @@ async def fetch_user_with_current_achivement(  # noqa: PLR0914
         RETURN SIZE(results) AS total
             , results[$offset..$offset + $limit] AS page
     """
-    rows, _ = await AsyncDatabase().cypher_query(
+    rows, _ = await adb.cypher_query(
         q,
         params={
             "s": search_str,
@@ -165,7 +165,7 @@ async def snapshot_archivement(
             , SUM(total_created) AS n_saved
     """
 
-    rows, _ = await AsyncDatabase().cypher_query(
+    rows, _ = await adb.cypher_query(
         q,
         params={
             "offset": paging.skip,
@@ -194,7 +194,7 @@ async def fetch_achievement_history(
         RETURN u, achievements
     """
 
-    rows, _ = await AsyncDatabase().cypher_query(
+    rows, _ = await adb.cypher_query(
         q,
         params={
             "user_ids": [to_uuid(uid).hex for uid in user_ids],
@@ -226,7 +226,7 @@ async def fetch_activity(user_ids: list[UUIDy]) -> UserActivities:
             , n_resource
             , latest
     """
-    rows, _ = await AsyncDatabase().cypher_query(
+    rows, _ = await adb.cypher_query(
         q,
         params={
             "user_ids": [to_uuid(uid).hex for uid in user_ids],

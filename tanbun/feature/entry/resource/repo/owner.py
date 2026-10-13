@@ -1,6 +1,6 @@
 """リソース所有者判定."""
 
-from neomodel.async_.core import AsyncDatabase
+from neomodel import adb
 
 from tanbun.feature.domain.errors import NotFoundError
 from tanbun.feature.domain.types import UUIDy, to_uuid
@@ -14,7 +14,7 @@ async def check_entry_owner(user_uid: UUIDy, entry_uid: UUIDy) -> bool:
     OPTIONAL MATCH p = (e)-[:OWNED|PARENT]->*(u)
     RETURN e, u, p
     """
-    rows, _ = await AsyncDatabase().cypher_query(
+    rows, _ = await adb.cypher_query(
         q,
         params={
             "eid": to_uuid(entry_uid).hex,

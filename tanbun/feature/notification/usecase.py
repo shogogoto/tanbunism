@@ -4,8 +4,10 @@ import asyncio
 import json
 import logging
 
+from neomodel import adb
 from pywebpush import WebPushException, webpush_async
 
+from tanbun.config.after_commit import after_commit
 from tanbun.config.env import Settings
 from tanbun.feature.domain.types import UUIDy
 
@@ -35,6 +37,10 @@ async def dispatch_saved_notifications(
     notifications: list[Notification],
 ) -> None:
     """確定済み通知を配信する。配信失敗で完了済みの操作を失敗させない."""
+    if adb._active_transaction is not None:  # noqa: SLF001
+        saved = list(notifications)
+        if after_commit(lambda: dispatch_saved_notifications(user_id, saved)):
+            return
     for notification in notifications:
         try:
             await _dispatch_web_push(user_id, notification)

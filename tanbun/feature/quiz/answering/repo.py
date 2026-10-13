@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 
 from neomodel import adb
 
+from tanbun.config.transactions import atomic
 from tanbun.feature.domain.datetime import TZ
 from tanbun.feature.domain.types import UUIDy, to_uuid
 from tanbun.feature.gamification.resource import record_answer_xp
@@ -28,7 +29,7 @@ async def create_answer(
 ) -> Answer:
     """回答の永続化."""
     notifications = []
-    async with adb.transaction:
+    async with atomic():
         answer, notifications = await create_answer_in_transaction(
             quiz_uid,
             selected_uids,

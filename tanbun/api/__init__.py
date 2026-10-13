@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from neomodel.async_.core import AsyncDatabase
+from neomodel import adb
 
 from tanbun.api.middleware.error_handling import ErrorHandlingMiddleware
 from tanbun.api.middleware.logging import LoggingMiddleware
@@ -51,22 +51,29 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator:
     finally:
         await media_worker.stop_worker(image_worker)
         await stop_worker(worker)
-        await AsyncDatabase().close_connection()
+        await adb.close_connection()
 
 
-api = FastAPI(lifespan=lifespan)
+class CorsFastAPI(FastAPI):
+    """ServerErrorMiddlewareの500応答も含め、全応答へCORSを付ける."""
+
+    def build_middleware_stack(self):
+        """FastAPIの例外処理も外側のCORSで包む."""
+        return CORSMiddleware(
+            super().build_middleware_stack(),
+            allow_credentials=True,
+            allow_origins=s.allow_origins,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+
+api = CorsFastAPI(lifespan=lifespan)
 
 api.add_middleware(ErrorHandlingMiddleware)
 api.add_middleware(
     Neo4jTransactionMiddleware,
     # paths=["/api/v1"], 適用パス
-)
-api.add_middleware(
-    CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=s.allow_origins,
-    allow_methods=["*"],
-    allow_headers=["*"],
 )
 api.add_middleware(LoggingMiddleware)
 
@@ -104,6 +111,6 @@ def root_router() -> FastAPI:  # noqa: D103
 
 
 @api.get("/health")
-async def check_health() -> str:
+async def check_health() -> str:  # noqa: RUF029
     """Check health."""
     return "ok"

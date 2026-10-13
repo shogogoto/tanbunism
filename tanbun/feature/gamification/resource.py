@@ -8,6 +8,7 @@ from weakref import WeakKeyDictionary
 from neomodel import adb
 from pydantic import BaseModel, Field
 
+from tanbun.config.transactions import atomic
 from tanbun.feature.domain.types import UUIDy, to_uuid
 from tanbun.feature.gamification.domain import (
     DEFAULT_LEVEL_XP_COEFFICIENT,
@@ -124,7 +125,7 @@ async def record_resource_xp(
     async with AsyncExitStack() as stack:
         if owns_transaction:
             await stack.enter_async_context(_standalone_lock())
-            await stack.enter_async_context(adb.transaction)
+            await stack.enter_async_context(atomic())
         coefficient = (await get_gamification_settings()).level_xp_coefficient
         rows, _ = await adb.cypher_query(
             EVENT_QUERY,

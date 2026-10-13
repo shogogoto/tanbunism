@@ -2,7 +2,7 @@
 
 from typing import get_args
 
-from neomodel.async_.core import AsyncDatabase
+from neomodel import adb
 
 from tanbun.feature.entry.domain import (
     ResourceInfo,
@@ -66,7 +66,7 @@ async def search_resources(  # noqa: PLR0917
         **paging.params,
     }
 
-    rows, _ = await AsyncDatabase().cypher_query(q, params=params)
+    rows, _ = await adb.cypher_query(q, params=params)
     if not rows:
         return ResourceSearchResult(total=0, data=[])
 

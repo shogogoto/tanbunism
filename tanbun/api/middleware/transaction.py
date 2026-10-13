@@ -6,13 +6,14 @@ import logging
 from typing import override
 
 from fastapi import status
-from neomodel.async_.core import AsyncDatabase
+from neomodel import adb
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from tanbun.api.middleware.error_handling import database_timeout_response
 from tanbun.config.after_commit import commit_hooks
 from tanbun.config.database import database_budget, is_database_timeout
 from tanbun.config.env import Settings
+from tanbun.config.transactions import database_scope, transaction_requires_rollback
 
 STATELESS_PATH_PREFIXES = ("/health", "/language")
 
@@ -29,6 +30,7 @@ class Neo4jTransactionMiddleware(BaseHTTPMiddleware):
             else settings.NEO4J_WRITE_TIMEOUT_SECONDS
         )
         with (
+            database_scope(),
             database_budget(timeout, f"{request.method} {request.url.path}"),
             commit_hooks() as hooks,
         ):
@@ -45,11 +47,14 @@ class Neo4jTransactionMiddleware(BaseHTTPMiddleware):
     async def _dispatch_transaction(self, request, call_next):
         if self._should_skip(request.url.path):
             return await call_next(request)
-        db = AsyncDatabase()
+        db = adb
         try:
             await db.begin()
             res = await call_next(request)
             if status.HTTP_200_OK <= res.status_code < status.HTTP_300_MULTIPLE_CHOICES:
+                if transaction_requires_rollback():
+                    msg = "Transaction marked for rollback"
+                    raise RuntimeError(msg)  # noqa: TRY301
                 await db.commit()
             else:
                 await db.rollback()

@@ -11,11 +11,13 @@ _hooks: ContextVar[list[CommitHook] | None] = ContextVar(
 )
 
 
-def after_commit(hook: CommitHook) -> None:
+def after_commit(hook: CommitHook) -> bool:
     """Register only within an HTTP transaction; durable jobs cover other callers."""
     hooks = _hooks.get()
     if hooks is not None:
         hooks.append(hook)
+        return True
+    return False
 
 
 @contextmanager

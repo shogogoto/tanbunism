@@ -1,6 +1,6 @@
 """リソース削除."""
 
-from neomodel.async_.core import AsyncDatabase
+from neomodel import adb
 
 from tanbun.feature.domain.types import UUIDy, to_uuid
 from tanbun.feature.entry.resource.repo.retirement import retire_referenced_sentences
@@ -15,7 +15,7 @@ async def delete_resource_unders(resource_uid: UUIDy):
         OPTIONAL MATCH (t1)-[:ALIAS]->*(t2:Term)
         DETACH DELETE s, n, t1, t2
     """
-    _rows, _ = await AsyncDatabase().cypher_query(
+    _rows, _ = await adb.cypher_query(
         q,
         params={"uid": to_uuid(resource_uid).hex},
     )
@@ -30,7 +30,7 @@ async def delete_resource_tops(resource_uid: UUIDy):
         OPTIONAL MATCH (plan:StudyPlan {auto_resource_uid: $uid})
         DETACH DELETE r, h, s, plan
     """
-    _rows, _ = await AsyncDatabase().cypher_query(
+    _rows, _ = await adb.cypher_query(
         q,
         params={"uid": to_uuid(resource_uid).hex},
     )

@@ -7,7 +7,7 @@ from uuid import UUID
 import neo4j
 import networkx as nx
 from lark import Token
-from neomodel.async_.core import AsyncDatabase
+from neomodel import adb
 
 from tanbun.feature.domain.errors import NotFoundError
 from tanbun.feature.domain.graph.edge_type import EdgeType
@@ -75,7 +75,7 @@ async def restore_tops(resource_uid: UUIDy) -> tuple[nx.DiGraph, dict[UUID, KNod
         WHERE r IS NOT NULL AND e IS NOT NULL AND root IS NOT NULL
         RETURN r, root as s, e
     """
-    rows, _ = await AsyncDatabase().cypher_query(
+    rows, _ = await adb.cypher_query(
         q,
         params={"uid": ruid.hex},
     )
@@ -119,7 +119,7 @@ async def _restore_detached_tops(
         OPTIONAL MATCH (s)-[r:BELOW|SIBLING]->(e:Head|Sentence|Quoterm)
         RETURN top, r, s, e
     """
-    rows, _ = await AsyncDatabase().cypher_query(
+    rows, _ = await adb.cypher_query(
         q,
         params={"uid": resource_uid.hex},
     )
@@ -154,7 +154,7 @@ async def restore_undersentnet(  # noqa: PLR0914
             , COALESCE(names, []) as names
             , alias
     """
-    rows, _ = await AsyncDatabase().cypher_query(
+    rows, _ = await adb.cypher_query(
         q,
         params={"uid": to_uuid(resource_uid).hex},
     )

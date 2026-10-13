@@ -13,6 +13,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from tanbun.config.database import configure_database_deadlines
+from tanbun.config.transactions import configure_transaction_isolation
 
 TIMEOUT: Final = 3.0
 
@@ -81,6 +82,7 @@ class Settings(BaseSettings):
     def setup_db(self) -> None:
         """DB設定."""
         configure_database_deadlines(self.NEO4J_READ_TIMEOUT_SECONDS)
+        configure_transaction_isolation()
         config.DATABASE_URL = self.NEO4J_URL
 
     def url(self, relative: str) -> str:

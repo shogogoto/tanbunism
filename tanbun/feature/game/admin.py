@@ -9,6 +9,7 @@ from fastapi import BackgroundTasks, HTTPException
 from neomodel import adb
 from pydantic import BaseModel, Field, ValidationError
 
+from tanbun.config.transactions import atomic
 from tanbun.feature.domain.types import UUIDy, to_uuid
 from tanbun.feature.notification.domain import NewNotification, NotificationKind
 from tanbun.feature.notification.usecase import notify_user
@@ -821,7 +822,7 @@ async def _rebuild_dungeon_enemy_pools_now(
     if not regions:
         return {"dungeon_count": 0, "region_count": 0, "quiz_count": 0}
     updated.revision = previous.revision + 1
-    async with adb.transaction:
+    async with atomic():
         for region_key, quiz_ids in (content.get("regionQuizPools") or {}).items():
             await replace_region_pool(
                 user_id,

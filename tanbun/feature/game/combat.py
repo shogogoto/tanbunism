@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from neomodel import adb
 from pydantic import BaseModel, Field
 
+from tanbun.config.transactions import atomic
 from tanbun.feature.domain.types import UUIDy, to_uuid
 from tanbun.feature.gamification.resource import fetch_resource_growth
 from tanbun.feature.gamification.usecase import fetch_learning_progress
@@ -227,7 +228,7 @@ async def start_combat(user_id: UUIDy, body: EncounterRequest) -> GameState:
     next_run.enemyHp = 0
     next_run.enemyMaxHp = 1
     next_run.answerDeadline = int(time() * 1000) + stats["answerSeconds"] * 1000
-    async with adb.transaction:
+    async with atomic():
         await persist(user_id, previous, updated)
     return updated
 
@@ -309,7 +310,7 @@ async def settle_turn(user_id: UUIDy, body: TurnRequest) -> dict:
     updated = apply_turn_result(previous, body, results, damage, stats)
     receipt = {"id": f"{marker.id}:{marker.turn}", "results": results, "damage": damage}
     notifications = []
-    async with adb.transaction:
+    async with atomic():
         await persist(user_id, previous, updated)
         for enemy_id, uid in selected_quizzes.items():
             _, saved = await create_answer_in_transaction(
@@ -453,7 +454,7 @@ async def abandon_combat(user_id: UUIDy) -> GameState:
         updated.save.battleFeedback = (
             "旧戦闘から撤退しました。保存済みの回答・XPは保持しています。"
         )
-        async with adb.transaction:
+        async with atomic():
             await persist(user_id, state, updated)
         return updated
     if marker:
@@ -467,7 +468,7 @@ async def abandon_combat(user_id: UUIDy) -> GameState:
             dungeon = updated.save.maps.get(updated.save.run.resourceId)
             if dungeon:
                 dungeon.current = marker.checkpoint
-            async with adb.transaction:
+            async with atomic():
                 await persist(user_id, state, updated)
             return updated
         result = await settle_turn(
@@ -500,7 +501,7 @@ async def next_turn(user_id: UUIDy, body: TurnRequest) -> GameState:
     updated.save.run.answerSeconds = seconds
     updated.save.run.answerDeadline = int(time() * 1000) + seconds * 1000
     updated.save.battleFeedback = None
-    async with adb.transaction:
+    async with atomic():
         await persist(user_id, previous, updated)
     return updated
 
@@ -523,6 +524,6 @@ async def set_allocation(user_id: UUIDy, allocation: Allocation) -> GameState:
             for key, value in stats.items():
                 setattr(run, key, value)
             run.hp = min(run.hp, run.maxHp)
-    async with adb.transaction:
+    async with atomic():
         await persist(user_id, previous, updated)
     return updated
