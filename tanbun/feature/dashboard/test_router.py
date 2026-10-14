@@ -8,6 +8,7 @@ from starlette import status
 
 from tanbun.conftest import mark_async_test
 from tanbun.feature.entry.resource.usecase import save_text
+from tanbun.feature.game.state import read_state
 from tanbun.feature.user.testing import aauth_header, aregister
 
 from .domain import (
@@ -53,7 +54,9 @@ async def test_personal_tanbun_timeline_and_daily_exposure(ac: AsyncClient) -> N
     first_result = TanbunExposureResult.model_validate(first.json())
     second_result = TanbunExposureResult.model_validate(second.json())
     assert first_result.recorded
+    assert first_result.step_recovery_awarded
     assert not second_result.recorded
+    assert not second_result.step_recovery_awarded
     assert second_result.exposure_count == 1
 
     today = await ac.get("/dashboard/tanbuns/exposures/today", headers=headers)
@@ -67,6 +70,33 @@ async def test_personal_tanbun_timeline_and_daily_exposure(ac: AsyncClient) -> N
     refreshed_target = next(item for item in refreshed_items if item.uid == target.uid)
     assert refreshed_target.exposure_count == 1
     assert refreshed_target.seen_today
+
+
+@mark_async_test()
+async def test_game_exposure_defers_reward_until_snapshot_save(ac: AsyncClient) -> None:
+    """最後の見たよが歩数保存のrevisionを無効化しない."""
+    user = await aregister("dashboard-game-reward@example.com")
+    await save_text(user.uid, "# ゲームのメモ\n    学び: 読んで覚える\n")
+    headers = await aauth_header(user.email)
+    items = (await ac.get("/dashboard/tanbuns", headers=headers)).json()
+    assert items
+    previous = await read_state(user.uid)
+    for item in items:
+        response = await ac.post(
+            f"/dashboard/tanbuns/{item['uid']}/exposures?defer_game_reward=true",
+            headers=headers,
+        )
+        assert response.is_success, response.text
+        assert not response.json()["step_recovery_awarded"]
+    assert (await read_state(user.uid)).revision == previous.revision
+    response = await ac.put(
+        "/game/state",
+        headers=headers,
+        json={"revision": previous.revision, "save": previous.save.model_dump()},
+    )
+    assert response.is_success, response.text
+    assert response.json()["save"]["economy"]["inventory"]["step_potion"] == 1
+    assert response.json()["revision"] == previous.revision + 2
 
 
 @mark_async_test()

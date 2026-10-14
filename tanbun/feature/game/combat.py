@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Callable
+from math import ceil
 from secrets import choice, randbelow
 from time import time
 from uuid import uuid4
@@ -20,6 +21,8 @@ from tanbun.feature.quiz.chain.usecase import expand_quiz_chain
 
 from .balance import Allocation, GameBalance, get_game_balance
 from .damage import enemy_damage
+from .economy import GOLD_PER_LEVEL
+from .inventory import equipped_stats
 from .state import BattleMarker, GameState, StateUpdate, compare_and_save, read_state
 
 MOVES_PER_EVENT = 5
@@ -154,6 +157,9 @@ def derive_enemies(
                     region=region,
                 ),
             )
+    boss_enemy = derive_boss(content, relations, power, balance)
+    if boss_enemy:
+        enemies.append(boss_enemy)
     by_id = {enemy.id: enemy for enemy in enemies}
     for instance in (content.get("battle") or {}).get("enemies", []):
         if instance in by_id:
@@ -169,6 +175,39 @@ def derive_enemies(
                 ),
             )
     return enemies
+
+
+def derive_boss(
+    content: dict,
+    relations: dict,
+    power: int,
+    balance: GameBalance,
+) -> EnemyStats | None:
+    """通常の敵と同じ能力式を、ボスの倍率で補正する."""
+    marker = content.get("battle") or {}
+    level = marker.get("bossLevel")
+    if not level:
+        return None
+    identity = marker["enemies"][0]
+    pool = set(marker.get("bossQuizIds", []))
+    indexes = [
+        i
+        for i, q in enumerate(content.get("quizzes", []))
+        if to_uuid(q["quiz_id"]).hex in pool and to_uuid(q["quiz_id"]).hex in relations
+    ]
+    if not indexes:
+        return None
+    hp, attack = balance.enemy_stats(power, 0, level - 1, variation_key=identity)
+    return EnemyStats(
+        id=identity,
+        name=f"達成度 {level}のボス",
+        quizIndexes=indexes,
+        quizIndex=marker.get("quizIndices", {}).get(identity, indexes[0]),
+        hp=min(100000, ceil(hp * balance.boss_hp_multiplier)),
+        attack=min(100000, ceil(attack * balance.boss_attack_multiplier)),
+        relations=0,
+        region=level - 1,
+    )
 
 
 async def persist(user_id: UUIDy, previous: GameState, updated: GameState) -> None:
@@ -220,11 +259,16 @@ async def start_combat(user_id: UUIDy, body: EncounterRequest) -> GameState:
             enemy.id: choice(enemy.quizIndexes or [enemy.quizIndex]) for enemy in chosen
         },
     )
-    stats = updated.save.allocation.stats(context.balance)
+    stats = equipped_stats(
+        updated.save.allocation,
+        context.balance,
+        updated.save.economy,
+    )
     next_run = updated.save.run
     for key, value in stats.items():
         setattr(next_run, key, value)
     next_run.hp = min(next_run.hp, next_run.maxHp)
+    next_run.mp = stats["maxMp"]
     next_run.enemyHp = 0
     next_run.enemyMaxHp = 1
     next_run.answerDeadline = int(time() * 1000) + stats["answerSeconds"] * 1000
@@ -297,7 +341,11 @@ async def settle_turn(user_id: UUIDy, body: TurnRequest) -> dict:
     results, selected_quizzes = await evaluate_answers(user_id, previous, body, enemies)
     if any(not results.get(enemy_id) for enemy_id in body.defeated):
         raise HTTPException(422, "未正解の敵は撃破できません。")
-    stats = previous.save.allocation.stats(context.balance)
+    stats = equipped_stats(
+        previous.save.allocation,
+        context.balance,
+        previous.save.economy,
+    )
     incoming_damage = {
         e: enemy_damage(
             (enemies[e].attack if e in enemies else context.balance.enemy_attack),
@@ -309,11 +357,13 @@ async def settle_turn(user_id: UUIDy, body: TurnRequest) -> dict:
     }
     damage = sum(incoming_damage.values())
     updated = apply_turn_result(previous, body, results, damage, stats)
+    award_kill_gold(updated, body, marker.region)
     receipt = {
         "id": f"{marker.id}:{marker.turn}",
         "results": results,
         "damage": damage,
         "incoming_damage": incoming_damage,
+        "gold_earned": updated.save.economy.gold - previous.save.economy.gold,
     }
     notifications = []
     async with atomic():
@@ -332,6 +382,14 @@ async def settle_turn(user_id: UUIDy, body: TurnRequest) -> dict:
         )
     await dispatch_saved_notifications(user_id, notifications)
     return {**receipt, "state": updated.model_dump(by_alias=True)}
+
+
+def award_kill_gold(updated: GameState, body: TurnRequest, region: int) -> None:
+    """撃破が確定した実戦のターンだけにゴールドを付ける."""
+    gold = len(set(body.defeated)) * (region + 1) * GOLD_PER_LEVEL
+    updated.save.economy.gold += gold
+    if gold:
+        updated.save.battleFeedback += f" · +{gold} G"
 
 
 async def evaluate_answers(
@@ -378,7 +436,8 @@ def apply_turn_result(
     for key, value in stats.items():
         setattr(next_run, key, value)
     next_run.hp = max(0, min(next_run.hp, next_run.maxHp) - damage)
-    next_run.kills += len(set(body.defeated))
+    next_run.mp = min(next_run.mp, next_run.maxMp)
+    next_run.kills += 0 if marker.bossLevel else len(set(body.defeated))
     next_run.quizCursor += len(body.answers)
     survivors = [e for e in marker.enemies if e not in body.defeated]
     next_run.phase = (
@@ -391,7 +450,7 @@ def apply_turn_result(
         else "battle"
         if survivors
         else "cleared"
-        if next_run.kills >= ENEMIES_TO_CLEAR
+        if next_run.kills >= ENEMIES_TO_CLEAR and not marker.bossLevel
         else "rest"
         if next_run.moves >= MOVES_PER_EVENT
         else "path"
@@ -419,7 +478,25 @@ def apply_turn_result(
     if body.retreat:
         summary += " · 撤退"
     updated.save.battleFeedback = summary
+    record_boss_victory(updated, marker, body, survivors)
     return updated
+
+
+def record_boss_victory(
+    updated: GameState,
+    marker: BattleMarker,
+    body: TurnRequest,
+    survivors: list[str],
+) -> None:
+    """相打ちと撤退には開放を付けず、初回の節目だけを保存する."""
+    if not marker.bossLevel or survivors or not updated.save.run.hp or body.retreat:
+        return
+    resource = to_uuid(updated.save.run.resourceId).hex
+    levels = updated.save.bossClears.setdefault(resource, [])
+    if marker.bossLevel not in levels:
+        levels.append(marker.bossLevel)
+        levels.sort()
+    updated.save.battleFeedback += " · ボス撃破・専門分野開放"
 
 
 async def abandon_combat(user_id: UUIDy) -> GameState:
@@ -431,7 +508,7 @@ async def abandon_combat(user_id: UUIDy) -> GameState:
         updated = state.model_copy(deep=True)
         run = updated.save.run
         balance = await get_game_balance()
-        stats = updated.save.allocation.stats(balance)
+        stats = equipped_stats(updated.save.allocation, balance, updated.save.economy)
         damage = (
             0
             if state.save.battleFeedback
@@ -464,6 +541,14 @@ async def abandon_combat(user_id: UUIDy) -> GameState:
             await persist(user_id, state, updated)
         return updated
     if marker:
+        if marker.skill:
+            from .skills import SkillAnswer, resolve_skill  # noqa: PLC0415
+
+            result = await resolve_skill(
+                user_id,
+                SkillAnswer(skill_id=marker.skill.id, retreat=True),
+            )
+            return result["state"]
         # A fully saved result screen has no unanswered current turn.
         if state.save.battleFeedback:
             updated = state.model_copy(deep=True)
@@ -493,6 +578,7 @@ async def next_turn(user_id: UUIDy, body: TurnRequest) -> GameState:
         not marker
         or (marker.id, marker.turn) != (body.battle_id, body.turn)
         or not previous.save.battleFeedback
+        or marker.skill
     ):
         raise HTTPException(409, "次のターンを開始できません。")
     updated = previous.model_copy(deep=True)
@@ -503,6 +589,7 @@ async def next_turn(user_id: UUIDy, body: TurnRequest) -> GameState:
         if enemy.id in marker.enemies
     }
     updated.save.battle.quizIndices = selected
+    updated.save.battle.skillUsed = False
     seconds = previous.save.allocation.stats(await get_game_balance())["answerSeconds"]
     updated.save.run.answerSeconds = seconds
     updated.save.run.answerDeadline = int(time() * 1000) + seconds * 1000
@@ -524,12 +611,13 @@ async def set_allocation(user_id: UUIDy, allocation: Allocation) -> GameState:
         raise HTTPException(422, "育成ポイントが不足しています。")
     updated = previous.model_copy(deep=True)
     updated.save.allocation = allocation
-    stats = allocation.stats(await get_game_balance())
+    stats = equipped_stats(allocation, await get_game_balance(), updated.save.economy)
     for run in [updated.save.run, *(d.run for d in updated.save.dungeons.values())]:
         if run:
             for key, value in stats.items():
                 setattr(run, key, value)
             run.hp = min(run.hp, run.maxHp)
+            run.mp = min(run.mp, run.maxMp)
     async with atomic():
         await persist(user_id, previous, updated)
     return updated

@@ -1,3 +1,48 @@
+# Gold and inventory
+
+MP adds another allocation stat: `base_mp + points.mp * mp_per_point`.
+An encounter refills MP once, not at every next-turn acknowledgement. Reallocation
+clamps current MP without refilling it. Legacy states/allocations default to zero
+current MP/MP points, and the next encounter uses the configured maximum.
+
+Boss challenges at achievements 5/10/15/20 cost one move and never gate exploration.
+They use the latest five bands of the pinned cumulative quiz population, the live
+enemy calculator with configurable HP/attack multipliers, and the ordinary combat
+UI/answer history. Only a living player's actual victory records `bossClears`;
+regular three-kill laps cannot unlock specialties. Snapshot writes retain the
+server-owned unlock list, and repeat victories do not duplicate it.
+
+Every boss-cleared resource joins the specialty pool. Between processed turns,
+one summon spends the configured MP cost, draws a resource uniformly, then draws
+a valid prepared quiz from its highest cleared band's population. The skill ID,
+quiz ID and deadline are saved so reopening cannot redraw or refund MP. Its first
+provisional effect is all-enemy damage on correct answers, self-damage on incorrect
+or unanswered attempts; attack derives from `ceil(log(1+term_count)*coefficient)`.
+The normal damage calculator, defeat rules, gold settlement and real answer/XP
+storage are reused. An unanswered skill never creates an Answer or answer XP.
+A separate receipt makes retries idempotent. Lost-browser skills resolve once
+as unanswered retreat; they cannot skip the penalty via the saved result-screen
+shortcut. Enemy remaining HP stays browser-owned, as in ordinary combat.
+
+Live battle settlements award 10 gold per enemy times the one-based region.
+The existing turn receipt and transaction include gold, preventing retry rewards.
+`GameSave.economy` contains currency, owned items, the equipped weapon and the last
+daily review reward date; general state writes preserve the previous server value.
+`GET /game/shop` exposes the shared catalog. Dedicated revision-checked purchase,
+equip and use endpoints prevent stale/double consumption and refuse active battle
+or pending result feedback. Equipment bonuses derive from owned catalog entries,
+and live/practice combat and allocation updates use the same equipped stats.
+
+The saved default daily knowledge recommendation is the review quota. All its
+IDs must have an exposure for the current Japan-calendar date; empty sets do not
+qualify. Completion awards one non-purchasable three-step potion per day by CAS.
+Normal exposure requests award immediately. Game movement defers awarding until
+its state-save response, so earning a reward cannot invalidate a pending move's
+revision. A subsequent game state read also reconciles completed quotas.
+Move potions replenish the shared active/parked move balance up to five, leave
+HP and clock-slot permission untouched, and resume a resting run. The initial
+prices and quantities are provisional catalog values in `inventory.py`.
+
 # Adventure rights
 
 Game async tests share the session loop managed by pytest-asyncio. Use

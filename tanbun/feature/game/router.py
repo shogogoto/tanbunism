@@ -10,6 +10,7 @@ from tanbun.feature.user.router_util import ActiveUser
 
 from .access import AdventureAccess, consume_adventure_access, get_adventure_access
 from .balance import Allocation, GameBalance, get_game_balance
+from .boss import BossRequest, start_boss
 from .combat import (
     CombatContext,
     EncounterRequest,
@@ -21,6 +22,8 @@ from .combat import (
     settle_turn,
     start_combat,
 )
+from .economy import EconomyAction, change_economy, grant_review_reward, review_progress
+from .inventory import CATALOG
 from .knowledge import KnowledgeValidation, valid_knowledge
 from .population import (
     MAX_LEGACY_POOL_SIZE,
@@ -35,6 +38,13 @@ from .preparation import (
     schedule_dungeon_quizzes,
 )
 from .roster import assign_enemy_quizzes, enemy_identity
+from .skills import (
+    SkillAnswer,
+    SkillRequest,
+    resolve_skill,
+    specialty_pools,
+    start_skill,
+)
 from .state import (
     GameState,
     StateUpdate,
@@ -88,6 +98,24 @@ async def begin_combat(user: ActiveUser, body: EncounterRequest) -> GameState:
     return await start_combat(user.uid, body)
 
 
+@router.post("/battle/boss")
+async def begin_boss(user: ActiveUser, body: BossRequest) -> GameState:
+    """達成度の節目で任意にボスへ挑戦する."""
+    return await start_boss(user.uid, body)
+
+
+@router.post("/battle/skill/start")
+async def begin_skill(user: ActiveUser, body: SkillRequest) -> dict:
+    """MPを消費して攻略済みリソースのクイズを抽選する."""
+    return await start_skill(user.uid, body)
+
+
+@router.post("/battle/skill/answer")
+async def answer_skill(user: ActiveUser, body: SkillAnswer) -> dict:
+    """専門分野の回答を学習履歴にも記録する."""
+    return await resolve_skill(user.uid, body)
+
+
 @router.post("/battle/turn")
 async def resolve_combat(user: ActiveUser, body: TurnRequest) -> dict:
     """確定回答とゲーム結果の一括保存."""
@@ -131,10 +159,52 @@ async def get_game_state(
 ) -> GameState:
     """認証中のアカウントの冒険を読み出す."""
     response.headers["Cache-Control"] = "no-store"
-    state = await read_state(user.uid)
+    state, _ = await grant_review_reward(user.uid)
     state = await refresh_dungeon_unlocks(user.uid, state)
     await schedule_dungeon_quizzes(user.uid, state, background_tasks)
     return state
+
+
+@router.get("/shop")
+async def get_shop(user: ActiveUser, response: Response) -> dict:
+    """ショップの品目と今日の復習報酬の進捗."""
+    response.headers["Cache-Control"] = "no-store"
+    state = await read_state(user.uid)
+    progress = await review_progress(user.uid)
+    return {
+        "products": [p.model_dump() for p in CATALOG.values()],
+        "specialties": [
+            {
+                "resource_id": p["resource_id"],
+                "name": p["name"],
+                "level": max(state.save.bossClears[p["resource_id"]]),
+                "quiz_count": len(p["quiz_ids"]),
+            }
+            for p in await specialty_pools(user.uid, state)
+        ],
+        "review": {
+            **progress,
+            "claimed": state.save.economy.review_reward_day == progress["day"],
+        },
+    }
+
+
+@router.post("/shop/buy")
+async def buy_product(user: ActiveUser, body: EconomyAction) -> GameState:
+    """ゴールドを払い所持品を追加する."""
+    return await change_economy(user.uid, body, "buy")
+
+
+@router.post("/inventory/equip")
+async def equip_product(user: ActiveUser, body: EconomyAction) -> GameState:
+    """武器を装備・解除する."""
+    return await change_economy(user.uid, body, "equip")
+
+
+@router.post("/inventory/use")
+async def use_product(user: ActiveUser, body: EconomyAction) -> GameState:
+    """回復薬を一個消費する."""
+    return await change_economy(user.uid, body, "use")
 
 
 @router.put("/state")
@@ -145,6 +215,7 @@ async def put_game_state(
 ) -> GameState:
     """更新番号を確認して冒険を保存する."""
     state = await write_state(user.uid, update)
+    state, _ = await grant_review_reward(user.uid)
     await schedule_dungeon_quizzes(user.uid, state, background_tasks)
     return state
 

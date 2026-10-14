@@ -30,6 +30,7 @@ class TanbunExposureResult(BaseModel, frozen=True):
     seen_on: date
     exposure_count: int
     recorded: bool
+    step_recovery_awarded: bool = False
 
 
 class TodayTanbunExposureCount(BaseModel, frozen=True):

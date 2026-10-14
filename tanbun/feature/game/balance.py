@@ -11,10 +11,21 @@ class GameBalance(BaseModel, frozen=True):
     """数値は仮値。既存の敵にも読み取り時に適用する."""
 
     base_hp: int = Field(default=35, ge=1, le=10000)
+    base_mp: int = Field(default=10, ge=0, le=10000)
     base_attack: int = Field(default=10, ge=1, le=1000)
     base_defense: int = Field(default=1, ge=0, le=1000)
     base_seconds: int = Field(default=45, ge=5, le=300)
     hp_per_point: int = Field(default=5, ge=1, le=100)
+    mp_per_point: int = Field(default=2, ge=1, le=100)
+    skill_mp_cost: int = Field(default=3, ge=1, le=10000)
+    skill_term_attack: float = Field(default=4, ge=0.1, le=100, allow_inf_nan=False)
+    boss_hp_multiplier: float = Field(default=3, ge=1, le=20, allow_inf_nan=False)
+    boss_attack_multiplier: float = Field(
+        default=1.25,
+        ge=1,
+        le=10,
+        allow_inf_nan=False,
+    )
     attack_per_point: int = Field(default=2, ge=1, le=100)
     defense_per_point: int = Field(default=1, ge=1, le=100)
     seconds_per_point: int = Field(default=3, ge=1, le=30)
@@ -194,6 +205,7 @@ class Allocation(BaseModel):
     """Lvはポイント数だけに影響する。振り直しに費用はかからない."""
 
     hp: int = Field(default=0, ge=0, le=10000)
+    mp: int = Field(default=0, ge=0, le=10000)
     attack: int = Field(default=0, ge=0, le=10000)
     defense: int = Field(default=0, ge=0, le=10000)
     seconds: int = Field(default=0, ge=0, le=10000)
@@ -202,6 +214,7 @@ class Allocation(BaseModel):
         """最大HP・攻・守・持ち時間を導出する."""
         return {
             "maxHp": min(100000, balance.base_hp + self.hp * balance.hp_per_point),
+            "maxMp": min(100000, balance.base_mp + self.mp * balance.mp_per_point),
             "attack": min(
                 100000,
                 balance.base_attack + self.attack * balance.attack_per_point,

@@ -14,6 +14,7 @@ from tanbun.feature.domain.types import UUIDy, to_uuid
 
 from .access import SLOT_SECONDS, get_adventure_access
 from .balance import Allocation
+from .inventory import Economy
 from .settings import get_battle_settings
 from .unlocks import DungeonUnlock, discover_dungeons
 
@@ -28,6 +29,8 @@ class Run(BaseModel):
     name: str = Field(max_length=1000)
     hp: int = Field(ge=0, le=100000)
     maxHp: int = Field(ge=1, le=100000)
+    mp: int = Field(default=0, ge=0, le=100000)
+    maxMp: int = Field(default=0, ge=0, le=100000)
     attack: int = Field(ge=0, le=100000)
     defense: int = Field(ge=0, le=100000)
     moves: int = Field(ge=0, le=5)
@@ -45,6 +48,17 @@ class Run(BaseModel):
     enemyId: str | None = Field(default=None, max_length=200)
 
 
+class SpecialtySkill(BaseModel):
+    """MP消費とランダム出題を確定し、回答前の再抽選を防ぐ."""
+
+    id: str
+    resourceId: str
+    name: str
+    quizId: str
+    attack: int = Field(ge=1, le=100000)
+    deadline: int
+
+
 class BattleMarker(BaseModel):
     """途中のHP/選択は保存せず、未精算の戦闘と撤退先だけを保存する."""
 
@@ -54,6 +68,10 @@ class BattleMarker(BaseModel):
     checkpoint: str = Field(default="@entrance", max_length=64)
     enemies: list[str] = Field(min_length=1, max_length=20)
     quizIndices: dict[str, int] = Field(default_factory=dict)
+    bossLevel: int | None = Field(default=None, ge=5, le=20)
+    bossQuizIds: list[str] = Field(default_factory=list, max_length=100)
+    skill: SpecialtySkill | None = None
+    skillUsed: bool = False
 
 
 class GameSave(BaseModel):
@@ -61,6 +79,7 @@ class GameSave(BaseModel):
 
     version: Literal[2] = 2
     clears: dict[str, int] = Field(default_factory=dict, max_length=1000)
+    bossClears: dict[str, list[int]] = Field(default_factory=dict, max_length=1000)
     visitedDungeons: list[str] = Field(
         default_factory=list,
         max_length=MAX_VISITED_DUNGEONS,
@@ -70,6 +89,7 @@ class GameSave(BaseModel):
     content: dict | None = None
     battleFeedback: str | None = Field(default=None, max_length=1000)
     allocation: Allocation = Field(default_factory=Allocation)
+    economy: Economy = Field(default_factory=Economy)
     battle: BattleMarker | None = None
     maps: dict[str, "DungeonMap"] = Field(default_factory=dict, max_length=1000)
     dungeons: dict[str, "ParkedDungeon"] = Field(default_factory=dict, max_length=1000)
@@ -85,6 +105,9 @@ class GameSave(BaseModel):
             raise ValueError(msg)
         if self.run and self.run.hp > self.run.maxHp:
             msg = "HPが最大値を超えています。"
+            raise ValueError(msg)
+        if self.run and self.run.mp > self.run.maxMp:
+            msg = "MPが最大値を超えています。"
             raise ValueError(msg)
         return self
 
@@ -224,6 +247,9 @@ async def write_state(user_id: UUIDy, update: StateUpdate) -> GameState:
     validate_snapshot_battle(previous, update)
     # Allocation has its own budget validation and must not be overwritten by snapshots.
     update.save.allocation = previous.save.allocation
+    # Currency, items and daily rewards are owned by their dedicated APIs.
+    update.save.economy = previous.save.economy.model_copy(deep=True)
+    update.save.bossClears = previous.save.bossClears.copy()
     run = update.save.run
     old = previous.save.run
     merge_exploration(previous.save, update.save)

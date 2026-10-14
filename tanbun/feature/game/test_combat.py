@@ -144,12 +144,15 @@ async def test_batch_answer_receipt_and_live_enemy_stats(u: LUser):
     assert saved.save.battle is None
     assert saved.save.run.kills == 2
     assert saved.save.run.hp == 35
+    assert result["gold_earned"] == 60
+    assert saved.save.economy.gold == 60
     rows, _ = await adb.cypher_query("MATCH (a:Answer) RETURN count(a)")
     assert rows[0][0] == 2
     [growth] = await fetch_resource_growth(u.uid)
     assert growth.total_xp > 0
     retry = await combat.settle_turn(u.uid, body)
     assert retry == result
+    assert (await read_state(u.uid)).save.economy.gold == 60
     assert (await fetch_resource_growth(u.uid))[0].total_xp == growth.total_xp
     assert (await adb.cypher_query("MATCH (a:Answer) RETURN count(a)"))[0][0][0] == 2
 

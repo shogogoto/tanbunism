@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, status
 
 from tanbun.feature.domain.datetime import TZ
+from tanbun.feature.game.economy import grant_review_reward
 from tanbun.feature.recommendation.daily import review_day
 from tanbun.feature.user.router_util import ActiveUser
 
@@ -74,6 +75,8 @@ async def get_today_tanbun_exposure_count(
 async def mark_tanbun_seen(
     sentence_id: UUID,
     user: ActiveUser,
+    *,
+    defer_game_reward: bool = False,
 ) -> TanbunExposureResult:
     """単文を今日見たことを1回だけ記録."""
     result = await record_tanbun_exposure(
@@ -86,7 +89,12 @@ async def mark_tanbun_seen(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="単文が見つかりません",
         )
-    return result
+    # A game move records exposure before its own revision-checked snapshot.
+    # Award with that snapshot response instead of invalidating the pending move.
+    if defer_game_reward:
+        return result
+    _state, awarded = await grant_review_reward(user.uid)
+    return result.model_copy(update={"step_recovery_awarded": awarded})
 
 
 def dashboard_router() -> APIRouter:

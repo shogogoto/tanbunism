@@ -20,6 +20,7 @@ from .combat import (
     select_encounter,
 )
 from .damage import damage_range
+from .inventory import Economy, equipped_stats
 from .roster import assign_enemy_quizzes, enemy_identity
 from .state import BattleMarker, GameSave, GameState, Run, read_state
 
@@ -109,11 +110,13 @@ async def prepare_practice(body: PracticeRequest) -> PracticeSession:
     allocation = (body.allocation or player_source.save.allocation).model_copy(
         deep=True,
     )
-    stats = allocation.stats(body.balance)
+    economy = player_source.save.economy.model_copy(deep=True)
+    stats = equipped_stats(allocation, body.balance, economy)
     run = run.model_copy(
         update={
             **stats,
             "hp": stats["maxHp"],
+            "mp": stats["maxMp"],
             "moves": 0,
             "kills": 0,
             "quizCursor": 0,
@@ -121,7 +124,9 @@ async def prepare_practice(body: PracticeRequest) -> PracticeSession:
             "phase": "battle",
         },
     )
-    state = GameState(save=GameSave(run=run, allocation=allocation, content=content))
+    state = GameState(
+        save=GameSave(run=run, allocation=allocation, economy=economy, content=content),
+    )
     context = await combat_context(body.user_id, state, balance=body.balance)
     return _begin_practice(state, context, region, body.seed, rng)
 
@@ -198,24 +203,32 @@ async def prepare_simulated_practice(body: SimulatedPracticeRequest) -> Practice
         }
         for _ in range(quiz_count)
     ]
+    player_source = (
+        await read_state(body.player_user_id)
+        if body.player_user_id is not None
+        else None
+    )
+    economy = (
+        player_source.save.economy.model_copy(deep=True) if player_source else Economy()
+    )
     allocation = body.allocation
     if allocation is None:
         allocation = (
-            (await read_state(body.player_user_id)).save.allocation
-            if body.player_user_id is not None
-            else Allocation()
+            player_source.save.allocation if player_source is not None else Allocation()
         )
     allocation = allocation.model_copy(deep=True)
-    stats = allocation.stats(body.balance)
+    stats = equipped_stats(allocation, body.balance, economy)
     state = GameState(
         save=GameSave(
             allocation=allocation,
+            economy=economy,
             content={"knowledge": [], "quizzes": quizzes},
             run=Run(
                 resourceId="simulation",
                 name=f"Power {trial.power} · 領域 {trial.achievement}",
                 **stats,
                 hp=stats["maxHp"],
+                mp=stats["maxMp"],
                 moves=0,
                 kills=0,
                 enemyHp=0,
@@ -271,7 +284,7 @@ def _begin_practice(
         quizIndices={enemy.id: rng.choice(enemy.quizIndexes) for enemy in chosen},
     )
     now = int(time() * 1000)
-    stats = state.save.allocation.stats(context.balance)
+    stats = equipped_stats(state.save.allocation, context.balance, state.save.economy)
     state.save.run.answerDeadline = now + stats["answerSeconds"] * 1000
     return PracticeSession(state=state, context=context, seed=seed, server_now=now)
 
@@ -313,7 +326,11 @@ def practice_turn(body: PracticeTurn) -> dict:
         results[enemy_id] = quiz.is_correct(selected)
     if any(not results.get(enemy) for enemy in turn.defeated):
         raise HTTPException(422, "未正解の敵は撃破できません。")
-    stats = state.save.allocation.stats(session.context.balance)
+    stats = equipped_stats(
+        state.save.allocation,
+        session.context.balance,
+        state.save.economy,
+    )
     rng = _random(session.seed, marker.turn)
     incoming_damage = {}
     for enemy in marker.enemies:
