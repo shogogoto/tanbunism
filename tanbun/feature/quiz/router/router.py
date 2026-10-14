@@ -8,6 +8,7 @@ from fastapi import APIRouter, Query, Response, status
 
 from tanbun.feature.entry.errors import NotOwnerError
 from tanbun.feature.entry.resource.repo.owner import check_entry_owner
+from tanbun.feature.game.economy import grant_review_reward
 from tanbun.feature.notification.domain import NewNotification, NotificationKind
 from tanbun.feature.notification.usecase import notify_user
 from tanbun.feature.quiz.answering.usecase import answer_quiz_as_chain
@@ -345,11 +346,13 @@ async def answer_quiz_api(
     user: ActiveUser,
 ) -> QuizChain:
     """クイズに回答し、回答結果を含むQuizChainを返す."""
-    return await answer_quiz_as_chain(
+    chain = await answer_quiz_as_chain(
         quiz_id,
         param.selected,
         user_id=user.uid,
     )
+    _state, awarded = await grant_review_reward(user.uid, quiz=True)
+    return chain.model_copy(update={"step_recovery_awarded": awarded})
 
 
 @_r.get("/answer/{quiz_id}")

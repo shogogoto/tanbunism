@@ -33,6 +33,14 @@ equip and use endpoints prevent stale/double consumption and refuse active battl
 or pending result feedback. Equipment bonuses derive from owned catalog entries,
 and live/practice combat and allocation updates use the same equipped stats.
 
+Twenty distinct quizzes answered via the review answer API in a JST day award
+one additional three-step potion, regardless of correctness. Review Answers
+are tagged `source=review`; game Answers and repeated attempts do not count.
+`quiz_reward_day` independently prevents duplicate awards. The answer response
+reports `step_recovery_awarded`; state reads retry any unclaimed completion.
+Answers recorded before this tagging was introduced cannot be distinguished
+from game Answers and do not count toward this new reward.
+
 The saved default daily knowledge recommendation is the review quota. All its
 IDs must have an exposure for the current Japan-calendar date; empty sets do not
 qualify. Completion awards one non-purchasable three-step potion per day by CAS.

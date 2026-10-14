@@ -1,6 +1,6 @@
 """撃破報酬・ショップ・復習報酬をrevision付きで保存する."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import HTTPException
 from neomodel import adb
@@ -49,23 +49,51 @@ async def review_progress(user_id: UUIDy) -> dict:
     }
 
 
-async def grant_review_reward(user_id: UUIDy) -> tuple[GameState, bool]:
+async def quiz_review_progress(user_id: UUIDy) -> dict:
+    """日本時間の今日、復習画面で回答した異なる20問を判定する."""
+    start = datetime.now(TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+    rows, _ = await adb.cypher_query(
+        """MATCH (u:User {uid:$uid})-[:ANSWER]->(a:Answer {source:'review'})
+        -[:ANSWER_OF]->(q:Quiz)
+        WHERE a.created >= datetime($start) AND a.created < datetime($end)
+        RETURN count(DISTINCT q.uid)""",
+        {
+            "uid": to_uuid(user_id).hex,
+            "start": start.isoformat(),
+            "end": (start + timedelta(days=1)).isoformat(),
+        },
+    )
+    return {
+        "day": start.date().isoformat(),
+        "done": rows[0][0] if rows else 0,
+        "total": 20,
+    }
+
+
+async def grant_review_reward(
+    user_id: UUIDy,
+    *,
+    quiz: bool = False,
+) -> tuple[GameState, bool]:
     """1日1個。同時達成や再読み込みでも二重付与しない."""
     previous = await read_state(user_id)
-    if previous.save.economy.review_reward_day == datetime.now(TZ).date().isoformat():
+    marker = "quiz_reward_day" if quiz else "review_reward_day"
+    if getattr(previous.save.economy, marker) == datetime.now(TZ).date().isoformat():
         return previous, False
-    progress = await review_progress(user_id)
+    progress = (
+        await quiz_review_progress(user_id) if quiz else await review_progress(user_id)
+    )
     for _ in range(3):
         if (
             not progress["total"]
             or progress["done"] < progress["total"]
-            or previous.save.economy.review_reward_day == progress["day"]
+            or getattr(previous.save.economy, marker) == progress["day"]
         ):
             return previous, False
         updated = previous.model_copy(deep=True)
         items = updated.save.economy.inventory
         items["step_potion"] = items.get("step_potion", 0) + 1
-        updated.save.economy.review_reward_day = progress["day"]
+        setattr(updated.save.economy, marker, progress["day"])
         updated.revision += 1
         async with atomic():
             rows = await compare_and_save(

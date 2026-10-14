@@ -44,3 +44,4 @@ class QuizChain(BaseModel, frozen=True):
     quizzes: list[QuizChainQuiz]
     links: list[QuizChainLink]
     answers: list[Answer] = Field(default_factory=list)
+    step_recovery_awarded: bool = False

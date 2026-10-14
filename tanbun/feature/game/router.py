@@ -22,7 +22,13 @@ from .combat import (
     settle_turn,
     start_combat,
 )
-from .economy import EconomyAction, change_economy, grant_review_reward, review_progress
+from .economy import (
+    EconomyAction,
+    change_economy,
+    grant_review_reward,
+    quiz_review_progress,
+    review_progress,
+)
 from .inventory import CATALOG
 from .knowledge import KnowledgeValidation, valid_knowledge
 from .population import (
@@ -160,6 +166,7 @@ async def get_game_state(
     """認証中のアカウントの冒険を読み出す."""
     response.headers["Cache-Control"] = "no-store"
     state, _ = await grant_review_reward(user.uid)
+    state, _ = await grant_review_reward(user.uid, quiz=True)
     state = await refresh_dungeon_unlocks(user.uid, state)
     await schedule_dungeon_quizzes(user.uid, state, background_tasks)
     return state
@@ -171,6 +178,7 @@ async def get_shop(user: ActiveUser, response: Response) -> dict:
     response.headers["Cache-Control"] = "no-store"
     state = await read_state(user.uid)
     progress = await review_progress(user.uid)
+    quiz_progress = await quiz_review_progress(user.uid)
     return {
         "products": [p.model_dump() for p in CATALOG.values()],
         "specialties": [
@@ -185,6 +193,10 @@ async def get_shop(user: ActiveUser, response: Response) -> dict:
         "review": {
             **progress,
             "claimed": state.save.economy.review_reward_day == progress["day"],
+        },
+        "quiz_review": {
+            **quiz_progress,
+            "claimed": state.save.economy.quiz_reward_day == quiz_progress["day"],
         },
     }
 
@@ -216,6 +228,7 @@ async def put_game_state(
     """更新番号を確認して冒険を保存する."""
     state = await write_state(user.uid, update)
     state, _ = await grant_review_reward(user.uid)
+    state, _ = await grant_review_reward(user.uid, quiz=True)
     await schedule_dungeon_quizzes(user.uid, state, background_tasks)
     return state
 

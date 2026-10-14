@@ -158,3 +158,56 @@ def test_equipment_bonus_is_derived_from_owned_weapon():
     assert equipped_stats(Allocation(attack=2), GameBalance(), economy)["attack"] == 22
     economy.inventory.clear()
     assert equipped_stats(Allocation(attack=2), GameBalance(), economy)["attack"] == 14
+
+
+@mark_async_test()
+async def test_twenty_unique_review_quizzes_award_separate_daily_potion():
+    """19問・重複回答・昨日・ゲームは未達。20問で他報酬と別に一度だけ付与."""
+    user = await seed_user()
+    start = datetime.now(TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+    await adb.cypher_query(
+        """MATCH (u:User {uid:$uid})
+        UNWIND range(1, 19) AS i
+        CREATE (q:Quiz {uid:'review-' + toString(i)})
+        CREATE (u)-[:ANSWER]->(:Answer {source:'review', created:datetime($now),
+            is_correct:false})-[:ANSWER_OF]->(q)""",
+        {"uid": user.uid, "now": start.isoformat()},
+    )
+    await adb.cypher_query(
+        """MATCH (u:User {uid:$uid}), (q:Quiz {uid:'review-1'})
+        CREATE (u)-[:ANSWER]->(:Answer {source:'review', created:datetime($now)})
+            -[:ANSWER_OF]->(q)
+        CREATE (game:Quiz {uid:'game'})
+        CREATE (u)-[:ANSWER]->(:Answer {created:datetime($now)})-[:ANSWER_OF]->(game)
+        CREATE (old:Quiz {uid:'yesterday'})
+        CREATE (u)-[:ANSWER]->(:Answer {source:'review',
+            created:datetime($now)-duration('P1D')})-[:ANSWER_OF]->(old)""",
+        {"uid": user.uid, "now": start.isoformat()},
+    )
+    _, awarded = await grant_review_reward(user.uid, quiz=True)
+    assert not awarded
+    day = start.date()
+    await save_daily(user.uid, settings_scope("default", "tanbuns"), day, ["seen"])
+    await adb.cypher_query(
+        """CREATE (:TanbunExposure {
+            user_id:$uid, sentence_id:'seen', seen_on:date($day)})""",
+        {"uid": user.uid, "day": day.isoformat()},
+    )
+    _, awarded = await grant_review_reward(user.uid)
+    assert awarded
+    await adb.cypher_query(
+        """MATCH (u:User {uid:$uid})
+        CREATE (q:Quiz {uid:'review-20'})
+        CREATE (u)-[:ANSWER]->(:Answer {source:'review', created:datetime($now),
+            is_correct:false})-[:ANSWER_OF]->(q)""",
+        {"uid": user.uid, "now": start.isoformat()},
+    )
+    results = await asyncio.gather(
+        *(grant_review_reward(user.uid, quiz=True) for _ in range(2)),
+    )
+    assert sum(awarded for _, awarded in results) == 1
+    state, awarded = await grant_review_reward(user.uid, quiz=True)
+    assert not awarded
+    assert state.save.economy.inventory["step_potion"] == 3
+    assert state.save.economy.quiz_reward_day == day.isoformat()
+    assert state.save.economy.review_reward_day == day.isoformat()

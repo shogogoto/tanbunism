@@ -34,6 +34,7 @@ async def create_answer(
             quiz_uid,
             selected_uids,
             user_uid,
+            source="review",
         )
     await dispatch_saved_notifications(user_uid, notifications)
     return answer
@@ -45,6 +46,7 @@ async def create_answer_in_transaction(
     user_uid: UUIDy,
     *,
     is_correct: bool | None = None,
+    source: str | None = None,
 ) -> tuple[Answer, list]:
     """呼び出し元のトランザクションで回答・XPを保存。通知はcommit後に配送する."""
     answer_uid = uuid4()
@@ -57,6 +59,7 @@ async def create_answer_in_transaction(
             uid: $answer_uid
             , created: datetime($now)
             , is_correct: $is_correct
+            , source: $source
         })-[:ANSWER_OF]->(quiz)
             , (ans)<-[:ANSWER]-(u)
         WITH ans, u
@@ -77,6 +80,7 @@ async def create_answer_in_transaction(
             "answer_uid": answer_uid.hex,
             "now": now.isoformat(),
             "is_correct": is_correct,
+            "source": source,
             "user_uid": to_uuid(user_uid).hex,
         },
     )

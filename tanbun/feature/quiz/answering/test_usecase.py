@@ -1,6 +1,7 @@
 """クイズ回答usecase test."""
 
 import pytest
+from neomodel import adb
 
 from tanbun.conftest import async_fixture, mark_async_test
 from tanbun.feature.quiz.answering.usecase import answer_quiz_as_chain
@@ -34,6 +35,11 @@ async def test_answer_quiz_as_chain(u: LUser):
     assert chain.answers[0].is_correct
     assert chain.answers[0].selected == readable.correct
     assert [item.quiz_id for item in chain.quizzes] == [quiz.quiz_id]
+    rows, _ = await adb.cypher_query(
+        "MATCH (a:Answer {uid:$uid}) RETURN a.source",
+        {"uid": chain.answers[0].answer_uid.hex},
+    )
+    assert rows[0][0] == "review"
 
 
 @mark_async_test()

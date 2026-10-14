@@ -18,6 +18,7 @@ class Economy(BaseModel):
     )
     weapon: Literal["bronze_sword", "steel_sword"] | None = None
     review_reward_day: str | None = None
+    quiz_reward_day: str | None = None
 
     @computed_field
     @property
