@@ -216,6 +216,8 @@ async def test_confirmed_retreat_records_only_actual_answers(u: LUser):
     result = await combat.settle_turn(u.uid, body)
     assert result["damage"] > 0
     assert result["results"] == {first: True}
+    assert set(result["incoming_damage"]) == set(state.save.battle.enemies) - {first}
+    assert sum(result["incoming_damage"].values()) == result["damage"]
     assert result["state"]["save"]["battle"] is None
     assert (await adb.cypher_query("MATCH (a:Answer) RETURN count(a)"))[0][0][0] == 1
 

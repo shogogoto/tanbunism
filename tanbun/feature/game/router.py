@@ -28,6 +28,7 @@ from .population import (
     _validate_quiz_ids,
     get_or_prepare_region_pool,
 )
+from .preferences import BattlePreferences, battle_preferences
 from .preparation import (
     dungeon_quiz_progress,
     preparation_status,
@@ -44,6 +45,21 @@ from .state import (
 )
 
 router = APIRouter(prefix="/game", tags=["game"])
+
+
+@router.get("/battle/preferences")
+async def read_battle_preferences(user: ActiveUser) -> BattlePreferences:
+    """本人の戦闘テンポを取得する."""
+    return await battle_preferences(user.uid)
+
+
+@router.put("/battle/preferences")
+async def save_battle_preferences(
+    user: ActiveUser,
+    body: BattlePreferences,
+) -> BattlePreferences:
+    """戦闘中も演出速度だけを変更できる."""
+    return await battle_preferences(user.uid, body)
 
 
 class RegionQuizPoolSeed(BaseModel):

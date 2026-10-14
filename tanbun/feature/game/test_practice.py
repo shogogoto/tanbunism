@@ -280,6 +280,8 @@ async def test_turn_correctness_timeout_next_and_replay(monkeypatch):
     result = practice.practice_turn(practice.PracticeTurn(session=session, turn=turn))
     assert result["results"] == {first_enemy: True}
     assert result["damage"] > 0
+    assert set(result["incoming_damage"]) == set(marker.enemies) - {first_enemy}
+    assert sum(result["incoming_damage"].values()) == result["damage"]
     assert result["state"].save.run.hp < session.state.save.run.hp
     assert session.model_dump_json() == original
     assert (

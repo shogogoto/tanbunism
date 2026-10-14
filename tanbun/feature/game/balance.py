@@ -45,6 +45,24 @@ class GameBalance(BaseModel, frozen=True):
     damage_attack_multiplier: float = Field(default=1, ge=0, le=10, allow_inf_nan=False)
     damage_defense_divisor: float = Field(default=2, gt=0, le=100, allow_inf_nan=False)
     damage_variance_percent: float = Field(default=20, ge=0, le=50, allow_inf_nan=False)
+    battle_tempo_slow_seconds: float = Field(
+        default=3,
+        ge=0.1,
+        le=10,
+        allow_inf_nan=False,
+    )
+    battle_tempo_medium_seconds: float = Field(
+        default=1,
+        ge=0.1,
+        le=10,
+        allow_inf_nan=False,
+    )
+    battle_tempo_fast_seconds: float = Field(
+        default=0.5,
+        ge=0.1,
+        le=10,
+        allow_inf_nan=False,
+    )
     damage_effect_threshold_1: float = Field(
         default=-50,
         gt=-100,
@@ -92,6 +110,13 @@ class GameBalance(BaseModel, frozen=True):
             raise ValueError(msg)
         if self.min_enemies > self.max_encounter_enemies:
             msg = "同時出現数の下限は上限以下にしてください。"
+            raise ValueError(msg)
+        if not (
+            self.battle_tempo_fast_seconds
+            <= self.battle_tempo_medium_seconds
+            <= self.battle_tempo_slow_seconds
+        ):
+            msg = "戦闘テンポは遅・中・速の順に短くしてください。"
             raise ValueError(msg)
         if not (
             self.damage_effect_threshold_1

@@ -315,7 +315,7 @@ def practice_turn(body: PracticeTurn) -> dict:
         raise HTTPException(422, "未正解の敵は撃破できません。")
     stats = state.save.allocation.stats(session.context.balance)
     rng = _random(session.seed, marker.turn)
-    damage = 0
+    incoming_damage = {}
     for enemy in marker.enemies:
         if not results.get(enemy):
             low, _, high = damage_range(
@@ -323,9 +323,14 @@ def practice_turn(body: PracticeTurn) -> dict:
                 stats["defense"],
                 session.context.balance,
             )
-            damage += rng.randint(low, high)
-    updated = apply_turn_result(state, turn, results, damage, stats)
-    return {"state": updated, "results": results, "damage": damage}
+            incoming_damage[enemy] = rng.randint(low, high)
+    damage = sum(incoming_damage.values())
+    return {
+        "state": apply_turn_result(state, turn, results, damage, stats),
+        "results": results,
+        "damage": damage,
+        "incoming_damage": incoming_damage,
+    }
 
 
 def next_practice_turn(session: PracticeSession) -> GameState:

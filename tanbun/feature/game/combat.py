@@ -298,17 +298,23 @@ async def settle_turn(user_id: UUIDy, body: TurnRequest) -> dict:
     if any(not results.get(enemy_id) for enemy_id in body.defeated):
         raise HTTPException(422, "未正解の敵は撃破できません。")
     stats = previous.save.allocation.stats(context.balance)
-    damage = sum(
-        enemy_damage(
+    incoming_damage = {
+        e: enemy_damage(
             (enemies[e].attack if e in enemies else context.balance.enemy_attack),
             stats["defense"],
             context.balance,
         )
         for e in marker.enemies
         if not results.get(e)
-    )
+    }
+    damage = sum(incoming_damage.values())
     updated = apply_turn_result(previous, body, results, damage, stats)
-    receipt = {"id": f"{marker.id}:{marker.turn}", "results": results, "damage": damage}
+    receipt = {
+        "id": f"{marker.id}:{marker.turn}",
+        "results": results,
+        "damage": damage,
+        "incoming_damage": incoming_damage,
+    }
     notifications = []
     async with atomic():
         await persist(user_id, previous, updated)
