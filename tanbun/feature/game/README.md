@@ -126,6 +126,14 @@ XP is still managed by its existing ledger. Reset does not heal, alter XP, or
 restart an ongoing battle. A right consumed just before a clock boundary recovers
 at that boundary. Pending events do not accumulate or auto-restart.
 
+Player maximum HP/MP, attack and defense are derived from the current admin
+balance, allocated points and equipped weapon whenever state is read or written.
+These calculated values are returned by the API but omitted from DB snapshots;
+legacy cached values are ignored, including in parked dungeons. Current HP/MP
+remain saved and are clamped when their maxima decrease, never healed when they
+increase. An in-flight turn's answer duration/deadline are kept until the next
+turn; balance changes do not restart its clock. Practice keeps its draft balance.
+
 `visitedDungeons` is a server-maintained, deduplicated list of resource IDs,
 most recent entry first (up to 1000). It survives retreat, defeat and clearing,
 including saves from older clients that omit the field. Existing active runs

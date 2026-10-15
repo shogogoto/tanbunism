@@ -1,5 +1,6 @@
 """管理者向けのゲームスナップショット補修."""
 
+import json
 import logging
 from random import Random
 from typing import Any
@@ -43,6 +44,7 @@ from .state import (
     StateUpdate,
     compare_and_save,
     read_state,
+    restore_state,
 )
 
 _scheduled_pool_rebuilds: set[tuple[str, str]] = set()
@@ -537,12 +539,13 @@ async def list_game_dungeons() -> list[GameDungeonAdminItem]:
         "MATCH (user:User) RETURN user.uid, user.email, user.game_state",
     )
     result: dict[tuple[str, str], dict[str, Any]] = {}
+    balance = await get_game_balance()
     for user_id, email, raw_state in rows:
         if not raw_state:
             continue
         try:
-            state = GameState.model_validate_json(raw_state)
-        except ValidationError:
+            state = restore_state(raw_state, balance)
+        except (ValidationError, json.JSONDecodeError):
             continue
         for resource_key, dungeon in _snapshot_dungeons(state).items():
             region_count, quiz_count = _snapshot_pool_counts(dungeon["content"])

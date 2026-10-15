@@ -66,6 +66,7 @@ async def test_admin_alignment_persists_once_and_preserves_active_or_parked_run(
         name="本",
         hp=20,
         maxHp=35,
+        maxMp=10,
         attack=10,
         defense=1,
         moves=2,

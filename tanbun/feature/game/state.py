@@ -2,6 +2,7 @@
 # Frontend snapshot field names are intentionally retained for legacy migration.
 # ruff: noqa: N815
 
+import json
 from time import time
 from typing import Literal
 
@@ -13,13 +14,14 @@ from pydantic import BaseModel, Field, model_validator
 from tanbun.feature.domain.types import UUIDy, to_uuid
 
 from .access import SLOT_SECONDS, get_adventure_access
-from .balance import Allocation
-from .inventory import Economy
+from .balance import Allocation, GameBalance, get_game_balance
+from .inventory import Economy, equipped_stats
 from .settings import get_battle_settings
 from .unlocks import DungeonUnlock, discover_dungeons
 
 MAX_SNAPSHOT_BYTES = 1000000
 MAX_VISITED_DUNGEONS = 1000
+DERIVED_PLAYER_FIELDS = {"maxHp", "maxMp", "attack", "defense"}
 
 
 class Run(BaseModel):
@@ -189,9 +191,28 @@ async def read_state(user_id: UUIDy) -> GameState:
     )
     if not rows:
         raise HTTPException(404, "ユーザーが見つかりません。")
-    state = GameState.model_validate_json(rows[0][0]) if rows[0][0] else GameState()
+    state = restore_state(rows[0][0], await get_game_balance())
     state.save.visitedDungeons = known_dungeons(state.save)
     return state
+
+
+def restore_state(raw: str | None, balance: GameBalance) -> GameState:
+    """能力値は保存値を無視して復元。旧snapshotも同じ式で読み出す."""
+    payload = json.loads(raw) if raw else {}
+    save = payload.get("save", {})
+    stats = equipped_stats(
+        Allocation.model_validate(save.get("allocation", {})),
+        balance,
+        Economy.model_validate(save.get("economy", {})),
+    )
+    runs = [save.get("run"), *(d["run"] for d in save.get("dungeons", {}).values())]
+    for run in runs:
+        if run:
+            run.update({key: stats[key] for key in DERIVED_PLAYER_FIELDS})
+            run["hp"] = min(run["hp"], stats["maxHp"])
+            run["mp"] = min(run.get("mp", 0), stats["maxMp"])
+    # answerSeconds/answerDeadline describe the current turn, not a cached stat.
+    return GameState.model_validate(payload)
 
 
 async def recover_state(user_id: UUIDy) -> GameState:
@@ -363,6 +384,26 @@ async def compare_and_save(
     state: GameState,
 ) -> list:
     """更新番号と冒険権をロック下で比較して同時に更新する."""
+    stats = equipped_stats(
+        state.save.allocation,
+        await get_game_balance(),
+        state.save.economy,
+    )
+    for run in [state.save.run, *(d.run for d in state.save.dungeons.values())]:
+        if run:
+            for key in DERIVED_PLAYER_FIELDS:
+                setattr(run, key, stats[key])
+            run.hp = min(run.hp, run.maxHp)
+            run.mp = min(run.mp, run.maxMp)
+    stored = state.model_dump_json(
+        by_alias=True,
+        exclude={
+            "save": {
+                "run": DERIVED_PLAYER_FIELDS,
+                "dungeons": {"__all__": {"run": DERIVED_PLAYER_FIELDS}},
+            },
+        },
+    )
     rows, _ = await adb.cypher_query(
         """MATCH (u:User {uid: $uid})
         SET u.adventure_access_lock = coalesce(u.adventure_access_lock, 0) + 1
@@ -379,7 +420,7 @@ async def compare_and_save(
             "next_revision": state.revision,
             "consume": update.consume_access,
             "slot": int(time() // SLOT_SECONDS),
-            "state": state.model_dump_json(by_alias=True),
+            "state": stored,
         },
     )
     return rows
