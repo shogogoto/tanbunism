@@ -124,7 +124,7 @@ async def test_simulated_practice_adds_points_to_unsaved_initial_values():
         practice.SimulatedPracticeRequest(
             simulation=snapshot,
             balance=balance,
-            allocation=Allocation(hp=2, attack=9, defense=1, seconds=2),
+            allocation=Allocation(hp=2, attack=9, defense=1),
         ),
     )
     assert session.state.save.run.hp == 70
@@ -138,7 +138,7 @@ async def test_simulated_practice_reads_actual_player_without_mutating(monkeypat
     """Use saved player points with draft settings without sharing mutable state."""
     player = uuid4()
     source = source_state(uuid4())
-    source.save.allocation = Allocation(hp=2, attack=8, defense=1, seconds=2)
+    source.save.allocation = Allocation(hp=2, attack=8, defense=1)
     original = source.model_dump_json()
     read = AsyncMock(return_value=source)
     monkeypatch.setattr(practice, "read_state", read)

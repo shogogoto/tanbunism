@@ -28,7 +28,6 @@ class GameBalance(BaseModel, frozen=True):
     )
     attack_per_point: int = Field(default=2, ge=1, le=100)
     defense_per_point: int = Field(default=1, ge=1, le=100)
-    seconds_per_point: int = Field(default=3, ge=1, le=30)
     enemy_hp: int = Field(default=20, ge=1, le=10000)
     enemy_attack: int = Field(default=12, ge=1, le=1000)
     power_hp: float = Field(default=1, ge=0, le=100, allow_inf_nan=False)
@@ -208,10 +207,9 @@ class Allocation(BaseModel):
     mp: int = Field(default=0, ge=0, le=10000)
     attack: int = Field(default=0, ge=0, le=10000)
     defense: int = Field(default=0, ge=0, le=10000)
-    seconds: int = Field(default=0, ge=0, le=10000)
 
     def stats(self, balance: GameBalance) -> dict[str, int]:
-        """最大HP・攻・守・持ち時間を導出する."""
+        """初期値と育成ポイントから戦闘能力を導出する."""
         return {
             "maxHp": min(100000, balance.base_hp + self.hp * balance.hp_per_point),
             "maxMp": min(100000, balance.base_mp + self.mp * balance.mp_per_point),
@@ -223,10 +221,7 @@ class Allocation(BaseModel):
                 100000,
                 balance.base_defense + self.defense * balance.defense_per_point,
             ),
-            "answerSeconds": min(
-                1500,
-                balance.base_seconds + self.seconds * balance.seconds_per_point,
-            ),
+            "answerSeconds": balance.base_seconds,
         }
 
 

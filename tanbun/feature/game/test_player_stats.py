@@ -52,7 +52,7 @@ async def test_existing_player_uses_current_balance_and_saves_only_sources(*, le
     state = GameState(
         revision=4,
         save=GameSave(
-            allocation=Allocation(hp=2, mp=1, attack=3, defense=4, seconds=5),
+            allocation=Allocation(hp=2, mp=1, attack=3, defense=4),
             economy=Economy(inventory={"bronze_sword": 1}, weapon="bronze_sword"),
             run=run,
             dungeons={

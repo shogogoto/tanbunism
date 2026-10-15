@@ -133,6 +133,8 @@ legacy cached values are ignored, including in parked dungeons. Current HP/MP
 remain saved and are clamped when their maxima decrease, never healed when they
 increase. An in-flight turn's answer duration/deadline are kept until the next
 turn; balance changes do not restart its clock. Practice keeps its draft balance.
+持ち時間 is controlled by game balance and quiz settings only; player allocation
+no longer grants seconds, and legacy seconds points are ignored.
 
 `visitedDungeons` is a server-maintained, deduplicated list of resource IDs,
 most recent entry first (up to 1000). It survives retreat, defeat and clearing,

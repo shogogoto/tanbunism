@@ -6,7 +6,7 @@ from math import ceil, log1p
 import pytest
 from pydantic import ValidationError
 
-from .balance import GameBalance
+from .balance import Allocation, GameBalance
 
 
 @pytest.mark.parametrize("region", [0, 2, 4])
@@ -45,6 +45,14 @@ def test_old_settings_receive_growth_defaults_without_reinterpreting_values() ->
     assert balance.region_hp_growth_percent == 20
     assert balance.region_attack_growth_percent == 20
     assert balance.enemy_stats(0, 0, 4) == (36, 22)
+
+
+def test_legacy_time_allocation_is_ignored_and_cannot_extend_quiz_time() -> None:
+    """旧クライアントの秒ポイントも読み飛ばし、持ち時間は管理値に固定する."""
+    allocation = Allocation.model_validate({"hp": 2, "seconds": 100})
+    balance = GameBalance.model_validate({"base_seconds": 40, "seconds_per_point": 30})
+    assert allocation.model_dump() == {"hp": 2, "mp": 0, "attack": 0, "defense": 0}
+    assert allocation.stats(balance)["answerSeconds"] == 40
 
 
 @pytest.mark.parametrize(
