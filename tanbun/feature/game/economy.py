@@ -1,8 +1,10 @@
 """撃破報酬・ショップ・復習報酬をrevision付きで保存する."""
 
+from asyncio import sleep
 from datetime import datetime, timedelta
 
 from fastapi import HTTPException
+from neo4j.exceptions import TransientError
 from neomodel import adb
 from pydantic import BaseModel, Field
 
@@ -83,7 +85,7 @@ async def grant_review_reward(
     progress = (
         await quiz_review_progress(user_id) if quiz else await review_progress(user_id)
     )
-    for _ in range(3):
+    for attempt in range(3):
         if (
             not progress["total"]
             or progress["done"] < progress["total"]
@@ -95,12 +97,24 @@ async def grant_review_reward(
         items["step_potion"] = items.get("step_potion", 0) + 1
         setattr(updated.save.economy, marker, progress["day"])
         updated.revision += 1
-        async with atomic():
-            rows = await compare_and_save(
-                user_id,
-                StateUpdate(revision=previous.revision, save=updated.save),
-                updated,
-            )
+        owns_transaction = adb._active_transaction is None  # noqa: SLF001
+        try:
+            async with atomic():
+                rows = await compare_and_save(
+                    user_id,
+                    StateUpdate(revision=previous.revision, save=updated.save),
+                    updated,
+                )
+        except TransientError as cause:
+            # atomic() has rolled back a transaction we own. An enclosing HTTP
+            # transaction must instead fail as a whole; never reuse it here.
+            if (
+                cause.code != "Neo.TransientError.Transaction.DeadlockDetected"
+                or not owns_transaction
+            ):
+                raise
+            rows = []
+            await sleep(0.05 * (attempt + 1))
         if rows:
             return updated, True
         previous = await read_state(user_id)
