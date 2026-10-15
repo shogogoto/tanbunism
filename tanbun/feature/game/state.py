@@ -21,6 +21,7 @@ from .unlocks import DungeonUnlock, discover_dungeons
 
 MAX_SNAPSHOT_BYTES = 1000000
 MAX_VISITED_DUNGEONS = 1000
+PLACES_PER_REGION = 5
 DERIVED_PLAYER_FIELDS = {"maxHp", "maxMp", "attack", "defense"}
 
 
@@ -136,6 +137,18 @@ class DungeonMap(BaseModel):
     places: list[MapPlace] = Field(default_factory=list, max_length=5000)
     edges: list[MapEdge] = Field(default_factory=list, max_length=10000)
 
+    @property
+    def chest_ids(self) -> set[str]:
+        """開拓済み領域の宝箱は知識の地点数に含めない."""
+        regions: dict[int, int] = {}
+        for place in self.places:
+            regions[place.region] = regions.get(place.region, 0) + 1
+        return {
+            f"@chest:{region}"
+            for region, count in regions.items()
+            if count >= PLACES_PER_REGION
+        }
+
     @model_validator(mode="after")
     def valid_locations(self) -> "DungeonMap":
         """存在しない地点・重複地点を保存しない."""
@@ -144,7 +157,7 @@ class DungeonMap(BaseModel):
             msg = "開拓地点が重複しています。"
             raise ValueError(msg)
         ids.add("@entrance")
-        if self.current not in ids or any(
+        if self.current not in ids | self.chest_ids or any(
             edge.from_ not in ids or edge.to not in ids or edge.from_ == edge.to
             for edge in self.edges
         ):

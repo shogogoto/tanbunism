@@ -9,6 +9,14 @@ from .balance import Allocation, GameBalance
 ProductId = Literal["bronze_sword", "steel_sword", "healing_potion", "step_potion"]
 
 
+class ChestReward(BaseModel, frozen=True):
+    """開封時点の中身。設定変更後も履歴を維持する."""
+
+    gold: int = Field(default=0, ge=0)
+    healing_potion: int = Field(default=0, ge=0)
+    step_potion: int = Field(default=0, ge=0)
+
+
 class Economy(BaseModel):
     """ゴールドは撃破、歩数回復薬は今日の復習完了から獲得する."""
 
@@ -19,6 +27,7 @@ class Economy(BaseModel):
     weapon: Literal["bronze_sword", "steel_sword"] | None = None
     review_reward_day: str | None = None
     quiz_reward_day: str | None = None
+    opened_chests: dict[str, dict[str, ChestReward]] = Field(default_factory=dict)
 
     @computed_field
     @property

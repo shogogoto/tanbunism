@@ -1,5 +1,16 @@
 # Gold and inventory
 
+Completed five-place regions expose a treasure chest after their last knowledge
+place. `/game/chests/open` validates the current endpoint, live phase and revision;
+opening is free and also allowed at zero remaining moves. Gold and potion counts
+come from the current admin game balance. The receipt in
+`economy.opened_chests[resourceId][region]` and the reward are saved in one CAS,
+so revisiting/retrying cannot grant twice. General snapshots preserve receipts
+as part of server-owned economy. Existing maps need no migration; unclaimed
+boxes use the latest settings, while opened boxes retain their original contents.
+`@chest:<region>` is a facility location and valid retreat checkpoint, but never
+a knowledge place or achievement increment.
+
 MP adds another allocation stat: `base_mp + points.mp * mp_per_point`.
 An encounter refills MP once, not at every next-turn acknowledgement. Reallocation
 clamps current MP without refilling it. Legacy states/allocations default to zero

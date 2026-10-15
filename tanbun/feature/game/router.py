@@ -63,8 +63,15 @@ from .state import (
     refresh_dungeon_unlocks,
     write_state,
 )
+from .treasure import ChestRequest, open_chest
 
 router = APIRouter(prefix="/game", tags=["game"])
+
+
+@router.post("/chests/open")
+async def claim_chest(user: ActiveUser, body: ChestRequest) -> GameState:
+    """領域終端の宝箱を開封し、報酬と開封状態を一緒に保存する."""
+    return await open_chest(user.uid, body)
 
 
 @router.get("/battle/preferences")

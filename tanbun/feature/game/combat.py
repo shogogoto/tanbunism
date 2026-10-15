@@ -237,6 +237,7 @@ async def start_combat(user_id: UUIDy, body: EncounterRequest) -> GameState:
     if dungeon and body.checkpoint not in {
         "@entrance",
         *(p.id for p in dungeon.places),
+        *dungeon.chest_ids,
     }:
         raise HTTPException(422, "撤退先がマップにありません。")
     context = await combat_context(user_id, previous)
