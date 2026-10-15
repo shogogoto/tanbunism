@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response, status
 
+from tanbun.config.transactions import database_scope
 from tanbun.feature.quiz.domain.parts import QuizType
 from tanbun.feature.quiz.learning.study_plan.domain import (
     PrepareStudyPlanRequest,
@@ -40,6 +41,8 @@ from tanbun.feature.quiz.learning.study_plan.usecase import (
 )
 from tanbun.feature.user.router_util import ActiveUser
 
+from .preparation_state import set_preparation_state
+
 _router = APIRouter(prefix="/study-plans", tags=["quiz-learning"])
 
 
@@ -74,6 +77,10 @@ async def prepare_study_plans_api(
 ) -> PrepareStudyPlansAccepted:
     """選択したStudyPlanのクイズ準備をバックグラウンドで開始する."""
     await validate_study_plans_for_preparation(body.plan_ids, user.uid)
+    for plan_id in body.plan_ids:
+        progress = await get_study_plan_preparation_status(plan_id, user.uid)
+        if progress.preparation.status in {"queued", "running"}:
+            raise HTTPException(409, "選択した学習計画には準備中のものがあります。")
     settings = await get_quiz_preparation_settings()
     requested_quizzes = len(body.plan_ids) * body.additional_count
     if requested_quizzes > settings.max_quizzes_per_job:
@@ -93,6 +100,18 @@ async def prepare_study_plans_api(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(error),
         ) from error
+    try:
+        for plan_id in body.plan_ids:
+            progress = await get_study_plan_preparation_status(plan_id, user.uid)
+            await set_preparation_state(
+                plan_id,
+                user.uid,
+                "queued",
+                required=progress.prepared_quiz_count + body.additional_count,
+            )
+    except Exception:
+        await quiz_preparation_controller.cancel_reservation(user.uid)
+        raise
     background_tasks.add_task(
         quiz_preparation_controller.execute,
         user.uid,
@@ -148,11 +167,35 @@ async def prepare_study_plan_api(
     user: ActiveUser,
 ) -> PrepareStudyPlanResult:
     """StudyPlanへ指定数の新しい問題を追加."""
-    return await prepare_additional_study_plan_quizzes(
-        plan_id,
-        user.uid,
-        body.additional_count,
-    )
+    # Keep partial progress and the failure status even if HTTP returns an error.
+    with database_scope():
+        progress = await get_study_plan_preparation_status(plan_id, user.uid)
+        if progress.preparation.status in {"queued", "running"}:
+            raise HTTPException(409, "この学習計画のクイズを準備中です。")
+        settings = await get_quiz_preparation_settings()
+        try:
+            await quiz_preparation_controller.reserve(
+                user.uid,
+                max_jobs_per_user=settings.max_concurrent_jobs_per_user,
+            )
+        except UserPreparationLimitError as error:
+            raise HTTPException(409, str(error)) from error
+        try:
+            await set_preparation_state(
+                plan_id,
+                user.uid,
+                "queued",
+                required=progress.prepared_quiz_count + body.additional_count,
+            )
+        except Exception:
+            await quiz_preparation_controller.cancel_reservation(user.uid)
+            raise
+        return await quiz_preparation_controller.execute(
+            user.uid,
+            max_concurrent_jobs=settings.max_concurrent_jobs,
+            operation=prepare_additional_study_plan_quizzes,
+            args=(plan_id, user.uid, body.additional_count),
+        )
 
 
 @_router.post("/{plan_id}/recommendations")

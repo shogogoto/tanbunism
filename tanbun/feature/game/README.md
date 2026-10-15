@@ -41,6 +41,14 @@ reports `step_recovery_awarded`; state reads retry any unclaimed completion.
 Answers recorded before this tagging was introduced cannot be distinguished
 from game Answers and do not count toward this new reward.
 
+Quiz preparation status is stored on the default StudyPlan and returned by both
+the study-plan preparation API and dungeon preparation API. Insufficient counts
+alone never imply a running job: queued, running, ready, failed, and exhausted
+are distinct. Failed/exhausted jobs stop automatic retries for the same target;
+`POST /game/dungeons/{resource_id}/preparation/retry` explicitly retries them.
+The worker has its own Neo4j scope and a 15-minute execution/queue timeout;
+expired queued/running metadata is exposed as failed after process interruption.
+
 Admin `POST /admin/users/{user_id}/game/dungeons/{resource_id}/regions/align`
 repairs old map roads into one entrance-rooted chain per frozen region. It keeps
 discovery order, current location, player stats, and quiz pools. Active and parked

@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 from tanbun.feature.quiz.domain.parts import QuizType
+from tanbun.feature.quiz.learning.study_plan.preparation_state import PreparationState
 from tanbun.feature.quiz.limits import (
     MAX_OPTIONS_PER_QUIZ,
     MAX_QUIZZES_PER_REQUEST,
@@ -47,6 +48,7 @@ class StudyPlanPreparationStatus(BaseModel, frozen=True):
 
     plan_id: UUID
     prepared_quiz_count: int
+    preparation: PreparationState = Field(default_factory=PreparationState)
 
 
 class PrepareStudyPlanRequest(BaseModel, frozen=True):

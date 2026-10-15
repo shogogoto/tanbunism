@@ -5,9 +5,11 @@ from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
+from tanbun.config.transactions import database_scope
 from tanbun.feature.domain.types import UUIDy, to_uuid
 
 T = TypeVar("T")
+PREPARATION_TIMEOUT_SECONDS = 15 * 60
 
 
 class UserPreparationLimitError(Exception):
@@ -44,13 +46,16 @@ class QuizPreparationController:
         key = to_uuid(user_id).hex
         acquired = False
         try:
-            async with self._condition:
-                await self._condition.wait_for(
-                    lambda: self._active_jobs < max_concurrent_jobs,
-                )
-                self._active_jobs += 1
-                acquired = True
-            return await operation(*args)
+            async with asyncio.timeout(PREPARATION_TIMEOUT_SECONDS):
+                async with self._condition:
+                    await self._condition.wait_for(
+                        lambda: self._active_jobs < max_concurrent_jobs,
+                    )
+                    self._active_jobs += 1
+                    acquired = True
+                # HTTP may still be committing when BackgroundTasks start.
+                with database_scope():
+                    return await operation(*args)
         finally:
             async with self._condition:
                 if acquired:
@@ -59,6 +64,15 @@ class QuizPreparationController:
                 if self._jobs_by_user[key] == 0:
                     del self._jobs_by_user[key]
                 self._condition.notify_all()
+
+    async def cancel_reservation(self, user_id: UUIDy) -> None:
+        """タスク登録に失敗した予約枠を解放する."""
+        key = to_uuid(user_id).hex
+        async with self._condition:
+            self._jobs_by_user[key] = max(0, self._jobs_by_user[key] - 1)
+            if not self._jobs_by_user[key]:
+                del self._jobs_by_user[key]
+            self._condition.notify_all()
 
 
 quiz_preparation_controller = QuizPreparationController()

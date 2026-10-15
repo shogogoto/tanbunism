@@ -5,6 +5,10 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Response
 from pydantic import BaseModel, Field
 
+from tanbun.feature.quiz.learning.study_plan.preparation_state import (
+    PreparationState,
+    preparation_states,
+)
 from tanbun.feature.quiz.repo.restore import restore_quiz_sources
 from tanbun.feature.user.router_util import ActiveUser
 
@@ -239,7 +243,7 @@ async def get_dungeon_preparation(
     user: ActiveUser,
     response: Response,
     background_tasks: BackgroundTasks,
-) -> dict[str, int]:
+) -> dict:
     """準備済み領域を返し、開拓済みの追加準備があれば再開する."""
     response.headers["Cache-Control"] = "no-store"
     state = await read_state(user.uid)
@@ -249,8 +253,35 @@ async def get_dungeon_preparation(
         background_tasks,
         [resource_id.hex],
     )
-    _plan_id, prepared_regions = await dungeon_quiz_progress(user.uid, resource_id.hex)
-    return preparation_status(state, prepared_regions, resource_id.hex)
+    plan_id, prepared_regions = await dungeon_quiz_progress(user.uid, resource_id.hex)
+    statuses = await preparation_states(user.uid)
+    return preparation_status(
+        state,
+        prepared_regions,
+        resource_id.hex,
+        statuses.get(plan_id.hex, PreparationState())
+        if plan_id
+        else PreparationState(),
+    )
+
+
+@router.post("/dungeons/{resource_id}/preparation/retry")
+async def retry_dungeon_preparation(
+    resource_id: UUID,
+    user: ActiveUser,
+    response: Response,
+    background_tasks: BackgroundTasks,
+) -> dict:
+    """失敗・候補不足で停止した同じStudyPlanの準備を再試行する."""
+    state = await read_state(user.uid)
+    await schedule_dungeon_quizzes(
+        user.uid,
+        state,
+        background_tasks,
+        [resource_id.hex],
+        force=True,
+    )
+    return await get_dungeon_preparation(resource_id, user, response, background_tasks)
 
 
 @router.get("/dungeons/{resource_id}/regions/{level}/quiz-pool")

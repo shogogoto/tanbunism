@@ -1,5 +1,6 @@
 """StudyPlanのユースケース."""
 
+import asyncio
 import logging
 
 from tanbun.feature.domain.types import UUIDy
@@ -41,6 +42,12 @@ from tanbun.feature.quiz.learning.study_plan.repo import (
 )
 from tanbun.feature.quiz.learning.study_plan.repo import (
     update_study_plan as update_study_plan_in_repo,
+)
+
+from .preparation_state import (
+    PreparationState,
+    preparation_states,
+    set_preparation_state,
 )
 
 logger = logging.getLogger(__name__)
@@ -124,6 +131,10 @@ async def get_study_plan_preparation_status(
     return StudyPlanPreparationStatus(
         plan_id=plan.uid,
         prepared_quiz_count=await count_prepared_quizzes(plan.uid, user_id),
+        preparation=(await preparation_states(user_id)).get(
+            plan.uid.hex,
+            PreparationState(),
+        ),
     )
 
 
@@ -132,10 +143,12 @@ async def get_study_plan_preparation_statuses(
 ) -> list[StudyPlanPreparationStatus]:
     """所有する全StudyPlanの準備済みクイズ数を返す."""
     counts = await list_prepared_quiz_counts(user_id)
+    states = await preparation_states(user_id)
     return [
         StudyPlanPreparationStatus(
             plan_id=plan_id,
             prepared_quiz_count=count,
+            preparation=states.get(plan_id.hex, PreparationState()),
         )
         for plan_id, count in counts.items()
     ]
@@ -155,9 +168,43 @@ async def prepare_additional_study_plan_quizzes(
     send_notification: bool = True,
     strategy: QuizFillStrategy = QuizFillStrategy.COVERAGE,
 ) -> PrepareStudyPlanResult:
+    """生成の終了・失敗を両画面に公開する共通入口."""
+    try:
+        return await _prepare_additional_study_plan_quizzes(
+            plan_id,
+            user_id,
+            additional_count,
+            send_notification=send_notification,
+            strategy=strategy,
+        )
+    except (Exception, asyncio.CancelledError):
+        logger.exception("StudyPlan quiz preparation interrupted: %s", plan_id)
+        await set_preparation_state(
+            plan_id,
+            user_id,
+            "failed",
+            error="クイズを準備できませんでした。時間をおいて再試行してください。",
+        )
+        raise
+
+
+async def _prepare_additional_study_plan_quizzes(
+    plan_id: UUIDy,
+    user_id: UUIDy,
+    additional_count: int,
+    *,
+    send_notification: bool = True,
+    strategy: QuizFillStrategy = QuizFillStrategy.COVERAGE,
+) -> PrepareStudyPlanResult:
     """Planの形式・Resourceへ未coverageのクイズを追加する."""
     plan = await get_study_plan(plan_id, user_id)
     before = await count_prepared_quizzes(plan.uid, user_id)
+    await set_preparation_state(
+        plan.uid,
+        user_id,
+        "running",
+        required=before + additional_count,
+    )
     targets = [
         (quiz_type, resource_id)
         for quiz_type in plan.quiz_types
@@ -197,6 +244,15 @@ async def prepare_additional_study_plan_quizzes(
                 break
     prepared = await count_prepared_quizzes(plan.uid, user_id)
     added = max(0, prepared - before)
+    state = await set_preparation_state(
+        plan.uid,
+        user_id,
+        "ready" if added >= additional_count else "exhausted",
+        required=before + additional_count,
+        error=None
+        if added >= additional_count
+        else "対象範囲で新しく作成できるクイズが不足しています。",
+    )
     if added > 0 and send_notification:
         await notify_user(
             user_id,
@@ -215,6 +271,7 @@ async def prepare_additional_study_plan_quizzes(
         requested_count=additional_count,
         added_count=added,
         prepared_quiz_count=prepared,
+        preparation=state,
     )
 
 

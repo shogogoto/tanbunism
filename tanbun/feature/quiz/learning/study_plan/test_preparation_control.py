@@ -74,3 +74,20 @@ async def test_runs_jobs_within_global_concurrency() -> None:
 
 async def _nothing() -> None:
     """完了するだけのジョブ."""
+
+
+@mark_async_test()
+async def test_timeout_releases_reservation_for_retry(monkeypatch) -> None:
+    """停止した処理がユーザー枠と全体枠を占有し続けない."""
+    monkeypatch.setattr(
+        "tanbun.feature.quiz.learning.study_plan.preparation_control.PREPARATION_TIMEOUT_SECONDS",
+        0.01,
+    )
+    controller = QuizPreparationController()
+    user_id = uuid4()
+    await controller.reserve(user_id, max_jobs_per_user=1)
+    blocked = asyncio.Event()
+    with pytest.raises(TimeoutError):
+        await controller.execute(user_id, max_concurrent_jobs=1, operation=blocked.wait)
+    await controller.reserve(user_id, max_jobs_per_user=1)
+    await controller.execute(user_id, max_concurrent_jobs=1, operation=_nothing)

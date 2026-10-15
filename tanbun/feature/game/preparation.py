@@ -15,6 +15,11 @@ from tanbun.feature.quiz.learning.study_plan.preparation_control import (
 from tanbun.feature.quiz.learning.study_plan.preparation_settings import (
     get_quiz_preparation_settings,
 )
+from tanbun.feature.quiz.learning.study_plan.preparation_state import (
+    PreparationState,
+    preparation_states,
+    set_preparation_state,
+)
 from tanbun.feature.quiz.learning.study_plan.repo import (
     adventure_quiz_progress,
     complete_adventure_quiz_region,
@@ -67,6 +72,14 @@ def _frontier(state: GameState, resource_id: str) -> int:
 async def _prepare_resource_to_frontier(user_id: UUID, resource_id: str) -> None:
     """開拓済みの未準備領域を順に生成。次の保存・状態確認でも再試行可能."""
     if not await check_entry_owner(user_id, resource_id):
+        plan_id, _ = await adventure_quiz_progress(user_id, resource_id)
+        if plan_id:
+            await set_preparation_state(
+                plan_id,
+                user_id,
+                "failed",
+                error="対象リソースを利用できません。",
+            )
         return
     rows, _ = await adb.cypher_query(
         "MATCH (r:Resource {uid: $uid}) RETURN r.title",
@@ -87,6 +100,8 @@ async def _prepare_resource_to_frontier(user_id: UUID, resource_id: str) -> None
         )
         if not plan_id:
             return
+        required = (target + 1) * REGION_QUIZ_COUNT
+        await set_preparation_state(plan_id, user_id, "running", required=required)
         # Region zero needs the initial five quizzes; each frontier adds five.
         # Use the actual usable population, not generation attempts, as completion.
         level = min(prepared_regions + 2, target + 1) if target else 1
@@ -108,9 +123,17 @@ async def _prepare_resource_to_frontier(user_id: UUID, resource_id: str) -> None
             )
             # Partial preparation is retained; a later queued attempt fills only
             # the remaining deficit, without marking this frontier complete.
+            await set_preparation_state(
+                plan_id,
+                user_id,
+                "exhausted",
+                required=required,
+                error="対象範囲で新しく作成できるクイズが不足しています。",
+            )
             return
         if target <= prepared_regions:
             # Repair legacy over-recorded completion without double-counting it.
+            await set_preparation_state(plan_id, user_id, "ready", required=required)
             return
         if not await complete_adventure_quiz_region(
             user_id,
@@ -120,6 +143,7 @@ async def _prepare_resource_to_frontier(user_id: UUID, resource_id: str) -> None
             # Another request for the same account finished this frontier.
             continue
         if target == prepared_regions + 1:
+            await set_preparation_state(plan_id, user_id, "ready", required=required)
             return
 
 
@@ -131,6 +155,14 @@ async def prepare_dungeon_quizzes(user_id: UUID, resource_ids: list[str]) -> Non
                 await _prepare_resource_to_frontier(user_id, resource_id)
             except Exception:
                 logger.exception("Dungeon quiz preparation failed for %s", resource_id)
+                plan_id, _ = await adventure_quiz_progress(user_id, resource_id)
+                if plan_id:
+                    await set_preparation_state(
+                        plan_id,
+                        user_id,
+                        "failed",
+                        error="クイズを準備できませんでした。時間をおいて再試行してください。",
+                    )
     finally:
         _scheduled_resources.difference_update(
             (user_id.hex, resource_id.replace("-", "").lower())
@@ -138,19 +170,59 @@ async def prepare_dungeon_quizzes(user_id: UUID, resource_ids: list[str]) -> Non
         )
 
 
+async def _ensure_preparation_plan(
+    user_id: UUID,
+    resource_id: str,
+    plan_id: UUID | None,
+) -> UUID:
+    """予約前にStudyPlanを確定して共有状態を保存できるようにする."""
+    if plan_id:
+        return plan_id
+    rows, _ = await adb.cypher_query(
+        "MATCH (r:Resource {uid:$uid}) RETURN r.title",
+        {"uid": resource_id.replace("-", "").lower()},
+    )
+    plan = await ensure_default_resource_study_plan(
+        user_id,
+        resource_id,
+        rows[0][0] if rows else "ダンジョン",
+    )
+    return plan.uid
+
+
+def _preparation_blocked(
+    status: PreparationState,
+    required: int,
+    *,
+    force: bool,
+) -> bool:
+    """実行中は重複させず、失敗・候補不足は利用者の再試行を待つ."""
+    if status.status in {"queued", "running"}:
+        return True
+    return (
+        not force
+        and status.status in {"failed", "exhausted"}
+        and status.required_quiz_count >= required
+    )
+
+
 async def schedule_dungeon_quizzes(
     user_id: UUID,
     state: GameState,
     background_tasks: BackgroundTasks,
     resource_ids: list[str] | None = None,
+    *,
+    force: bool = False,
 ) -> None:
     """準備待ちのResourceを既存クイズ準備キューへ予約する."""
     pending: list[str] = []
+    plans: dict[str, tuple[UUID, int]] = {}
+    states = await preparation_states(user_id)
     user_key = user_id.hex
     candidates = resource_ids or ([state.save.run.resourceId] if state.save.run else [])
     for resource_id in candidates:
         key = (user_key, resource_id.replace("-", "").lower())
-        if key in _scheduled_resources:
+        if key in _scheduled_resources and not force:
             continue
         target = _frontier(state, resource_id)
         plan_id, prepared_regions = await dungeon_quiz_progress(
@@ -163,12 +235,22 @@ async def schedule_dungeon_quizzes(
             and await count_prepared_quizzes(plan_id, user_id) < REGION_QUIZ_COUNT
         )
         if (target > prepared_regions or initial_missing) and owned:
+            plan_id = await _ensure_preparation_plan(user_id, resource_id, plan_id)
+            status = states.get(plan_id.hex, PreparationState())
+            required = (target + 1) * REGION_QUIZ_COUNT
+            if _preparation_blocked(
+                status,
+                required,
+                force=force,
+            ):
+                continue
             _scheduled_resources.add(key)
             pending.append(resource_id)
+            plans[resource_id] = (plan_id, required)
     if not pending:
         return
-    settings = await get_quiz_preparation_settings()
     try:
+        settings = await get_quiz_preparation_settings()
         await quiz_preparation_controller.reserve(
             user_id,
             max_jobs_per_user=settings.max_concurrent_jobs_per_user,
@@ -178,6 +260,20 @@ async def schedule_dungeon_quizzes(
             (user_key, resource_id.replace("-", "").lower()) for resource_id in pending
         )
         return
+    except Exception:
+        _scheduled_resources.difference_update(
+            (user_key, resource.replace("-", "").lower()) for resource in pending
+        )
+        raise
+    try:
+        for plan_id, required in plans.values():
+            await set_preparation_state(plan_id, user_id, "queued", required=required)
+    except Exception:
+        _scheduled_resources.difference_update(
+            (user_key, resource.replace("-", "").lower()) for resource in pending
+        )
+        await quiz_preparation_controller.cancel_reservation(user_id)
+        raise
     background_tasks.add_task(
         quiz_preparation_controller.execute,
         user_id,
@@ -191,9 +287,11 @@ def preparation_status(
     state: GameState,
     prepared_regions: int,
     resource_id: str,
+    preparation: PreparationState | None = None,
 ) -> dict:
     """UI向けの到達領域・準備済み領域."""
     return {
         "prepared_regions": prepared_regions,
         "target_regions": _frontier(state, resource_id),
+        "preparation": (preparation or PreparationState()).model_dump(),
     }
