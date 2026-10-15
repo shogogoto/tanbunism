@@ -1,14 +1,15 @@
 """quiz router."""
 
+from collections.abc import Awaitable, Callable
 from datetime import date, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
+from tanbun.feature.domain.types import UUIDy
 from tanbun.feature.entry.errors import NotOwnerError
 from tanbun.feature.entry.resource.repo.owner import check_entry_owner
-from tanbun.feature.game.economy import grant_review_reward
 from tanbun.feature.notification.domain import NewNotification, NotificationKind
 from tanbun.feature.notification.usecase import notify_user
 from tanbun.feature.quiz.answering.usecase import answer_quiz_as_chain
@@ -69,6 +70,11 @@ from tanbun.feature.repo.cypher import Paging
 from tanbun.feature.user.router_util import ActiveUser
 
 _r = APIRouter(prefix="/quiz", tags=["quiz"])
+
+
+def review_reward_handler() -> Callable[[UUIDy], Awaitable[bool]] | None:
+    """回答後の報酬処理はAPIの構成時に接続し、ゲームへの逆依存を避ける."""
+    return None
 
 
 @_r.get("/search")
@@ -344,6 +350,10 @@ async def answer_quiz_api(
     quiz_id: UUID,
     param: AnswerParam,
     user: ActiveUser,
+    reward: Annotated[
+        Callable[[UUIDy], Awaitable[bool]] | None,
+        Depends(review_reward_handler),
+    ],
 ) -> QuizChain:
     """クイズに回答し、回答結果を含むQuizChainを返す."""
     chain = await answer_quiz_as_chain(
@@ -351,7 +361,7 @@ async def answer_quiz_api(
         param.selected,
         user_id=user.uid,
     )
-    _state, awarded = await grant_review_reward(user.uid, quiz=True)
+    awarded = await reward(user.uid) if reward else False
     return chain.model_copy(update={"step_recovery_awarded": awarded})
 
 

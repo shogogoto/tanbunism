@@ -18,13 +18,15 @@ from tanbun.config.env import Settings
 from tanbun.feature.achievement.router.router import user_achievement_router
 from tanbun.feature.admin import admin_router
 from tanbun.feature.dashboard import dashboard_router
+from tanbun.feature.domain.types import UUIDy
 from tanbun.feature.entry.router import entry_router
+from tanbun.feature.game.economy import grant_review_reward
 from tanbun.feature.game.router import router as game_router
 from tanbun.feature.gamification import gamification_router
 from tanbun.feature.language_service.router import language_router
 from tanbun.feature.media import worker as media_worker
 from tanbun.feature.notification import notification_router
-from tanbun.feature.quiz.router.router import quiz_router
+from tanbun.feature.quiz.router.router import quiz_router, review_reward_handler
 from tanbun.feature.recommendation.pagerank.router import router as pagerank_router
 from tanbun.feature.recommendation.pagerank.worker import start_worker, stop_worker
 from tanbun.feature.recommendation.router import router as review_settings_router
@@ -70,6 +72,14 @@ class CorsFastAPI(FastAPI):
 
 api = CorsFastAPI(lifespan=lifespan)
 
+
+async def _grant_quiz_review_reward(user_id: UUIDy) -> bool:
+    """復習回答の保存後にゲーム報酬を判定する."""
+    _state, awarded = await grant_review_reward(user_id, quiz=True)
+    return awarded
+
+
+api.dependency_overrides[review_reward_handler] = lambda: _grant_quiz_review_reward
 api.add_middleware(ErrorHandlingMiddleware)
 api.add_middleware(
     Neo4jTransactionMiddleware,

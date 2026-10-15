@@ -130,7 +130,7 @@ async def test_simulated_practice_adds_points_to_unsaved_initial_values():
     assert session.state.save.run.hp == 70
     assert session.state.save.run.attack == 35
     assert session.state.save.run.defense == 2
-    assert session.state.save.run.answerSeconds == 36
+    assert session.state.save.run.answerSeconds == balance.base_seconds
 
 
 @mark_async_test()
