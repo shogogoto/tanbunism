@@ -15,6 +15,7 @@ from tanbun.feature.game.admin import (
     EnemyBalanceSimulationRequest,
     EnemyBalanceSimulationResult,
     GameDungeonAdminItem,
+    align_dungeon_regions,
     list_game_dungeons,
     rebuild_dungeon_enemy_pools,
     rebuild_user_enemy_pools,
@@ -145,6 +146,16 @@ async def get_game_dungeons(_admin: AdminUser) -> list[GameDungeonAdminItem]:
 async def get_game_user_allocation(user_id: UUID, _admin: AdminUser) -> Allocation:
     """Read player points for disposable practice without changing their allocation."""
     return (await read_state(user_id)).save.allocation
+
+
+@router.post("/users/{user_id}/game/dungeons/{resource_id}/regions/align")
+async def align_user_dungeon_regions(
+    user_id: UUID,
+    resource_id: UUID,
+    _admin: AdminUser,
+) -> dict[str, int | bool]:
+    """旧ダンジョンの道を入口から領域別の一本道へ補修する."""
+    return await align_dungeon_regions(user_id, resource_id)
 
 
 @router.post("/users/{user_id}/game/dungeons/{resource_id}/enemies/rebuild")

@@ -35,10 +35,89 @@ from .population import MAX_REGION_LEVEL, replace_region_pool
 from .population import REGION_QUIZ_COUNT as QUIZZES_PER_REGION_LEVEL
 from .roster import assign_enemy_quizzes as _assign_enemy_quizzes
 from .roster import enemy_identity
-from .state import GameState, StateUpdate, compare_and_save, read_state
+from .state import (
+    DungeonMap,
+    GameState,
+    MapEdge,
+    MapPlace,
+    StateUpdate,
+    compare_and_save,
+    read_state,
+)
 
 _scheduled_pool_rebuilds: set[tuple[str, str]] = set()
 logger = logging.getLogger(__name__)
+
+
+def aligned_region_map(dungeon: DungeonMap) -> DungeonMap:
+    """領域の開拓順を維持し、入口から各領域の一本道を作る."""
+    tails: dict[int, str] = {}
+    original = {(edge.from_, edge.to): edge.kind for edge in dungeon.edges}
+    edges = []
+    for place in dungeon.places:
+        source = tails.get(place.region, "@entrance")
+        edges.append(
+            MapEdge(**{
+                "from": source,
+                "to": place.id,
+                "kind": "detour"
+                if source == "@entrance"
+                else original.get((source, place.id), "detour"),
+            }),
+        )
+        tails[place.region] = place.id
+    return dungeon.model_copy(update={"edges": edges})
+
+
+async def align_dungeon_regions(
+    user_id: UUIDy,
+    resource_id: UUIDy,
+) -> dict[str, int | bool]:
+    """過去のスナップショットの分岐を一度だけ補修する管理操作."""
+    previous = await read_state(user_id)
+    if (
+        previous.save.battle
+        or previous.save.battleFeedback
+        or (previous.save.run and previous.save.run.phase == "battle")
+    ):
+        raise HTTPException(409, "戦闘結果を閉じてから領域を整列してください。")
+    updated = previous.model_copy(deep=True)
+    key = to_uuid(resource_id).hex
+    map_key = next(
+        (rid for rid in updated.save.maps if rid.replace("-", "").lower() == key),
+        None,
+    )
+    dungeon = updated.save.maps.get(map_key) if map_key else None
+    if dungeon is None:
+        runs = [
+            updated.save.run,
+            *(entry.run for entry in updated.save.dungeons.values()),
+        ]
+        run = next(
+            (r for r in runs if r and r.resourceId.replace("-", "").lower() == key),
+            None,
+        )
+        if run is None:
+            raise HTTPException(404, "保存済みのダンジョンがありません。")
+        ids = list(dict.fromkeys(run.readIds))
+        dungeon = DungeonMap(
+            current=ids[-1] if ids else "@entrance",
+            places=[
+                MapPlace(id=uid, region=index // 5) for index, uid in enumerate(ids)
+            ],
+        )
+        map_key = run.resourceId
+    aligned = aligned_region_map(dungeon)
+    changed = map_key not in updated.save.maps or aligned != dungeon
+    if changed:
+        updated.save.maps[map_key] = aligned
+        async with atomic():
+            await _save_admin_state(user_id, updated)
+    return {
+        "changed": changed,
+        "place_count": len(aligned.places),
+        "region_count": len({p.region for p in aligned.places}),
+    }
 
 
 class GameDungeonAdminItem(BaseModel, frozen=True):

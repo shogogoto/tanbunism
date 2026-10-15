@@ -41,6 +41,12 @@ reports `step_recovery_awarded`; state reads retry any unclaimed completion.
 Answers recorded before this tagging was introduced cannot be distinguished
 from game Answers and do not count toward this new reward.
 
+Admin `POST /admin/users/{user_id}/game/dungeons/{resource_id}/regions/align`
+repairs old map roads into one entrance-rooted chain per frozen region. It keeps
+discovery order, current location, player stats, and quiz pools. Active and parked
+maps are supported; battle/results block the operation. CAS prevents overwriting
+concurrent exploration, and already aligned maps do not advance the revision.
+
 The saved default daily knowledge recommendation is the review quota. All its
 IDs must have an exposure for the current Japan-calendar date; empty sets do not
 qualify. Completion awards one non-purchasable three-step potion per day by CAS.
