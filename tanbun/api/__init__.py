@@ -26,7 +26,7 @@ from tanbun.feature.gamification import gamification_router
 from tanbun.feature.language_service.router import language_router
 from tanbun.feature.media import worker as media_worker
 from tanbun.feature.notification import notification_router
-from tanbun.feature.quiz.router.router import quiz_router, review_reward_handler
+from tanbun.feature.quiz.router.router import quiz_router
 from tanbun.feature.recommendation.pagerank.router import router as pagerank_router
 from tanbun.feature.recommendation.pagerank.worker import start_worker, stop_worker
 from tanbun.feature.recommendation.router import router as review_settings_router
@@ -79,7 +79,7 @@ async def _grant_quiz_review_reward(user_id: UUIDy) -> bool:
     return awarded
 
 
-api.dependency_overrides[review_reward_handler] = lambda: _grant_quiz_review_reward
+api.state.quiz_review_reward = _grant_quiz_review_reward
 api.add_middleware(ErrorHandlingMiddleware)
 api.add_middleware(
     Neo4jTransactionMiddleware,

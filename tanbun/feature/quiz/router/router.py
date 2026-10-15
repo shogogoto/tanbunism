@@ -5,7 +5,7 @@ from datetime import date, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 
 from tanbun.feature.domain.types import UUIDy
 from tanbun.feature.entry.errors import NotOwnerError
@@ -72,9 +72,11 @@ from tanbun.feature.user.router_util import ActiveUser
 _r = APIRouter(prefix="/quiz", tags=["quiz"])
 
 
-def review_reward_handler() -> Callable[[UUIDy], Awaitable[bool]] | None:
+def review_reward_handler(
+    request: Request,
+) -> Callable[[UUIDy], Awaitable[bool]] | None:
     """回答後の報酬処理はAPIの構成時に接続し、ゲームへの逆依存を避ける."""
-    return None
+    return getattr(request.app.state, "quiz_review_reward", None)
 
 
 @_r.get("/search")

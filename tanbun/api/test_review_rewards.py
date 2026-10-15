@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from fastapi import Request
 
 from tanbun.api import _grant_quiz_review_reward as grant_quiz_reward
 from tanbun.api import api
@@ -49,7 +50,7 @@ async def test_api_connects_quiz_reward_to_review_completion(monkeypatch):
     """APIの依存注入がゲーム側の復習20問報酬へつながっている."""
     award = AsyncMock(return_value=(None, True))
     monkeypatch.setattr("tanbun.api.grant_review_reward", award)
-    handler = api.dependency_overrides[quiz.review_reward_handler]()
+    handler = quiz.review_reward_handler(Request({"type": "http", "app": api}))
     assert handler is grant_quiz_reward
     user_id = uuid4()
     assert await handler(user_id)
