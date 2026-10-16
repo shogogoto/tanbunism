@@ -94,6 +94,33 @@ def test_all_gallery_icons_can_be_saved_in_skill_definitions():
         assert SkillDefinition.model_validate_json(skill.model_dump_json()).icon == icon
 
 
+def test_imported_animation_ids_are_accepted_but_arbitrary_sources_are_not():
+    """素材IDだけを保存し、URLや任意のCSSをカタログに持ち込めない."""
+    ids = [
+        *(f"oga_slash_{i}" for i in range(1, 6)),
+        *(f"oga_spell_{i}" for i in range(1, 11)),
+        *(f"oga_effect_{i}" for i in range(1, 6)),
+    ]
+    for animation in ids:
+        skill = SkillDefinition(
+            id="test",
+            name="技",
+            effect="attack",
+            animation=animation,
+        )
+        assert (
+            SkillDefinition.model_validate_json(skill.model_dump_json()).animation
+            == animation
+        )
+    with pytest.raises(ValidationError):
+        SkillDefinition(
+            id="test",
+            name="技",
+            effect="attack",
+            animation="https://example.com/evil.webp",
+        )
+
+
 @mark_async_test()
 async def test_catalog_requires_admin_and_shares_saved_definitions(ac):
     """管理者だけ変更でき、認証済みユーザーは同じ定義を参照する."""
