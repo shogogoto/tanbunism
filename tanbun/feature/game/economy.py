@@ -15,7 +15,8 @@ from tanbun.feature.recommendation.daily import load_daily
 from tanbun.feature.recommendation.settings import settings_scope
 
 from .balance import get_game_balance
-from .inventory import CATALOG, Economy, Product, ProductId, equipped_stats
+from .catalog import GameCatalog, get_game_catalog
+from .inventory import Economy, Product, ProductId, equipped_stats
 from .state import GameSave, GameState, StateUpdate, compare_and_save, read_state
 
 MOVES_PER_EVENT = 5
@@ -27,6 +28,37 @@ class EconomyAction(BaseModel):
 
     revision: int = Field(ge=0)
     product_id: ProductId
+
+
+def catalog_products(
+    catalog: GameCatalog,
+    *,
+    include_disabled: bool = False,
+) -> list[Product]:
+    """既存のショップ表示形式を保ち、効果はスキルから導出する。."""
+    skills = {s.id: s for s in catalog.skills}
+    kinds = {
+        "equip_attack": "weapon",
+        "heal_hp": "hp",
+        "heal_mp": "mp",
+        "recover_moves": "moves",
+        "attack": "skill",
+    }
+    return [
+        Product(
+            id=i.id,
+            name=i.name,
+            price=i.price if i.enabled and skills[i.skill_id].enabled else None,
+            kind=kinds[skills[i.skill_id].effect],
+            amount=skills[i.skill_id].amount,
+            icon=i.icon,
+            skill_id=i.skill_id,
+            skill_name=skills[i.skill_id].name,
+            enabled=i.enabled and skills[i.skill_id].enabled,
+        )
+        for i in catalog.items
+        if include_disabled or (i.enabled and skills[i.skill_id].enabled)
+    ]
 
 
 async def review_progress(user_id: UUIDy) -> dict:
@@ -135,7 +167,10 @@ async def change_economy(user_id: UUIDy, body: EconomyAction, action: str) -> Ga
         raise HTTPException(409, "戦闘中はショップ・所持品を操作できません。")
     updated = previous.model_copy(deep=True)
     economy = updated.save.economy
-    product = CATALOG[body.product_id]
+    product = await active_product(
+        body.product_id,
+        allow_disabled=action == "equip" and economy.weapon == body.product_id,
+    )
     quantity = economy.inventory.get(product.id, 0)
     if action == "buy":
         buy(economy, product)
@@ -143,6 +178,7 @@ async def change_economy(user_id: UUIDy, body: EconomyAction, action: str) -> Ga
         if product.kind != "weapon" or not quantity:
             raise HTTPException(422, "所持している武器を選んでください。")
         economy.weapon = None if economy.weapon == product.id else product.id
+        economy.equipment_attack = product.amount if economy.weapon else 0
     else:
         use_item(updated.save, product)
     stats = equipped_stats(updated.save.allocation, await get_game_balance(), economy)
@@ -164,6 +200,24 @@ async def change_economy(user_id: UUIDy, body: EconomyAction, action: str) -> Ga
                 "所持品が更新されました。もう一度操作してください。",
             )
     return updated
+
+
+async def active_product(product_id: str, *, allow_disabled: bool = False) -> Product:
+    """有効な定義だけを購入・使用する."""
+    product = next(
+        (
+            p
+            for p in catalog_products(
+                await get_game_catalog(),
+                include_disabled=allow_disabled,
+            )
+            if p.id == product_id
+        ),
+        None,
+    )
+    if product is None:
+        raise HTTPException(422, "このアイテムは現在利用できません。")
+    return product
 
 
 def buy(economy: Economy, product: Product) -> None:
@@ -194,9 +248,26 @@ def use_item(save: GameSave, product: Product) -> None:
             if current.phase == "rest" and current.hp:
                 current.phase = "path"
     else:
-        if run.hp >= run.maxHp:
-            raise HTTPException(422, "HPは満タンです。")
-        run.hp = min(run.maxHp, run.hp + product.amount)
-        if run.phase == "defeated":
+        restore_energy(run, product)
+        if run.phase == "defeated" and run.hp:
             run.phase = "rest" if run.moves >= MOVES_PER_EVENT else "path"
     save.economy.inventory[product.id] = quantity - 1
+
+
+def restore_energy(run, product: Product) -> None:
+    """戦闘用アイテムを平時に誤使用せず、回復量は上限に収める."""
+    if product.kind == "skill":
+        raise HTTPException(422, "このアイテムは戦闘のガンビットで使用します。")
+    current, maximum = (
+        (run.mp, run.maxMp) if product.kind == "mp" else (run.hp, run.maxHp)
+    )
+    if current >= maximum:
+        raise HTTPException(
+            422,
+            "MPは満タンです。" if product.kind == "mp" else "HPは満タンです。",
+        )
+    setattr(
+        run,
+        "mp" if product.kind == "mp" else "hp",
+        min(maximum, current + product.amount),
+    )

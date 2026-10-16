@@ -11,6 +11,7 @@ from tanbun.feature.quiz.domain.domain import ReadableQuiz
 
 from .admin import EnemyBalanceSimulationResult, _dungeon_content, _legacy_pool_ids
 from .balance import Allocation, GameBalance
+from .catalog import GameCatalog, default_catalog, get_game_catalog
 from .combat import (
     CombatContext,
     EnemyStats,
@@ -18,8 +19,10 @@ from .combat import (
     apply_turn_result,
     combat_context,
     select_encounter,
+    style_enemies,
 )
 from .damage import damage_range
+from .gambits import choose_action
 from .inventory import Economy, equipped_stats
 from .roster import assign_enemy_quizzes, enemy_identity
 from .state import BattleMarker, GameSave, GameState, Run, read_state
@@ -44,6 +47,7 @@ class PracticeSession(BaseModel):
     context: CombatContext
     seed: int = Field(ge=0, le=2**31 - 1)
     server_now: int
+    catalog: GameCatalog = Field(default_factory=default_catalog)
 
 
 class SimulatedPracticeRequest(BaseModel):
@@ -101,11 +105,7 @@ async def prepare_practice(body: PracticeRequest) -> PracticeSession:
             if key.replace("-", "").lower() == body.resource_id.hex
         )
     player_source = source
-    if (
-        body.allocation is None
-        and body.player_user_id is not None
-        and body.player_user_id != body.user_id
-    ):
+    if body.player_user_id is not None and body.player_user_id != body.user_id:
         player_source = await read_state(body.player_user_id)
     allocation = (body.allocation or player_source.save.allocation).model_copy(
         deep=True,
@@ -125,10 +125,24 @@ async def prepare_practice(body: PracticeRequest) -> PracticeSession:
         },
     )
     state = GameState(
-        save=GameSave(run=run, allocation=allocation, economy=economy, content=content),
+        save=GameSave(
+            run=run,
+            allocation=allocation,
+            economy=economy,
+            content=content,
+            gambits=player_source.save.gambits,
+            bossClears=player_source.save.bossClears,
+        ),
     )
     context = await combat_context(body.user_id, state, balance=body.balance)
-    return _begin_practice(state, context, region, body.seed, rng)
+    return _begin_practice(
+        state,
+        context,
+        region,
+        body.seed,
+        rng,
+        catalog=await get_game_catalog(),
+    )
 
 
 def _practice_content(
@@ -222,6 +236,8 @@ async def prepare_simulated_practice(body: SimulatedPracticeRequest) -> Practice
         save=GameSave(
             allocation=allocation,
             economy=economy,
+            gambits=player_source.save.gambits if player_source else [],
+            bossClears=player_source.save.bossClears if player_source else {},
             content={"knowledge": [], "quizzes": quizzes},
             run=Run(
                 resourceId="simulation",
@@ -256,7 +272,16 @@ async def prepare_simulated_practice(body: SimulatedPracticeRequest) -> Practice
             if enemy.quiz_count > 0
         ],
     )
-    return _begin_practice(state, context, region, body.seed, _random(body.seed))
+    catalog = await get_game_catalog()
+    context.enemies = style_enemies(context.enemies, catalog, preserve_stats=True)
+    return _begin_practice(
+        state,
+        context,
+        region,
+        body.seed,
+        _random(body.seed),
+        catalog=catalog,
+    )
 
 
 def _begin_practice(
@@ -265,6 +290,8 @@ def _begin_practice(
     region: int,
     seed: int,
     rng: Random,
+    *,
+    catalog: GameCatalog,
 ) -> PracticeSession:
     """Share encounter draws and turn initialization for both trial sources."""
     chosen = select_encounter(
@@ -286,7 +313,14 @@ def _begin_practice(
     now = int(time() * 1000)
     stats = equipped_stats(state.save.allocation, context.balance, state.save.economy)
     state.save.run.answerDeadline = now + stats["answerSeconds"] * 1000
-    return PracticeSession(state=state, context=context, seed=seed, server_now=now)
+    state.save.battle.gambitAction = choose_action(state.save, catalog)
+    return PracticeSession(
+        state=state,
+        context=context,
+        seed=seed,
+        server_now=now,
+        catalog=catalog,
+    )
 
 
 def practice_turn(body: PracticeTurn) -> dict:
@@ -364,6 +398,7 @@ def next_practice_turn(session: PracticeSession) -> GameState:
         enemy: rng.choice(enemies[enemy].quizIndexes) for enemy in marker.enemies
     }
     state.save.battleFeedback = None
+    marker.gambitAction = choose_action(state.save, session.catalog)
     state.save.run.answerDeadline = (
         int(time() * 1000)
         + session.state.save.allocation.stats(session.context.balance)["answerSeconds"]

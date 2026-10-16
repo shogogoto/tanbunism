@@ -15,6 +15,7 @@ from tanbun.feature.user.router_util import ActiveUser
 from .access import AdventureAccess, consume_adventure_access, get_adventure_access
 from .balance import Allocation, GameBalance, get_game_balance
 from .boss import BossRequest, start_boss
+from .catalog import GameCatalog, get_game_catalog
 from .combat import (
     CombatContext,
     EncounterRequest,
@@ -28,12 +29,13 @@ from .combat import (
 )
 from .economy import (
     EconomyAction,
+    catalog_products,
     change_economy,
     grant_review_reward,
     quiz_review_progress,
     review_progress,
 )
-from .inventory import CATALOG
+from .gambits import GambitRule, validate_rules
 from .knowledge import KnowledgeValidation, valid_knowledge
 from .population import (
     MAX_LEGACY_POOL_SIZE,
@@ -66,6 +68,48 @@ from .state import (
 from .treasure import ChestRequest, open_chest
 
 router = APIRouter(prefix="/game", tags=["game"])
+
+
+@router.get("/catalog")
+async def read_catalog(user: ActiveUser, response: Response) -> GameCatalog:
+    """ガンビットと素材一覧に使う定義。."""
+    response.headers["Cache-Control"] = "no-store"
+    return await get_game_catalog()
+
+
+class GambitUpdate(BaseModel):
+    """本人の優先順付き自動行動設定。."""
+
+    revision: int = Field(ge=0)
+    rules: list[GambitRule] = Field(max_length=10)
+
+
+@router.put("/gambits")
+async def save_gambits(user: ActiveUser, body: GambitUpdate) -> GameState:
+    """戦闘外でのみ編集し、別端末の更新を上書きしない。."""
+    from tanbun.config.transactions import atomic  # noqa: PLC0415
+
+    from .combat import persist  # noqa: PLC0415
+
+    state = await read_state(user.uid)
+    if (
+        state.revision != body.revision
+        or state.save.battle
+        or state.save.battleFeedback
+        or (state.save.run and state.save.run.phase == "battle")
+    ):
+        raise HTTPException(409, "戦闘を終えてから最新の状態で設定してください。")
+    await validate_gambit_update(body.rules)
+    updated = state.model_copy(deep=True)
+    updated.save.gambits = body.rules
+    async with atomic():
+        await persist(user.uid, state, updated)
+    return updated
+
+
+async def validate_gambit_update(rules: list[GambitRule]) -> None:
+    """カタログの実在する戦闘行動だけを保存する。."""
+    validate_rules(rules, await get_game_catalog())
 
 
 @router.post("/chests/open")
@@ -191,7 +235,10 @@ async def get_shop(user: ActiveUser, response: Response) -> dict:
     progress = await review_progress(user.uid)
     quiz_progress = await quiz_review_progress(user.uid)
     return {
-        "products": [p.model_dump() for p in CATALOG.values()],
+        "products": [
+            p.model_dump()
+            for p in catalog_products(await get_game_catalog(), include_disabled=True)
+        ],
         "specialties": [
             {
                 "resource_id": p["resource_id"],

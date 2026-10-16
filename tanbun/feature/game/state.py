@@ -15,6 +15,7 @@ from tanbun.feature.domain.types import UUIDy, to_uuid
 
 from .access import SLOT_SECONDS, get_adventure_access
 from .balance import Allocation, GameBalance, get_game_balance
+from .gambits import BattleAction, GambitRule
 from .inventory import Economy, equipped_stats
 from .settings import get_battle_settings
 from .unlocks import DungeonUnlock, discover_dungeons
@@ -75,6 +76,7 @@ class BattleMarker(BaseModel):
     bossQuizIds: list[str] = Field(default_factory=list, max_length=100)
     skill: SpecialtySkill | None = None
     skillUsed: bool = False
+    gambitAction: BattleAction | None = None
 
 
 class GameSave(BaseModel):
@@ -94,6 +96,7 @@ class GameSave(BaseModel):
     allocation: Allocation = Field(default_factory=Allocation)
     economy: Economy = Field(default_factory=Economy)
     battle: BattleMarker | None = None
+    gambits: list[GambitRule] = Field(default_factory=list, max_length=10)
     maps: dict[str, "DungeonMap"] = Field(default_factory=dict, max_length=1000)
     dungeons: dict[str, "ParkedDungeon"] = Field(default_factory=dict, max_length=1000)
 
@@ -284,6 +287,7 @@ async def write_state(user_id: UUIDy, update: StateUpdate) -> GameState:
     # Currency, items and daily rewards are owned by their dedicated APIs.
     update.save.economy = previous.save.economy.model_copy(deep=True)
     update.save.bossClears = previous.save.bossClears.copy()
+    update.save.gambits = previous.save.gambits.copy()
     run = update.save.run
     old = previous.save.run
     merge_exploration(previous.save, update.save)

@@ -27,6 +27,11 @@ from tanbun.feature.game.balance import (
     get_game_balance,
     update_game_balance,
 )
+from tanbun.feature.game.catalog import (
+    GameCatalog,
+    get_game_catalog,
+    update_game_catalog,
+)
 from tanbun.feature.game.practice import (
     PracticeRequest,
     PracticeSession,
@@ -107,6 +112,21 @@ from .user_transfer import (
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.get("/game/catalog")
+async def read_catalog(_admin: AdminUser) -> GameCatalog:
+    """スキル・アイテム・敵の共通定義。."""
+    return await get_game_catalog()
+
+
+@router.put("/game/catalog")
+async def save_catalog(body: GameCatalog, _admin: AdminUser) -> GameCatalog:
+    """参照整合性を保って定義を保存する。."""
+    try:
+        return await update_game_catalog(body)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
 
 
 @router.post("/settings/game-balance/practice")

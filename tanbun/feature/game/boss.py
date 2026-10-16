@@ -12,6 +12,7 @@ from tanbun.feature.domain.types import UUIDy, to_uuid
 from tanbun.feature.quiz.repo.restore import restore_quiz_sources
 
 from .combat import MOVES_PER_EVENT, combat_context, persist
+from .gambits import prepare_action
 from .inventory import equipped_stats
 from .population import _validate_quiz_ids, get_or_prepare_region_pool
 from .state import BattleMarker, GameState, read_state
@@ -88,6 +89,7 @@ async def start_boss(user_id: UUIDy, body: BossRequest) -> GameState:
         updated.save.run.kills = 0
     updated.save.run.phase = "battle"
     updated.save.run.answerDeadline = int(time() * 1000) + stats["answerSeconds"] * 1000
+    await prepare_action(updated.save)
     async with atomic():
         await persist(user_id, previous, updated)
     return updated

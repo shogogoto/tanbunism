@@ -23,7 +23,21 @@ UI/answer history. Only a living player's actual victory records `bossClears`;
 regular three-kill laps cannot unlock specialties. Snapshot writes retain the
 server-owned unlock list, and repeat victories do not duplicate it.
 
-Every boss-cleared resource joins the specialty pool. Between processed turns,
+The current client uses `/admin/game/catalog` to define skills, items and enemy
+appearances. References and target/effect combinations are validated together;
+legacy reward item IDs remain present. `/game/gambits` stores up to ten ordered
+rules with a revision check outside battle. `BattleMarker.gambitAction` pins one
+usable action at turn start, including a copy of its skill. Normal quiz correctness
+controls its effect: single-target attacks use the first enemy's answer, area
+attacks boost each correct answer, and recovery uses any correct answer before
+incoming damage. MP or one item is consumed even on failure, never on retreat.
+Consumption is in the same transaction and receipt as answers and other effects.
+Item-only recovery cannot be cast as a free spell. Boss victories still unlock
+skills marked `requires_specialty`. Practice carries the player's rules and a
+disposable catalog snapshot and does not write outcomes or rewards.
+
+The following manual specialty flow remains for older clients; the current UI
+does not open extra quizzes for skills. Every boss-cleared resource joins the specialty pool. Between processed turns,
 one summon spends the configured MP cost, draws a resource uniformly, then draws
 a valid prepared quiz from its highest cleared band's population. The skill ID,
 quiz ID and deadline are saved so reopening cannot redraw or refund MP. Its first

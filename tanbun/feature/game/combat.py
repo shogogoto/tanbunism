@@ -20,8 +20,10 @@ from tanbun.feature.quiz.answering.repo import create_answer_in_transaction
 from tanbun.feature.quiz.chain.usecase import expand_quiz_chain
 
 from .balance import Allocation, GameBalance, get_game_balance
+from .catalog import GameCatalog, get_game_catalog
 from .damage import enemy_damage
 from .economy import GOLD_PER_LEVEL
+from .gambits import apply_action, prepare_action
 from .inventory import equipped_stats
 from .state import BattleMarker, GameState, StateUpdate, compare_and_save, read_state
 
@@ -58,6 +60,7 @@ class EnemyStats(BaseModel):
     attack: int
     relations: int
     region: int
+    icon: str | None = None
 
 
 class CombatContext(BaseModel):
@@ -95,13 +98,54 @@ async def combat_context(
     battle_payload = state.save.battle.model_dump() if state.save.battle else {}
     return CombatContext(
         balance=balance,
-        enemies=derive_enemies(
-            {**content, "battle": battle_payload},
-            relations,
-            power,
-            balance,
+        enemies=style_enemies(
+            derive_enemies(
+                {**content, "battle": battle_payload},
+                relations,
+                power,
+                balance,
+            ),
+            await get_game_catalog(),
         ),
     )
+
+
+def style_enemies(
+    enemies: list[EnemyStats],
+    catalog: GameCatalog,
+    *,
+    preserve_stats: bool = False,
+) -> list[EnemyStats]:
+    """クイズの固定セットを変えず、同じ種類には同じ素材を割り当てる。."""
+    skills = {s.id: s for s in catalog.skills if s.enabled}
+    result = []
+    for enemy in enemies:
+        boss = enemy.id.startswith("boss:")
+        templates = [e for e in catalog.enemies if e.enabled and e.boss == boss]
+        if not templates:
+            result.append(enemy)
+            continue
+        identity = enemy.id.split("#", 1)[0]
+        seed = sum((i + 1) * ord(c) for i, c in enumerate(identity))
+        template = templates[seed % len(templates)]
+        skill = skills.get(template.attack_skill_id)
+        attack = (
+            min(100000, int(enemy.attack * skill.multiplier) + skill.amount)
+            if skill and not preserve_stats
+            else enemy.attack
+        )
+        result.append(
+            enemy.model_copy(
+                update={
+                    "icon": template.icon,
+                    "name": f"達成度 {enemy.region + 1}の{template.name}"
+                    if boss
+                    else template.name,
+                    "attack": attack,
+                },
+            ),
+        )
+    return result
 
 
 def derive_enemies(
@@ -273,6 +317,7 @@ async def start_combat(user_id: UUIDy, body: EncounterRequest) -> GameState:
     next_run.enemyHp = 0
     next_run.enemyMaxHp = 1
     next_run.answerDeadline = int(time() * 1000) + stats["answerSeconds"] * 1000
+    await prepare_action(updated.save)
     async with atomic():
         await persist(user_id, previous, updated)
     return updated
@@ -436,6 +481,18 @@ def apply_turn_result(
     next_run = updated.save.run
     for key, value in stats.items():
         setattr(next_run, key, value)
+    first_only = (
+        marker.gambitAction
+        and marker.gambitAction.skill.effect == "attack"
+        and marker.gambitAction.skill.target == "enemy"
+    )
+    action_feedback = apply_action(
+        updated.save,
+        successful=results.get(marker.enemies[0], False)
+        if first_only
+        else any(results.values()),
+        retreat=body.retreat,
+    )
     next_run.hp = max(0, min(next_run.hp, next_run.maxHp) - damage)
     next_run.mp = min(next_run.mp, next_run.maxMp)
     next_run.kills += 0 if marker.bossLevel else len(set(body.defeated))
@@ -479,6 +536,8 @@ def apply_turn_result(
     if body.retreat:
         summary += " · 撤退"
     updated.save.battleFeedback = summary
+    if action_feedback:
+        updated.save.battleFeedback += f" · {action_feedback}"
     record_boss_victory(updated, marker, body, survivors)
     return updated
 
@@ -595,6 +654,7 @@ async def next_turn(user_id: UUIDy, body: TurnRequest) -> GameState:
     updated.save.run.answerSeconds = seconds
     updated.save.run.answerDeadline = int(time() * 1000) + seconds * 1000
     updated.save.battleFeedback = None
+    await prepare_action(updated.save)
     async with atomic():
         await persist(user_id, previous, updated)
     return updated

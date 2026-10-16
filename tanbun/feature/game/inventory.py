@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, computed_field
 
 from .balance import Allocation, GameBalance
 
-ProductId = Literal["bronze_sword", "steel_sword", "healing_potion", "step_potion"]
+ProductId = str
 
 
 class ChestReward(BaseModel, frozen=True):
@@ -24,7 +24,8 @@ class Economy(BaseModel):
     inventory: dict[ProductId, Annotated[int, Field(ge=0)]] = Field(
         default_factory=dict,
     )
-    weapon: Literal["bronze_sword", "steel_sword"] | None = None
+    weapon: str | None = None
+    equipment_attack: int | None = Field(default=None, ge=0, le=10000)
     review_reward_day: str | None = None
     quiz_reward_day: str | None = None
     opened_chests: dict[str, dict[str, ChestReward]] = Field(default_factory=dict)
@@ -34,7 +35,10 @@ class Economy(BaseModel):
     def weapon_attack(self) -> int:
         """カタログの装備効果をクライアントにも返す."""
         if self.weapon and self.inventory.get(self.weapon, 0) > 0:
-            return CATALOG[self.weapon].amount
+            if self.equipment_attack is not None:
+                return self.equipment_attack
+            legacy = CATALOG.get(self.weapon)
+            return legacy.amount if legacy else 0
         return 0
 
 
@@ -44,8 +48,12 @@ class Product(BaseModel, frozen=True):
     id: ProductId
     name: str
     price: int | None
-    kind: Literal["weapon", "hp", "moves"]
+    kind: Literal["weapon", "hp", "mp", "moves", "skill"]
     amount: int
+    icon: str = "flask"
+    skill_id: str | None = None
+    skill_name: str | None = None
+    enabled: bool = True
 
 
 CATALOG = {

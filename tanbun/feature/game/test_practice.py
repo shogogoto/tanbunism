@@ -91,7 +91,7 @@ async def test_practice_uses_enemy_snapshot_and_draft_initial_player_values(
     assert session.state.save.run.answerSeconds == 12
     assert len(session.context.enemies) == 2
     for enemy in session.context.enemies:
-        source = snapshot.enemies[int(enemy.name.rsplit(" ", 1)[1]) - 1]
+        source = snapshot.enemies[int(enemy.id.split("#", 1)[0].rsplit(":", 1)[1])]
         assert (enemy.hp, enemy.attack) == (source.hp, source.attack)
         assert len(enemy.quizIndexes) == source.quiz_count
     second = await practice.prepare_simulated_practice(request)
@@ -139,6 +139,7 @@ async def test_simulated_practice_reads_actual_player_without_mutating(monkeypat
     player = uuid4()
     source = source_state(uuid4())
     source.save.allocation = Allocation(hp=2, attack=8, defense=1)
+    source.save.bossClears = {"completed-book": [5]}
     original = source.model_dump_json()
     read = AsyncMock(return_value=source)
     monkeypatch.setattr(practice, "read_state", read)
@@ -159,7 +160,9 @@ async def test_simulated_practice_reads_actual_player_without_mutating(monkeypat
     assert session.state.save.allocation == source.save.allocation
     assert session.state.save.run.hp == 70
     assert session.state.save.run.attack == 26
+    assert session.state.save.bossClears == source.save.bossClears
     session.state.save.allocation.attack = 0
+    session.state.save.bossClears["completed-book"].append(10)
     assert source.model_dump_json() == original
     writes.assert_not_awaited()
 
