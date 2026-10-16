@@ -54,7 +54,9 @@ async def test_catalog_requires_admin_and_shares_saved_definitions(ac):
     user.is_superuser = True
     await user.save()
     data["skills"][0]["amount"] = 7
-    data["enemies"][0]["icon"] = "cat"
+    data["enemies"][0]["icon"] = "crawl_dragon"
+    data["skills"][0]["icon"] = "crawl_fireball"
+    data["items"][0]["icon"] = "crawl_red_potion"
     assert (await ac.put(path, headers=headers, json=data)).status_code == 200
     assert (await ac.get("/game/catalog", headers=headers)).json() == data
     data["items"] = []
