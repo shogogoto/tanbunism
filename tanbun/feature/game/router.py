@@ -35,6 +35,12 @@ from .economy import (
     quiz_review_progress,
     review_progress,
 )
+from .end_actions import (
+    EndActionAnswer,
+    EndActionRequest,
+    answer_end_action,
+    start_end_action,
+)
 from .gambit_slots import GambitCapacity, gambit_capacity
 from .gambits import GambitRule, validate_rules
 from .knowledge import KnowledgeValidation, valid_knowledge
@@ -58,6 +64,7 @@ from .skills import (
     specialty_pools,
     start_skill,
 )
+from .specialties import SpecialtyUpdate, specialty_view, update_specialties
 from .state import (
     GameState,
     StateUpdate,
@@ -69,6 +76,30 @@ from .state import (
 from .treasure import ChestRequest, open_chest
 
 router = APIRouter(prefix="/game", tags=["game"])
+
+
+@router.get("/specialties")
+async def read_specialties(user: ActiveUser) -> dict:
+    """所持専門分野と装備枠・現在の強さを返す."""
+    return await specialty_view(user.uid)
+
+
+@router.post("/specialties")
+async def change_specialties(user: ActiveUser, body: SpecialtyUpdate) -> GameState:
+    """専門分野の作成・配合・装備を保存する."""
+    return await update_specialties(user.uid, body)
+
+
+@router.post("/battle/gambit/start")
+async def begin_end_action(user: ActiveUser, body: EndActionRequest) -> dict:
+    """ターン終了時の自動行動を開始する."""
+    return await start_end_action(user.uid, body)
+
+
+@router.post("/battle/gambit/answer")
+async def answer_gambit_quiz(user: ActiveUser, body: EndActionAnswer) -> dict:
+    """配合元ごとの専用クイズに回答する."""
+    return await answer_end_action(user.uid, body)
 
 
 @router.get("/catalog")

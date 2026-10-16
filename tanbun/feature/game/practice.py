@@ -7,11 +7,14 @@ from uuid import UUID, uuid4
 from fastapi import HTTPException
 from pydantic import BaseModel, Field, ValidationError
 
+from tanbun.feature.domain.types import to_uuid
+from tanbun.feature.gamification.resource import fetch_resource_growth
+from tanbun.feature.quiz.chain.usecase import expand_quiz_chain
 from tanbun.feature.quiz.domain.domain import ReadableQuiz
 
 from .admin import EnemyBalanceSimulationResult, _dungeon_content, _legacy_pool_ids
 from .balance import Allocation, GameBalance
-from .catalog import GameCatalog, default_catalog, get_game_catalog
+from .catalog import GameCatalog, SkillDefinition, default_catalog, get_game_catalog
 from .combat import (
     CombatContext,
     EnemyStats,
@@ -23,10 +26,13 @@ from .combat import (
 )
 from .damage import damage_range
 from .effects import modified_stat, poison_damage
+from .end_actions import EndActionAnswer, EndActionRequest, begin_action, finish_action
 from .gambit_slots import gambit_capacity
 from .gambits import choose_action
 from .inventory import Economy, equipped_stats
 from .roster import assign_enemy_quizzes, enemy_identity
+from .skills import specialty_pools
+from .specialties import strengthened
 from .state import BattleMarker, GameSave, GameState, Run, read_state
 
 
@@ -51,6 +57,8 @@ class PracticeSession(BaseModel):
     server_now: int
     catalog: GameCatalog = Field(default_factory=default_catalog)
     gambit_slots: int = Field(default=1, ge=1, le=10)
+    specialty_quizzes: dict[str, list[ReadableQuiz]] = Field(default_factory=dict)
+    specialty_skills: dict[str, SkillDefinition] = Field(default_factory=dict)
 
 
 class SimulatedPracticeRequest(BaseModel):
@@ -135,10 +143,11 @@ async def prepare_practice(body: PracticeRequest) -> PracticeSession:
             content=content,
             gambits=player_source.save.gambits,
             bossClears=player_source.save.bossClears,
+            specialties=player_source.save.specialties,
         ),
     )
     context = await combat_context(body.user_id, state, balance=body.balance)
-    return _begin_practice(
+    prepared = _begin_practice(
         state,
         context,
         region,
@@ -149,6 +158,7 @@ async def prepare_practice(body: PracticeRequest) -> PracticeSession:
             await gambit_capacity(body.player_user_id or body.user_id, body.balance)
         ).slots,
     )
+    return await _prepare_specialties(prepared, body.player_user_id or body.user_id)
 
 
 def _practice_content(
@@ -244,6 +254,7 @@ async def prepare_simulated_practice(body: SimulatedPracticeRequest) -> Practice
             economy=economy,
             gambits=player_source.save.gambits if player_source else [],
             bossClears=player_source.save.bossClears if player_source else {},
+            specialties=player_source.save.specialties if player_source else [],
             content={"knowledge": [], "quizzes": quizzes},
             run=Run(
                 resourceId="simulation",
@@ -280,7 +291,7 @@ async def prepare_simulated_practice(body: SimulatedPracticeRequest) -> Practice
     )
     catalog = await get_game_catalog()
     context.enemies = style_enemies(context.enemies, catalog, preserve_stats=True)
-    return _begin_practice(
+    prepared = _begin_practice(
         state,
         context,
         region,
@@ -291,6 +302,7 @@ async def prepare_simulated_practice(body: SimulatedPracticeRequest) -> Practice
         if body.player_user_id
         else 1,
     )
+    return await _prepare_specialties(prepared, body.player_user_id)
 
 
 def _begin_practice(
@@ -323,7 +335,7 @@ def _begin_practice(
     now = int(time() * 1000)
     stats = equipped_stats(state.save.allocation, context.balance, state.save.economy)
     state.save.run.answerDeadline = now + stats["answerSeconds"] * 1000
-    state.save.battle.gambitAction = choose_action(state.save, catalog, slots=slots)
+    state.save.battle.gambitAction = None
     return PracticeSession(
         state=state,
         context=context,
@@ -414,14 +426,147 @@ def next_practice_turn(session: PracticeSession) -> GameState:
     }
     state.save.battleFeedback = None
     marker.effects = [e for e in marker.effects if e.expires_turn > marker.turn]
-    marker.gambitAction = choose_action(
-        state.save,
-        session.catalog,
-        slots=session.gambit_slots,
-    )
+    marker.gambitAction = None
     state.save.run.answerDeadline = (
         int(time() * 1000)
         + session.state.save.allocation.stats(session.context.balance)["answerSeconds"]
         * 1000
     )
     return state
+
+
+async def _prepare_specialties(session: PracticeSession, user_id) -> PracticeSession:
+    """実プレイヤーの専門分野の出題元を読み取るだけ。回答やXPは保存しない."""
+    if not user_id or not session.state.save.specialties:
+        return session
+    resources = {
+        to_uuid(r.resource_id).hex: r for r in await fetch_resource_growth(user_id)
+    }
+    skills = {s.id: s for s in session.catalog.skills}
+    for specialty in session.state.save.specialties:
+        if specialty.skill_id in skills:
+            session.specialty_skills[specialty.id] = strengthened(
+                skills[specialty.skill_id],
+                specialty,
+                resources,
+            )
+    for pool in await specialty_pools(user_id, session.state):
+        values = []
+        for quiz_id in pool["quiz_ids"]:
+            chain = await expand_quiz_chain(user_id, to_uuid(quiz_id))
+            values.append(chain.quizzes[0].readable)
+        session.specialty_quizzes[pool["resource_id"]] = values
+    return session
+
+
+class PracticeAction(BaseModel):
+    """使い捨てガンビット精算。実戦APIに転送しない."""
+
+    session: PracticeSession
+    answer: bool = False
+    body: dict
+
+
+def _practice_candidates(session: PracticeSession, save: GameSave) -> GameSave:
+    """出題元が不足する専門分野だけを候補から外し、所有状態は変えない."""
+    search = save.model_copy(deep=True)
+    for specialty in search.specialties:
+        skill = session.specialty_skills.get(specialty.id)
+        if (
+            skill
+            and (
+                skill.quiz_required
+                if skill.quiz_required is not None
+                else skill.requires_specialty
+            )
+            and any(
+                not session.specialty_quizzes.get(r) for r in specialty.resource_ids
+            )
+        ):
+            specialty.equipped = False
+    return search
+
+
+def practice_action(body: PracticeAction) -> dict:
+    """通常回答から独立したターン末行動を実戦と同じ効果処理で試す."""
+    session = body.session
+    state = session.state.model_copy(deep=True)
+    marker = state.save.battle
+    if not marker or not state.save.battleFeedback:
+        raise HTTPException(422, "模擬戦の結果処理後に実行してください。")
+    quizzes = {
+        str(q.quiz_id): q
+        for values in session.specialty_quizzes.values()
+        for q in values
+    }
+    outgoing = {}
+    if body.answer:
+        outgoing = _answer_practice_action(
+            state,
+            EndActionAnswer.model_validate(body.body),
+            quizzes,
+        )
+    elif not marker.endActionDone:
+        request = EndActionRequest.model_validate(body.body)
+        if (marker.id, marker.turn) != (request.battle_id, request.turn):
+            raise HTTPException(422, "模擬ターンが変わっています。")
+        marker.endActionDone = True
+        selected = choose_action(
+            _practice_candidates(session, state.save),
+            session.catalog,
+            slots=session.gambit_slots,
+        )
+        if selected:
+            skill = session.specialty_skills.get(selected.specialty_id, selected.skill)
+            ids = []
+            if selected.specialty_id and (
+                skill.quiz_required
+                if skill.quiz_required is not None
+                else skill.requires_specialty
+            ):
+                specialty = next(
+                    s for s in state.save.specialties if s.id == selected.specialty_id
+                )
+                if any(
+                    not session.specialty_quizzes.get(r) for r in specialty.resource_ids
+                ):
+                    raise HTTPException(422, "模擬専門分野の出題元が不足しています。")
+                rng = _random(session.seed, marker.turn)
+                ids = [
+                    str(rng.choice(session.specialty_quizzes[r]).quiz_id)
+                    for r in specialty.resource_ids
+                ]
+            begin_action(state.save, selected, skill, ids, request.enemy_hp)
+            if not ids:
+                outgoing = finish_action(state)
+    action = state.save.battle.endAction if state.save.battle else None
+    return {
+        "state": state,
+        "action": action,
+        "quiz": quizzes[action["quiz_ids"][action["index"]]] if action else None,
+        "outgoing_damage": outgoing,
+    }
+
+
+def _answer_practice_action(state, answer: EndActionAnswer, quizzes: dict) -> dict:
+    """模擬回答の検査と一問分の進行。実際の回答履歴には触れない."""
+    action = state.save.battle.endAction
+    if not action or (action["id"], action["index"]) != (
+        answer.action_id,
+        answer.index,
+    ):
+        raise HTTPException(422, "模擬専用クイズの回答順が変わっています。")
+    quiz = quizzes[action["quiz_ids"][action["index"]]]
+    if answer.selected is not None and not set(answer.selected) <= set(quiz.options):
+        raise HTTPException(422, "選択肢がありません。")
+    action["correct"] += int(
+        answer.selected is not None
+        and int(time() * 1000) <= action["deadline"]
+        and quiz.is_correct(answer.selected),
+    )
+    action["index"] += 1
+    action["deadline"] = (
+        int(time() * 1000)
+        + SkillDefinition.model_validate(action["skill"]).quiz_seconds * 1000
+    )
+    return finish_action(state) if action["index"] == len(action["quiz_ids"]) else {}

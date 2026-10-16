@@ -33,11 +33,13 @@ from tanbun.feature.game.catalog import (
     update_game_catalog,
 )
 from tanbun.feature.game.practice import (
+    PracticeAction,
     PracticeRequest,
     PracticeSession,
     PracticeTurn,
     SimulatedPracticeRequest,
     next_practice_turn,
+    practice_action,
     practice_turn,
     prepare_practice,
     prepare_simulated_practice,
@@ -154,6 +156,12 @@ async def start_simulated_practice(
 async def continue_practice(body: PracticeSession, _admin: AdminUser) -> GameState:
     """Advance only the browser-owned simulation state."""
     return next_practice_turn(body)
+
+
+@router.post("/settings/game-balance/practice/gambit")
+async def simulate_gambit(body: PracticeAction, _admin: AdminUser) -> dict:
+    """ガンビットと専用クイズも保存せず模擬精算する."""
+    return practice_action(body)
 
 
 @router.get("/game/dungeons")

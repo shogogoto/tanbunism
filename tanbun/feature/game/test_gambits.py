@@ -15,6 +15,7 @@ from .catalog import SkillDefinition, default_catalog
 from .combat import EnemyStats, TurnRequest, apply_turn_result, style_enemies
 from .effects import BattleEffect
 from .gambits import GambitRule, choose_action, validate_rules
+from .specialty_types import Specialty
 from .state import (
     BattleMarker,
     GameSave,
@@ -175,6 +176,19 @@ def test_item_only_effects_and_locked_specialties_cannot_be_cast_directly():
     state.save.gambits = [GambitRule(definition_id="specialty_burst")]
     assert choose_action(state.save, catalog) is None
     state.save.bossClears = {"book": [5]}
+    assert choose_action(state.save, catalog) is None
+    state.save.specialties = [
+        Specialty(
+            id="specialty_test",
+            name="専門分野",
+            resource_ids=["book"],
+            skill_id="specialty_burst",
+            equipped=True,
+        ),
+    ]
+    state.save.gambits = [
+        GambitRule(action="specialty", definition_id="specialty_test"),
+    ]
     assert choose_action(state.save, catalog).skill.id == "specialty_burst"
 
 

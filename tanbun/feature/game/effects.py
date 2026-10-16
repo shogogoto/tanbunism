@@ -85,3 +85,32 @@ def add_effect(marker: "BattleMarker", skill: SkillDefinition, target: str) -> N
             expires_turn=marker.turn + 1 + skill.duration_turns,
         ),
     )
+
+
+def bubble_factor(marker: "BattleMarker | None") -> float:
+    """最大HPへの割合buffを合算し、現在HPにも同じ倍率を使う."""
+    if not marker:
+        return 1.0
+    return 1 + sum(
+        e.skill.amount / 100
+        for e in marker.effects
+        if e.target_id == "player"
+        and e.skill.effect == "buff"
+        and e.skill.stat == "maxHp"
+        and e.starts_turn <= marker.turn < e.expires_turn
+    )
+
+
+def sync_bubble(
+    run,
+    marker: "BattleMarker | None",
+    base_max_hp: int | None = None,
+) -> None:
+    """付与・解除・戦闘終了で最大HPと残HPを一緒に伸縮する."""
+    old = run.hpScale
+    base = base_max_hp if base_max_hp is not None else max(1, round(run.maxHp / old))
+    maximum = max(1, min(100000, floor(base * bubble_factor(marker))))
+    factor = maximum / base
+    run.hp = min(maximum, max(1 if run.hp else 0, floor(run.hp * factor / old)))
+    run.maxHp = maximum
+    run.hpScale = factor

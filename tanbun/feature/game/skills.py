@@ -49,7 +49,7 @@ class SkillAnswer(BaseModel):
 
 
 async def specialty_pools(user_id: UUIDy, state: GameState) -> list[dict]:
-    """本人の攻略済み達成度までの、現在有効な固定母集団だけを使う."""
+    """ボス攻略済みリソースの、本人が利用可能な作成済みクイズを使う."""
     unlocks = [
         {"resource": to_uuid(r).hex, "level": max(levels)}
         for r, levels in state.save.bossClears.items()
@@ -59,9 +59,6 @@ async def specialty_pools(user_id: UUIDy, state: GameState) -> list[dict]:
         return []
     rows, _ = await adb.cypher_query(
         """UNWIND $unlocks AS unlock
-        MATCH (d:Dungeon {user_uid:$uid, resource_uid:unlock.resource})
-            -[:HAS_REGION]->(region:DungeonRegion {level:unlock.level})
-        MATCH (region)-[:POPULATION_QUIZ]->(q:Quiz)
         MATCH (u:User {uid:$uid})-[:LEARN]->(q)
         MATCH (r:Resource {uid:unlock.resource})-[:PARENT*0..]->()-[:OWNED]->(u)
         MATCH (q)-[:QUIZ_TARGET]->(:Sentence {resource_uid:unlock.resource})
@@ -69,7 +66,11 @@ async def specialty_pools(user_id: UUIDy, state: GameState) -> list[dict]:
         RETURN r.uid, coalesce(r.title, '専門分野'), collect(DISTINCT q.uid)""",
         {"uid": to_uuid(user_id).hex, "unlocks": unlocks},
     )
-    return [{"resource_id": r, "name": n, "quiz_ids": qs} for r, n, qs in rows if qs]
+    return [
+        {"resource_id": to_uuid(r).hex, "name": n, "quiz_ids": qs}
+        for r, n, qs in rows
+        if qs
+    ]
 
 
 async def start_skill(user_id: UUIDy, body: SkillRequest) -> dict:

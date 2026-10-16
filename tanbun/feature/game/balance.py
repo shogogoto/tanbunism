@@ -12,6 +12,7 @@ class GameBalance(BaseModel, frozen=True):
 
     base_hp: int = Field(default=35, ge=1, le=10000)
     gambit_levels_per_slot: int = Field(default=5, ge=2, le=100)
+    specialty_levels_per_slot: int = Field(default=20, ge=2, le=100)
     chest_gold: int = Field(default=30, ge=0, le=100000)
     chest_healing_potions: int = Field(default=0, ge=0, le=100)
     chest_step_potions: int = Field(default=1, ge=0, le=100)

@@ -137,9 +137,13 @@ class SkillDefinition(BaseModel):
     multiplier: float = Field(default=1, ge=0, le=10, allow_inf_nan=False)
     mp_cost: int = Field(default=0, ge=0, le=10000)
     requires_specialty: bool = False
+    quiz_required: bool | None = None
+    quiz_seconds: int = Field(default=30, ge=5, le=300)
+    wrong_multiplier: float = Field(default=0, ge=0, le=1, allow_inf_nan=False)
+    power_coefficient: float = Field(default=1, ge=0, le=1000, allow_inf_nan=False)
     castable: bool = True
     amount_mode: Literal["fixed", "percent"] = "fixed"
-    stat: Literal["attack", "defense"] = "attack"
+    stat: Literal["attack", "defense", "maxHp"] = "attack"
     duration_turns: int = Field(default=3, ge=1, le=20)
     stack_limit: int = Field(default=1, ge=1, le=10)
     ailment: Literal["poison"] = "poison"
@@ -159,6 +163,11 @@ class SkillDefinition(BaseModel):
         if self.effect == "debuff" and self.stat == "defense":
             msg_0 = "現在の敵は守備力を持たないため、攻撃力を選んでください。"
             raise ValueError(msg_0)
+        if self.stat == "maxHp" and (
+            self.effect != "buff" or self.amount_mode != "percent"
+        ):
+            msg_1 = "最大HPの変更は割合buffで指定してください。"
+            raise ValueError(msg_1)
         if self.effect == "ailment" and self.amount < 1:
             msg = "毒の効果量は1以上を指定してください。"
             raise ValueError(msg)
@@ -188,17 +197,55 @@ class EnemyDefinition(BaseModel):
     attack_skill_id: DefinitionId | None = None
 
 
+class TriggerDefinition(BaseModel):
+    """管理者が公開する条件テンプレート。任意コードは実行しない."""
+
+    id: DefinitionId
+    name: str = Field(min_length=1, max_length=80)
+    condition: Literal[
+        "always",
+        "hp_below",
+        "mp_below",
+        "enemy_count",
+        "buff_present",
+        "buff_absent",
+        "poisoned",
+    ]
+    threshold: int = Field(default=30, ge=1, le=100)
+    enabled: bool = True
+
+
+def default_triggers() -> list[TriggerDefinition]:
+    """単独条件のみ。AND/ORの式エディタは設けない."""
+    return [
+        TriggerDefinition(id=key, name=name, condition=key)
+        for key, name in (
+            ("always", "いつでも"),
+            ("hp_below", "HPがn%以下"),
+            ("mp_below", "MPがn%以下"),
+            ("enemy_count", "敵がn体以上"),
+            ("buff_present", "buffあり"),
+            ("buff_absent", "buffなし"),
+            ("poisoned", "毒状態"),
+        )
+    ]
+
+
 class GameCatalog(BaseModel):
     """IDと参照をまとめて検査し、一括保存する定義。."""
 
     skills: list[SkillDefinition] = Field(default_factory=list, max_length=200)
     items: list[ItemDefinition] = Field(default_factory=list, max_length=200)
     enemies: list[EnemyDefinition] = Field(default_factory=list, max_length=100)
+    triggers: list[TriggerDefinition] = Field(
+        default_factory=default_triggers,
+        max_length=100,
+    )
 
     @model_validator(mode="after")
     def valid_references(self):
         """削除や種類変更でアイテム・敵を壊さない。."""
-        for definitions in (self.skills, self.items, self.enemies):
+        for definitions in (self.skills, self.items, self.enemies, self.triggers):
             if len({d.id for d in definitions}) != len(definitions):
                 msg = "定義IDが重複しています。"
                 raise ValueError(msg)

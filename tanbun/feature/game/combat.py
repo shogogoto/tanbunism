@@ -23,7 +23,7 @@ from .balance import Allocation, GameBalance, get_game_balance
 from .catalog import GameCatalog, get_game_catalog
 from .damage import enemy_damage
 from .economy import GOLD_PER_LEVEL
-from .effects import effect_amount, modified_stat, poison_damage
+from .effects import effect_amount, modified_stat, poison_damage, sync_bubble
 from .gambits import apply_action, prepare_action
 from .inventory import equipped_stats
 from .state import BattleMarker, GameState, StateUpdate, compare_and_save, read_state
@@ -326,7 +326,9 @@ async def start_combat(user_id: UUIDy, body: EncounterRequest) -> GameState:
     )
     next_run = updated.save.run
     for key, value in stats.items():
-        setattr(next_run, key, value)
+        if key != "maxHp":
+            setattr(next_run, key, value)
+    sync_bubble(next_run, updated.save.battle, stats["maxHp"])
     next_run.hp = min(next_run.hp, next_run.maxHp)
     next_run.mp = stats["maxMp"]
     next_run.enemyHp = 0
@@ -503,8 +505,9 @@ def apply_turn_result(
         raise ValueError(msg)
     updated = previous.model_copy(deep=True)
     next_run = updated.save.run
-    for key, value in stats.items():
+    for key, value in (stats | {"maxHp": next_run.maxHp}).items():
         setattr(next_run, key, value)
+    sync_bubble(next_run, updated.save.battle, stats["maxHp"])
     first_only = (
         marker.gambitAction
         and marker.gambitAction.skill.effect in {"attack", "debuff", "ailment"}
@@ -561,11 +564,13 @@ def apply_turn_result(
             if e.target_id == "player" or e.target_id in survivors
         ]
         updated.save.battle.turn += 1
+        updated.save.battle.endActionDone = False
         # Starts only on explicit next-turn acknowledgement, not while reading results.
         next_run.answerDeadline = None
     else:
         updated.save.battle = None
         next_run.answerDeadline = None
+    sync_bubble(next_run, updated.save.battle, stats["maxHp"])
     summary = (
         f"正解 {sum(results.values())}/{len(marker.enemies)} · "
         f"撃破 {len(set(body.defeated))}体 · HP -{damage}"
@@ -600,6 +605,21 @@ async def abandon_combat(user_id: UUIDy) -> GameState:
     """ブラウザ内の戦闘を失ったら未回答として一度だけ撤退する."""
     state = await read_state(user_id)
     marker = state.save.battle
+    if marker and marker.endAction:
+        from .end_actions import EndActionAnswer, answer_end_action  # noqa: PLC0415
+
+        while state.save.battle and state.save.battle.endAction:
+            action = state.save.battle.endAction
+            result = await answer_end_action(
+                user_id,
+                EndActionAnswer(
+                    action_id=action["id"],
+                    index=action["index"],
+                    selected=None,
+                ),
+            )
+            state = result["state"]
+        marker = state.save.battle
     if not marker and state.save.run and state.save.run.phase == "battle":
         # Deployed single-enemy snapshots cannot resume as the new battle protocol.
         updated = state.model_copy(deep=True)
@@ -676,6 +696,7 @@ async def next_turn(user_id: UUIDy, body: TurnRequest) -> GameState:
         or (marker.id, marker.turn) != (body.battle_id, body.turn)
         or not previous.save.battleFeedback
         or marker.skill
+        or marker.endAction
     ):
         raise HTTPException(409, "次のターンを開始できません。")
     updated = previous.model_copy(deep=True)

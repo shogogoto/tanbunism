@@ -15,10 +15,11 @@ from tanbun.feature.domain.types import UUIDy, to_uuid
 
 from .access import SLOT_SECONDS, get_adventure_access
 from .balance import Allocation, GameBalance, get_game_balance
-from .effects import BattleEffect
+from .effects import BattleEffect, bubble_factor, sync_bubble
 from .gambits import BattleAction, GambitRule
 from .inventory import Economy, equipped_stats
 from .settings import get_battle_settings
+from .specialty_types import Specialty
 from .unlocks import DungeonUnlock, discover_dungeons
 
 MAX_SNAPSHOT_BYTES = 1000000
@@ -34,6 +35,7 @@ class Run(BaseModel):
     name: str = Field(max_length=1000)
     hp: int = Field(ge=0, le=100000)
     maxHp: int = Field(ge=1, le=100000)
+    hpScale: float = Field(default=1, ge=1, le=100000, allow_inf_nan=False)
     mp: int = Field(default=0, ge=0, le=100000)
     maxMp: int = Field(default=0, ge=0, le=100000)
     attack: int = Field(ge=0, le=100000)
@@ -72,6 +74,8 @@ class BattleMarker(BaseModel):
     region: int = Field(ge=0)
     checkpoint: str = Field(default="@entrance", max_length=64)
     discoveredPlace: str | None = Field(default=None, max_length=64)
+    endAction: dict | None = None
+    endActionDone: bool = False
     enemies: list[str] = Field(min_length=1, max_length=20)
     quizIndices: dict[str, int] = Field(default_factory=dict)
     bossLevel: int | None = Field(default=None, ge=5, le=20)
@@ -86,6 +90,8 @@ class GameSave(BaseModel):
     """攻略数と固定された出題セット."""
 
     version: Literal[2] = 2
+    specialties: list[Specialty] = Field(default_factory=list, max_length=1000)
+    endActionReceipt: dict | None = None
     clears: dict[str, int] = Field(default_factory=dict, max_length=1000)
     bossClears: dict[str, list[int]] = Field(default_factory=dict, max_length=1000)
     visitedDungeons: list[str] = Field(
@@ -228,7 +234,22 @@ def restore_state(raw: str | None, balance: GameBalance) -> GameState:
     for run in runs:
         if run:
             run.update({key: stats[key] for key in DERIVED_PLAYER_FIELDS})
-            run["hp"] = min(run["hp"], stats["maxHp"])
+            marker = (
+                BattleMarker.model_validate(save["battle"])
+                if run is save.get("run") and save.get("battle")
+                else None
+            )
+            maximum = min(100000, int(stats["maxHp"] * bubble_factor(marker)))
+            scale = maximum / stats["maxHp"]
+            run["hp"] = min(
+                maximum,
+                max(
+                    1 if run["hp"] else 0,
+                    int(run["hp"] * scale / run.get("hpScale", 1)),
+                ),
+            )
+            run["maxHp"] = maximum
+            run["hpScale"] = scale
             run["mp"] = min(run.get("mp", 0), stats["maxMp"])
     # answerSeconds/answerDeadline describe the current turn, not a cached stat.
     return GameState.model_validate(payload)
@@ -291,6 +312,10 @@ async def write_state(user_id: UUIDy, update: StateUpdate) -> GameState:
     update.save.economy = previous.save.economy.model_copy(deep=True)
     update.save.bossClears = previous.save.bossClears.copy()
     update.save.gambits = previous.save.gambits.copy()
+    update.save.specialties = [
+        s.model_copy(deep=True) for s in previous.save.specialties
+    ]
+    update.save.endActionReceipt = previous.save.endActionReceipt
     run = update.save.run
     old = previous.save.run
     merge_exploration(previous.save, update.save)
@@ -412,8 +437,13 @@ async def compare_and_save(
     for run in [state.save.run, *(d.run for d in state.save.dungeons.values())]:
         if run:
             for key in DERIVED_PLAYER_FIELDS:
-                setattr(run, key, stats[key])
-            run.hp = min(run.hp, run.maxHp)
+                if key != "maxHp":
+                    setattr(run, key, stats[key])
+            sync_bubble(
+                run,
+                state.save.battle if run is state.save.run else None,
+                stats["maxHp"],
+            )
             run.mp = min(run.mp, run.maxMp)
     stored = state.model_dump_json(
         by_alias=True,
