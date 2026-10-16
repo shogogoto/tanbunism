@@ -23,7 +23,7 @@ from .balance import Allocation, GameBalance, get_game_balance
 from .catalog import GameCatalog, get_game_catalog
 from .damage import enemy_damage
 from .economy import GOLD_PER_LEVEL
-from .effects import effect_amount, modified_stat
+from .effects import effect_amount, modified_stat, poison_damage
 from .gambits import apply_action, prepare_action
 from .inventory import equipped_stats
 from .state import BattleMarker, GameState, StateUpdate, compare_and_save, read_state
@@ -419,6 +419,10 @@ async def settle_turn(user_id: UUIDy, body: TurnRequest) -> dict:
         "results": results,
         "damage": damage,
         "incoming_damage": incoming_damage,
+        "poison_damage": poison_damage(
+            marker,
+            {e: enemies[e].hp for e in marker.enemies if e in enemies},
+        ),
         "gold_earned": updated.save.economy.gold - previous.save.economy.gold,
     }
     notifications = []
@@ -493,7 +497,7 @@ def apply_turn_result(
         setattr(next_run, key, value)
     first_only = (
         marker.gambitAction
-        and marker.gambitAction.skill.effect in {"attack", "debuff"}
+        and marker.gambitAction.skill.effect in {"attack", "debuff", "ailment"}
         and marker.gambitAction.skill.target == "enemy"
     )
     action_feedback = apply_action(

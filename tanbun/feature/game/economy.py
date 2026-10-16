@@ -45,6 +45,7 @@ def catalog_products(
         "attack": "skill",
         "buff": "skill",
         "debuff": "skill",
+        "ailment": "skill",
     }
     return [
         Product(

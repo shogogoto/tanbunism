@@ -11,8 +11,9 @@ from tanbun.feature.user.testing import aauth_header, aregister
 
 from . import combat
 from .balance import GameBalance
-from .catalog import default_catalog
+from .catalog import SkillDefinition, default_catalog
 from .combat import EnemyStats, TurnRequest, apply_turn_result, style_enemies
+from .effects import BattleEffect
 from .gambits import GambitRule, choose_action, validate_rules
 from .state import (
     BattleMarker,
@@ -251,6 +252,15 @@ async def test_receipt_retries_never_consume_gambit_twice(u):
     state.save.run.maxMp = 10
     state.save.gambits = [GambitRule(definition_id="fire")]
     state.save.battle.gambitAction = choose_action(state.save, default_catalog())
+    poisoned_enemy = state.save.battle.enemies[0]
+    state.save.battle.effects = [
+        BattleEffect(
+            skill=SkillDefinition(id="poison", name="毒", effect="ailment", amount=1),
+            target_id=poisoned_enemy,
+            starts_turn=0,
+            expires_turn=2,
+        ),
+    ]
     await adb.cypher_query(
         "MATCH (u:User {uid:$uid}) SET u.game_state=$state",
         {"uid": u.uid, "state": state.model_dump_json()},
@@ -258,4 +268,7 @@ async def test_receipt_retries_never_consume_gambit_twice(u):
     body = TurnRequest(battle_id=state.save.battle.id, turn=0, answers=answers(state))
     result = await combat.settle_turn(u.uid, body)
     assert result["state"]["save"]["run"]["mp"] == 7
-    assert (await combat.settle_turn(u.uid, body))["state"]["save"]["run"]["mp"] == 7
+    assert result["poison_damage"] == {poisoned_enemy: 1}
+    replay = await combat.settle_turn(u.uid, body)
+    assert replay["state"]["save"]["run"]["mp"] == 7
+    assert replay["poison_damage"] == result["poison_damage"]

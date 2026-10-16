@@ -22,7 +22,7 @@ from .combat import (
     style_enemies,
 )
 from .damage import damage_range
-from .effects import modified_stat
+from .effects import modified_stat, poison_damage
 from .gambit_slots import gambit_capacity
 from .gambits import choose_action
 from .inventory import Economy, equipped_stats
@@ -392,6 +392,10 @@ def practice_turn(body: PracticeTurn) -> dict:
         "results": results,
         "damage": damage,
         "incoming_damage": incoming_damage,
+        "poison_damage": poison_damage(
+            marker,
+            {e: enemies[e].hp for e in marker.enemies},
+        ),
     }
 
 

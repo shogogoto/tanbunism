@@ -7,6 +7,12 @@ from pydantic import BaseModel, Field, StringConstraints, model_validator
 
 DefinitionId = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
 IconId = Literal[
+    "art_archive_golem",
+    "art_crystal_dragon",
+    "art_ancient_treant",
+    "art_ink_slime",
+    "art_scroll_mimic",
+    "art_owl_mage",
     "apple",
     "axe",
     "backpack",
@@ -79,6 +85,7 @@ class SkillDefinition(BaseModel):
         "equip_attack",
         "buff",
         "debuff",
+        "ailment",
     ]
     target: Literal["enemy", "all_enemies", "self"] = "enemy"
     amount: int = Field(default=0, ge=0, le=10000)
@@ -90,12 +97,13 @@ class SkillDefinition(BaseModel):
     stat: Literal["attack", "defense"] = "attack"
     duration_turns: int = Field(default=3, ge=1, le=20)
     stack_limit: int = Field(default=1, ge=1, le=10)
+    ailment: Literal["poison"] = "poison"
 
     @model_validator(mode="after")
     def valid_target(self):
         """回復・装備は自分だけを対象にする。."""
-        if (self.effect in {"attack", "debuff"}) == (self.target == "self"):
-            msg = "攻撃・debuffは敵、それ以外は自分を対象にしてください。"
+        if (self.effect in {"attack", "debuff", "ailment"}) == (self.target == "self"):
+            msg = "攻撃・debuff・状態変化は敵、それ以外は自分を対象にしてください。"
             raise ValueError(msg)
         if (
             self.effect in {"recover_moves", "equip_attack"}
@@ -106,6 +114,9 @@ class SkillDefinition(BaseModel):
         if self.effect == "debuff" and self.stat == "defense":
             msg_0 = "現在の敵は守備力を持たないため、攻撃力を選んでください。"
             raise ValueError(msg_0)
+        if self.effect == "ailment" and self.amount < 1:
+            msg = "毒の効果量は1以上を指定してください。"
+            raise ValueError(msg)
         return self
 
 

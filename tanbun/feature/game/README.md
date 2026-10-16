@@ -15,7 +15,16 @@ debuffs currently affect enemy attack (enemies have no defense stat).
 Correct answers attach effects, starting on the next turn for `duration_turns`.
 `stack_limit=1` refreshes that skill on that target; larger limits preserve each
 stack's independent expiry. Effects live only in the battle marker, so victory,
-defeat and retreat remove them. Ailments and enemy gambit lists are not yet enabled.
+defeat and retreat remove them. Enemy gambit lists are not yet enabled.
+
+Poison is an `ailment` applied only to correctly answered enemy targets. Starting
+next turn, each active stack contributes fixed damage or a percentage of maximum
+enemy HP at the end of that enemy's result. Poison does not change attack/defense
+and cannot reduce HP below one; quiz correctness remains required for a kill.
+Poison ticks are included in the turn receipt and shared by actual/practice combat.
+
+Registered material IDs also support project-local enemy/boss artwork, retaining
+the legacy `icon` field for compatibility. Arbitrary asset URLs are not accepted.
 
 ## Gold and inventory
 

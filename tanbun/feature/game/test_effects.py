@@ -6,7 +6,7 @@ from tanbun.conftest import mark_async_test
 from .balance import GameBalance
 from .catalog import SkillDefinition
 from .combat import TurnRequest, apply_turn_result
-from .effects import add_effect, modified_stat
+from .effects import add_effect, modified_stat, poison_damage
 from .gambit_slots import capacity_at_level
 from .gambits import BattleAction
 from .test_gambits import battle_state
@@ -117,6 +117,48 @@ def test_capacity_starts_at_one_and_only_changes_at_configured_levels():
     assert capacity_at_level(100, balance).slots == 10
     assert capacity_at_level(100, balance).next_level is None
     assert capacity_at_level(3, GameBalance(gambit_levels_per_slot=3)).slots == 2
+
+
+def test_poison_has_independent_duration_stacks_and_does_not_modify_stats():
+    """毒は最大HPの割合で重複し、能力変化としては数えない."""
+    marker = battle_state().save.battle
+    skill = buff(effect="ailment", target="enemy", amount=10, stack_limit=2)
+    add_effect(marker, skill, "a")
+    assert poison_damage(marker, {"a": 50, "b": 100}) == {}
+    marker.turn = 1
+    add_effect(marker, skill, "a")
+    assert poison_damage(marker, {"a": 50, "b": 100}) == {"a": 5}
+    marker.turn = 2
+    assert poison_damage(marker, {"a": 50}) == {"a": 10}
+    assert modified_stat(20, marker, "a", "attack") == 20
+    marker.turn = 3
+    assert poison_damage(marker, {"a": 50}) == {"a": 5}
+    marker.turn = 4
+    assert poison_damage(marker, {"a": 50}) == {}
+
+
+def test_poison_is_applied_only_to_correct_targets_and_disappears_on_retreat():
+    """全体毒でも正解対象だけに付与し、撤退後は持ち越さない."""
+    state = battle_state()
+    skill = buff(effect="ailment", target="all_enemies", amount_mode="fixed", amount=4)
+    state.save.battle.gambitAction = BattleAction(skill=skill, name="毒")
+    stats = state.save.allocation.stats(GameBalance())
+    result = apply_turn_result(
+        state,
+        TurnRequest(battle_id="battle", turn=0),
+        {"a": True, "b": False},
+        0,
+        stats,
+    )
+    assert poison_damage(result.save.battle, {"a": 20, "b": 20}) == {"a": 4}
+    retreated = apply_turn_result(
+        result,
+        TurnRequest(battle_id="battle", turn=1, retreat=True),
+        {},
+        0,
+        stats,
+    )
+    assert retreated.save.battle is None
 
 
 def test_percentage_recovery_uses_maximum_hp_not_current_hp():

@@ -72,7 +72,8 @@ def choose_action(
         if (
             not skill
             or not skill.enabled
-            or skill.effect not in {"attack", "heal_hp", "heal_mp", "buff", "debuff"}
+            or skill.effect
+            not in {"attack", "heal_hp", "heal_mp", "buff", "debuff", "ailment"}
         ):
             continue
         if not can_execute(save, skill, uses_item=item is not None):
@@ -139,7 +140,7 @@ def apply_status_effects(
     """正解対象にだけ能力変化を付与する."""
     if successful and skill.effect == "buff":
         add_effect(marker, skill, "player")
-    if skill.effect == "debuff":
+    if skill.effect in {"debuff", "ailment"}:
         targets = (
             marker.enemies if skill.target == "all_enemies" else marker.enemies[:1]
         )
@@ -176,6 +177,7 @@ def validate_rules(rules: list[GambitRule], catalog: GameCatalog) -> None:
         if (
             not skill
             or (rule.action == "skill" and not skill.castable)
-            or skill.effect not in {"attack", "heal_hp", "heal_mp", "buff", "debuff"}
+            or skill.effect
+            not in {"attack", "heal_hp", "heal_mp", "buff", "debuff", "ailment"}
         ):
             raise HTTPException(422, "戦闘に使えるスキル・アイテムを選んでください。")

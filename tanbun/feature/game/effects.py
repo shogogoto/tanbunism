@@ -44,10 +44,27 @@ def modified_stat(
         effect_amount(effect.skill, base) * (1 if effect.skill.effect == "buff" else -1)
         for effect in marker.effects
         if effect.target_id == target
+        and effect.skill.effect in {"buff", "debuff"}
         and effect.skill.stat == stat
         and effect.starts_turn <= marker.turn < effect.expires_turn
     )
     return max(0, min(100000, base + change))
+
+
+def poison_damage(marker: "BattleMarker", maximum_hp: dict[str, int]) -> dict[str, int]:
+    """ターン末の毒ダメージ。残HPへの適用時は1を残し、撃破には正解が必要."""
+    result = {}
+    for target, hp in maximum_hp.items():
+        damage = sum(
+            effect_amount(e.skill, hp)
+            for e in marker.effects
+            if e.target_id == target
+            and e.skill.effect == "ailment"
+            and e.starts_turn <= marker.turn < e.expires_turn
+        )
+        if damage:
+            result[target] = min(100000, damage)
+    return result
 
 
 def add_effect(marker: "BattleMarker", skill: SkillDefinition, target: str) -> None:
