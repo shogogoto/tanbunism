@@ -449,6 +449,14 @@ async def _prepare_specialties(session: PracticeSession, user_id) -> PracticeSes
                 skills[specialty.skill_id],
                 specialty,
                 resources,
+                next(
+                    (
+                        u.power_coefficient
+                        for u in session.catalog.specialty_skills
+                        if u.skill_id == specialty.skill_id
+                    ),
+                    1,
+                ),
             )
     for pool in await specialty_pools(user_id, session.state):
         values = []
@@ -471,14 +479,17 @@ def _practice_candidates(session: PracticeSession, save: GameSave) -> GameSave:
     """出題元が不足する専門分野だけを候補から外し、所有状態は変えない."""
     search = save.model_copy(deep=True)
     for specialty in search.specialties:
-        skill = session.specialty_skills.get(specialty.id)
+        use = next(
+            (
+                u
+                for u in session.catalog.specialty_skills
+                if u.skill_id == specialty.skill_id and u.enabled
+            ),
+            None,
+        )
         if (
-            skill
-            and (
-                skill.quiz_required
-                if skill.quiz_required is not None
-                else skill.requires_specialty
-            )
+            use
+            and use.quiz_required
             and any(
                 not session.specialty_quizzes.get(r) for r in specialty.resource_ids
             )
@@ -511,6 +522,7 @@ def practice_action(body: PracticeAction) -> dict:
         if (marker.id, marker.turn) != (request.battle_id, request.turn):
             raise HTTPException(422, "模擬ターンが変わっています。")
         marker.endActionDone = True
+        state.save.endActionReceipt = None
         selected = choose_action(
             _practice_candidates(session, state.save),
             session.catalog,
@@ -519,11 +531,7 @@ def practice_action(body: PracticeAction) -> dict:
         if selected:
             skill = session.specialty_skills.get(selected.specialty_id, selected.skill)
             ids = []
-            if selected.specialty_id and (
-                skill.quiz_required
-                if skill.quiz_required is not None
-                else skill.requires_specialty
-            ):
+            if selected.specialty_id and selected.specialty_use.quiz_required:
                 specialty = next(
                     s for s in state.save.specialties if s.id == selected.specialty_id
                 )
@@ -545,6 +553,9 @@ def practice_action(body: PracticeAction) -> dict:
         "action": action,
         "quiz": quizzes[action["quiz_ids"][action["index"]]] if action else None,
         "outgoing_damage": outgoing,
+        "animation": (state.save.endActionReceipt or {}).get("animation", "none")
+        if not action
+        else "none",
     }
 
 
@@ -567,6 +578,6 @@ def _answer_practice_action(state, answer: EndActionAnswer, quizzes: dict) -> di
     action["index"] += 1
     action["deadline"] = (
         int(time() * 1000)
-        + SkillDefinition.model_validate(action["skill"]).quiz_seconds * 1000
+        + action.get("quiz_seconds", action["skill"].get("quiz_seconds", 30)) * 1000
     )
     return finish_action(state) if action["index"] == len(action["quiz_ids"]) else {}

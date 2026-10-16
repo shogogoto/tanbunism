@@ -14,6 +14,58 @@ from .economy import EconomyAction, catalog_products, change_economy
 from .test_economy import seed_user
 
 
+def test_legacy_skill_flags_migrate_to_consumers_without_remaining_on_skills():
+    """旧カタログを読み直すと、利用制限・出題設定は独立した参照へ移る."""
+    old = default_catalog().model_dump()
+    old.pop("player_skills")
+    old.pop("specialty_skills")
+    for skill in old["skills"]:
+        if skill["id"] in {"potion_heal", "ether_heal"}:
+            skill["castable"] = False
+        if skill["id"] == "specialty_burst":
+            skill.update(
+                requires_specialty=True,
+                quiz_required=True,
+                quiz_seconds=42,
+                wrong_multiplier=0.5,
+                power_coefficient=2,
+            )
+    migrated = GameCatalog.model_validate(old)
+    assert {u.skill_id for u in migrated.player_skills} == {"fire", "fire_all", "heal"}
+    use = migrated.specialty_skills[0]
+    assert (
+        use.skill_id,
+        use.quiz_seconds,
+        use.wrong_multiplier,
+        use.power_coefficient,
+    ) == ("specialty_burst", 42, 0.5, 2)
+    for skill in migrated.model_dump()["skills"]:
+        assert (
+            not {
+                "castable",
+                "requires_specialty",
+                "quiz_required",
+                "quiz_seconds",
+                "wrong_multiplier",
+                "power_coefficient",
+            }
+            & skill.keys()
+        )
+    assert GameCatalog.model_validate_json(migrated.model_dump_json()) == migrated
+
+
+def test_explicit_empty_usage_does_not_grant_direct_access():
+    """利用設定なしのスキルも効果本体として保存できる。空設定は再生成しない."""
+    data = default_catalog().model_dump()
+    data.update(player_skills=[], specialty_skills=[])
+    saved = GameCatalog.model_validate(data)
+    assert not saved.player_skills
+    assert not saved.specialty_skills
+    data["player_skills"] = [{"skill_id": "missing"}]
+    with pytest.raises(ValidationError):
+        GameCatalog.model_validate(data)
+
+
 def test_references_targets_icons_and_duplicate_ids_are_validated():
     """壊れた参照・対象・素材を保存できない."""
     catalog = default_catalog().model_dump()

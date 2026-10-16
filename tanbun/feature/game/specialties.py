@@ -61,14 +61,26 @@ async def specialty_view(user_id) -> dict:
         "powers": {r: g.power for r, g in resources.items()},
         "names": {r: g.resource_name for r, g in resources.items()},
         "amounts": {
-            s.id: strengthened(skills[s.skill_id], s, resources).amount
+            s.id: strengthened(
+                skills[s.skill_id],
+                s,
+                resources,
+                next(
+                    (
+                        u.power_coefficient
+                        for u in catalog.specialty_skills
+                        if u.skill_id == s.skill_id
+                    ),
+                    1,
+                ),
+            ).amount
             for s in state.save.specialties
             if s.skill_id in skills
         },
     }
 
 
-def strengthened(skill, specialty: Specialty, resources: dict):
+def strengthened(skill, specialty: Specialty, resources: dict, power_coefficient=1):
     """配合順に依存せず、現在の合計Powerだけを数式へ適用する."""
     power = sum(
         max(0, resources[r].power) for r in specialty.resource_ids if r in resources
@@ -77,7 +89,7 @@ def strengthened(skill, specialty: Specialty, resources: dict):
         update={
             "amount": min(
                 10000,
-                floor(skill.amount + skill.power_coefficient * log1p(power)),
+                floor(skill.amount + power_coefficient * log1p(power)),
             ),
         },
     )
@@ -108,7 +120,9 @@ async def update_specialties(user_id, body: SpecialtyUpdate):
             or any(resource in s.resource_ids for s in entries)
             or not skill
             or not skill.enabled
-            or not skill.requires_specialty
+            or not any(
+                u.skill_id == skill.id and u.enabled for u in catalog.specialty_skills
+            )
         ):
             raise HTTPException(
                 422,

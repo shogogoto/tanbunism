@@ -117,7 +117,6 @@ def test_power_is_live_and_independent_of_fusion_order():
         effect="heal_hp",
         target="self",
         amount=10,
-        power_coefficient=2,
     )
     specialty = Specialty(
         id="specialty_test",
@@ -126,11 +125,11 @@ def test_power_is_live_and_independent_of_fusion_order():
         resource_ids=["a", "b"],
     )
     resources = {"a": SimpleNamespace(power=20), "b": SimpleNamespace(power=30)}
-    before = strengthened(skill, specialty, resources).amount
+    before = strengthened(skill, specialty, resources, 2).amount
     specialty.resource_ids.reverse()
-    assert strengthened(skill, specialty, resources).amount == before
+    assert strengthened(skill, specialty, resources, 2).amount == before
     resources["a"].power = 200
-    assert strengthened(skill, specialty, resources).amount > before
+    assert strengthened(skill, specialty, resources, 2).amount > before
     assert skill.amount == 10
 
 
@@ -171,7 +170,6 @@ def test_correct_ratio_applies_effect_once_and_status_is_binary():
         effect="heal_hp",
         target="self",
         amount=20,
-        wrong_multiplier=0.5,
     )
     action = {
         "id": "action",
@@ -180,6 +178,7 @@ def test_correct_ratio_applies_effect_once_and_status_is_binary():
         "quiz_ids": ["a", "b"],
         "index": 2,
         "correct": 1,
+        "wrong_multiplier": 0.5,
         "enemy_hp": {"a": 100, "b": 100},
     }
     marker.endAction = action

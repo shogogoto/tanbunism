@@ -54,18 +54,20 @@ server-owned unlock list, and repeat victories do not duplicate it.
 The current client uses `/admin/game/catalog` to define skills, items and enemy
 appearances. References and target/effect combinations are validated together;
 legacy reward item IDs remain present. `/game/gambits` stores up to ten ordered
-rules with a revision check outside battle. `BattleMarker.gambitAction` pins one
-usable action at turn start, including a copy of its skill. Normal quiz correctness
-controls its effect: single-target attacks use the first enemy's answer, area
-attacks boost each correct answer, and recovery uses any correct answer before
-incoming damage. MP or one item is consumed even on failure, never on retreat.
-Consumption is in the same transaction and receipt as answers and other effects.
-Item-only recovery cannot be cast as a free spell. Boss victories still unlock
-skills marked `requires_specialty`. Practice carries the player's rules and a
-disposable catalog snapshot and does not write outcomes or rewards.
+rules with a revision check outside battle. After ordinary turn settlement,
+`battle/gambit/start` chooses the first executable rule and spends MP or one item
+once. Ordinary quiz correctness does not gate this action. Definitions contain
+effects and animation presets; `player_skills` grants direct access, while
+`specialty_skills` defines dedicated quizzes, time, wrong-answer scaling and Power
+growth. Items and enemies reference the same effects independently. Legacy skill
+flags migrate to these consumer lists on read; explicit empty lists stay empty.
+Specialty creation/equipment/fusion is managed by `/game/specialties`. Each source
+resource supplies one dedicated quiz with its own timer. State application needs
+all answers correct; numeric effects use the configured wrong-answer multiplier.
+Practice uses disposable copies and does not write outcomes or rewards.
 
-The following manual specialty flow remains for older clients; the current UI
-does not open extra quizzes for skills. Every boss-cleared resource joins the specialty pool. Between processed turns,
+The following manual specialty flow remains only for older clients.
+Every boss-cleared resource joins the specialty pool. Between processed turns,
 one summon spends the configured MP cost, draws a resource uniformly, then draws
 a valid prepared quiz from its highest cleared band's population. The skill ID,
 quiz ID and deadline are saved so reopening cannot redraw or refund MP. Its first

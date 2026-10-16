@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Literal
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
-from .catalog import DefinitionId, GameCatalog, SkillDefinition
+from .catalog import DefinitionId, GameCatalog, SkillDefinition, SpecialtySkillUse
 from .effects import add_effect, effect_amount
 
 if TYPE_CHECKING:
@@ -38,6 +38,7 @@ class BattleAction(BaseModel):
     item_id: DefinitionId | None = None
     name: str
     specialty_id: str | None = None
+    specialty_use: SpecialtySkillUse | None = None
 
 
 def choose_action(
@@ -131,13 +132,27 @@ def choose_action(
             continue
         if not can_execute(save, skill, uses_item=item is not None):
             continue
-        if rule.action == "skill" and (skill.requires_specialty or skill.quiz_required):
+        use = next(
+            (
+                u
+                for u in catalog.specialty_skills
+                if u.skill_id == skill.id and u.enabled
+            ),
+            None,
+        )
+        if (specialty and not use) or (
+            rule.action == "skill"
+            and not any(
+                u.skill_id == skill.id and u.enabled for u in catalog.player_skills
+            )
+        ):
             continue
         return BattleAction(
             skill=skill.model_copy(deep=True),
             item_id=item.id if item else None,
             name=item.name if item else skill.name,
             specialty_id=specialty.id if specialty else None,
+            specialty_use=use if specialty else None,
         )
     return None
 
@@ -146,12 +161,6 @@ def can_execute(save: "GameSave", skill: SkillDefinition, *, uses_item: bool) ->
     """MP・解放状況・回復先を確認する。."""
     run = save.run
     if not run or run.mp < (0 if uses_item else skill.mp_cost):
-        return False
-    if uses_item and (skill.quiz_required or skill.requires_specialty):
-        return False
-    if not uses_item and not skill.castable:
-        return False
-    if skill.requires_specialty and not any(save.bossClears.values()):
         return False
     if skill.effect == "heal_hp" and run.hp >= run.maxHp:
         return False
@@ -241,7 +250,9 @@ def validate_rules(rules: list[GambitRule], catalog: GameCatalog) -> None:
         direct_locked = (
             skill
             and rule.action == "skill"
-            and (not skill.castable or skill.requires_specialty or skill.quiz_required)
+            and not any(
+                u.skill_id == skill.id and u.enabled for u in catalog.player_skills
+            )
         )
         if (
             not skill

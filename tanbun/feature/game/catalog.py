@@ -116,7 +116,7 @@ IconId = Literal[
 
 
 class SkillDefinition(BaseModel):
-    """クイズの正誤で発動する共通の効果。."""
+    """利用元とは独立した共通の効果と演出。."""
 
     id: DefinitionId
     name: str = Field(min_length=1, max_length=80)
@@ -136,12 +136,18 @@ class SkillDefinition(BaseModel):
     amount: int = Field(default=0, ge=0, le=10000)
     multiplier: float = Field(default=1, ge=0, le=10, allow_inf_nan=False)
     mp_cost: int = Field(default=0, ge=0, le=10000)
-    requires_specialty: bool = False
-    quiz_required: bool | None = None
-    quiz_seconds: int = Field(default=30, ge=5, le=300)
-    wrong_multiplier: float = Field(default=0, ge=0, le=1, allow_inf_nan=False)
-    power_coefficient: float = Field(default=1, ge=0, le=1000, allow_inf_nan=False)
-    castable: bool = True
+    animation: Literal[
+        "none",
+        "slash",
+        "impact",
+        "fire",
+        "lightning",
+        "heal",
+        "ripple",
+        "buff",
+        "debuff",
+        "poison",
+    ] = "none"
     amount_mode: Literal["fixed", "percent"] = "fixed"
     stat: Literal["attack", "defense", "maxHp"] = "attack"
     duration_turns: int = Field(default=3, ge=1, le=20)
@@ -172,6 +178,22 @@ class SkillDefinition(BaseModel):
             msg = "毒の効果量は1以上を指定してください。"
             raise ValueError(msg)
         return self
+
+
+class PlayerSkillUse(BaseModel):
+    """プレイヤーに公開するスキル。効果定義には使用権限を持たせない."""
+
+    skill_id: DefinitionId
+    enabled: bool = True
+
+
+class SpecialtySkillUse(PlayerSkillUse):
+    """専門分野での利用方法。出題条件とPower補正は利用側に属する."""
+
+    quiz_required: bool = True
+    quiz_seconds: int = Field(default=30, ge=5, le=300)
+    wrong_multiplier: float = Field(default=0, ge=0, le=1, allow_inf_nan=False)
+    power_coefficient: float = Field(default=1, ge=0, le=1000, allow_inf_nan=False)
 
 
 class ItemDefinition(BaseModel):
@@ -237,10 +259,58 @@ class GameCatalog(BaseModel):
     skills: list[SkillDefinition] = Field(default_factory=list, max_length=200)
     items: list[ItemDefinition] = Field(default_factory=list, max_length=200)
     enemies: list[EnemyDefinition] = Field(default_factory=list, max_length=100)
+    player_skills: list[PlayerSkillUse] = Field(default_factory=list, max_length=200)
+    specialty_skills: list[SpecialtySkillUse] = Field(
+        default_factory=list,
+        max_length=200,
+    )
     triggers: list[TriggerDefinition] = Field(
         default_factory=default_triggers,
         max_length=100,
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_usage(cls, value):
+        """旧フラグを利用定義へ一度だけ移す。明示された空配列は維持する."""
+        if not isinstance(value, dict):
+            return value
+        value = dict(value)
+        skills = [
+            s.model_dump() if isinstance(s, SkillDefinition) else s
+            for s in value.get("skills", [])
+        ]
+        if "player_skills" not in value:
+            value["player_skills"] = [
+                {"skill_id": s["id"]}
+                for s in skills
+                if s.get("castable", True)
+                and not s.get("requires_specialty")
+                and not s.get("quiz_required")
+                and s.get("effect")
+                in {"attack", "heal_hp", "heal_mp", "buff", "debuff", "ailment"}
+            ]
+        if "specialty_skills" not in value:
+            value["specialty_skills"] = [
+                {
+                    "skill_id": s["id"],
+                    "quiz_required": s.get("quiz_required")
+                    if s.get("quiz_required") is not None
+                    else True,
+                    **{
+                        key: s[key]
+                        for key in (
+                            "quiz_seconds",
+                            "wrong_multiplier",
+                            "power_coefficient",
+                        )
+                        if key in s
+                    },
+                }
+                for s in skills
+                if s.get("requires_specialty")
+            ]
+        return value
 
     @model_validator(mode="after")
     def valid_references(self):
@@ -250,6 +320,13 @@ class GameCatalog(BaseModel):
                 msg = "定義IDが重複しています。"
                 raise ValueError(msg)
         skills = {s.id: s for s in self.skills}
+        for uses in (self.player_skills, self.specialty_skills):
+            if len({u.skill_id for u in uses}) != len(uses):
+                msg_0 = "スキル利用の参照IDが重複しています。"
+                raise ValueError(msg_0)
+            if any(u.skill_id not in skills for u in uses):
+                msg_0 = "利用するスキルが見つかりません。"
+                raise ValueError(msg_0)
         for item in self.items:
             skill = skills.get(item.skill_id)
             if not skill or (item.kind == "weapon") != (skill.effect == "equip_attack"):
@@ -271,6 +348,7 @@ def default_catalog() -> GameCatalog:
         skills=[
             SkillDefinition(
                 id="fire",
+                animation="fire",
                 name="ファイア",
                 icon="flame",
                 effect="attack",
@@ -279,6 +357,7 @@ def default_catalog() -> GameCatalog:
             ),
             SkillDefinition(
                 id="fire_all",
+                animation="fire",
                 name="全体ファイア",
                 icon="flame",
                 effect="attack",
@@ -288,6 +367,7 @@ def default_catalog() -> GameCatalog:
             ),
             SkillDefinition(
                 id="heal",
+                animation="heal",
                 name="ケアル",
                 icon="heart",
                 effect="heal_hp",
@@ -302,7 +382,7 @@ def default_catalog() -> GameCatalog:
                 effect="heal_hp",
                 target="self",
                 amount=20,
-                castable=False,
+                animation="heal",
             ),
             SkillDefinition(
                 id="ether_heal",
@@ -311,7 +391,7 @@ def default_catalog() -> GameCatalog:
                 effect="heal_mp",
                 target="self",
                 amount=5,
-                castable=False,
+                animation="ripple",
             ),
             SkillDefinition(
                 id="recover_steps",
@@ -345,9 +425,13 @@ def default_catalog() -> GameCatalog:
                 target="all_enemies",
                 multiplier=2,
                 mp_cost=3,
-                requires_specialty=True,
+                animation="lightning",
             ),
         ],
+        player_skills=[
+            PlayerSkillUse(skill_id=s) for s in ("fire", "fire_all", "heal")
+        ],
+        specialty_skills=[SpecialtySkillUse(skill_id="specialty_burst")],
         items=[
             ItemDefinition(
                 id="bronze_sword",

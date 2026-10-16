@@ -63,6 +63,7 @@ class EnemyStats(BaseModel):
     relations: int
     region: int
     icon: str | None = None
+    animation: str = "none"
 
 
 class CombatContext(BaseModel):
@@ -148,6 +149,7 @@ def style_enemies(
                     if boss
                     else template.name,
                     "attack": attack,
+                    "animation": skill.animation if skill else "none",
                 },
             ),
         )

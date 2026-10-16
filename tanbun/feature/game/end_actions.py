@@ -57,6 +57,9 @@ async def action_view(user_id, state: GameState, outgoing=None) -> dict:
         "action": action,
         "quiz": quiz,
         "outgoing_damage": outgoing or {},
+        "animation": (state.save.endActionReceipt or {}).get("animation", "none")
+        if not action
+        else "none",
     }
 
 
@@ -78,6 +81,7 @@ async def start_end_action(user_id, body: EndActionRequest) -> dict:
     if marker.endAction or marker.endActionDone:
         return await action_view(user_id, previous)
     updated = previous.model_copy(deep=True)
+    updated.save.endActionReceipt = None
     marker = updated.save.battle
     selected, skill, quizzes = await select_end_candidate(user_id, updated.save)
     marker.endActionDone = True
@@ -112,12 +116,13 @@ async def select_end_candidate(user_id, save):
                 to_uuid(r.resource_id).hex: r
                 for r in await fetch_resource_growth(user_id)
             }
-            skill = strengthened(skill, specialty, resources)
-            needs_quiz = (
-                skill.quiz_required
-                if skill.quiz_required is not None
-                else skill.requires_specialty
+            skill = strengthened(
+                skill,
+                specialty,
+                resources,
+                selected.specialty_use.power_coefficient,
             )
+            needs_quiz = selected.specialty_use.quiz_required
             if needs_quiz:
                 pools = {
                     p["resource_id"]: p["quiz_ids"]
@@ -148,7 +153,15 @@ def begin_action(save, selected, skill, quizzes: list[str], enemy_hp: dict) -> N
         "quiz_ids": quizzes,
         "index": 0,
         "correct": 0,
-        "deadline": int(time() * 1000) + skill.quiz_seconds * 1000,
+        "quiz_seconds": selected.specialty_use.quiz_seconds
+        if selected.specialty_use
+        else 30,
+        "wrong_multiplier": selected.specialty_use.wrong_multiplier
+        if selected.specialty_use
+        else 0,
+        "deadline": int(time() * 1000)
+        + (selected.specialty_use.quiz_seconds if selected.specialty_use else 30)
+        * 1000,
         "enemy_hp": {
             e: max(1, min(100000, enemy_hp.get(e, 100000))) for e in save.battle.enemies
         },
@@ -182,8 +195,11 @@ async def answer_end_action(user_id, body: EndActionAnswer) -> dict:
     next_action = updated.save.battle.endAction
     next_action["correct"] += int(correct)
     next_action["index"] += 1
-    skill = SkillDefinition.model_validate(next_action["skill"])
-    next_action["deadline"] = int(time() * 1000) + skill.quiz_seconds * 1000
+    next_action["deadline"] = (
+        int(time() * 1000)
+        + next_action.get("quiz_seconds", next_action["skill"].get("quiz_seconds", 30))
+        * 1000
+    )
     outgoing = (
         finish_action(updated)
         if next_action["index"] == len(next_action["quiz_ids"])
@@ -210,7 +226,8 @@ def finish_action(state: GameState) -> dict[str, int]:
     skill = SkillDefinition.model_validate(action["skill"])
     total = len(action["quiz_ids"])
     rate = action["correct"] / total if total else 1
-    factor = skill.wrong_multiplier + (1 - skill.wrong_multiplier) * rate
+    wrong = action.get("wrong_multiplier", action["skill"].get("wrong_multiplier", 0))
+    factor = wrong + (1 - wrong) * rate
     outgoing = {}
     if skill.effect == "heal_hp":
         run.hp = min(
@@ -268,6 +285,9 @@ def finish_action(state: GameState) -> dict[str, int]:
         "turn": marker.turn,
         "action_id": action["id"],
         "outgoing_damage": outgoing,
+        "animation": skill.animation
+        if (rate == 1 if skill.effect in {"buff", "debuff", "ailment"} else factor > 0)
+        else "none",
     }
     if not marker.enemies:
         if marker.bossLevel:
