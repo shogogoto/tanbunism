@@ -245,7 +245,14 @@ class ItemDefinition(BaseModel):
     enabled: bool = True
     skill_id: DefinitionId
     kind: Literal["weapon", "consumable"] = "consumable"
-    price: int | None = Field(default=None, ge=0, le=1000000)
+
+
+class ShopListing(BaseModel):
+    """販売条件はアイテムの効果・見た目と分離する."""
+
+    item_id: DefinitionId
+    price: int = Field(ge=0, le=1000000)
+    enabled: bool = True
 
 
 class EnemyDefinition(BaseModel):
@@ -298,6 +305,7 @@ class GameCatalog(BaseModel):
 
     skills: list[SkillDefinition] = Field(default_factory=list, max_length=200)
     items: list[ItemDefinition] = Field(default_factory=list, max_length=200)
+    shop: list[ShopListing] = Field(default_factory=list, max_length=200)
     enemies: list[EnemyDefinition] = Field(default_factory=list, max_length=100)
     player_skills: list[PlayerSkillUse] = Field(default_factory=list, max_length=200)
     specialty_skills: list[SpecialtySkillUse] = Field(
@@ -308,6 +316,21 @@ class GameCatalog(BaseModel):
         default_factory=default_triggers,
         max_length=100,
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_shop(cls, value):
+        """旧アイテム価格を移行する。明示的な空のショップは維持する."""
+        if not isinstance(value, dict) or "shop" in value:
+            return value
+        return {
+            **value,
+            "shop": [
+                {"item_id": item["id"], "price": item["price"]}
+                for item in value.get("items", [])
+                if isinstance(item, dict) and item.get("price") is not None
+            ],
+        }
 
     @model_validator(mode="before")
     @classmethod
@@ -351,6 +374,18 @@ class GameCatalog(BaseModel):
                 if s.get("requires_specialty")
             ]
         return value
+
+    @model_validator(mode="after")
+    def valid_shop(self):
+        """ショップには存在するアイテムを一度ずつ登録する."""
+        item_ids = {i.id for i in self.items}
+        if len({p.item_id for p in self.shop}) != len(self.shop):
+            msg = "ショップのアイテムが重複しています。"
+            raise ValueError(msg)
+        if any(p.item_id not in item_ids for p in self.shop):
+            msg = "ショップのアイテムが見つかりません。"
+            raise ValueError(msg)
+        return self
 
     @model_validator(mode="after")
     def valid_references(self):
@@ -479,7 +514,6 @@ def default_catalog() -> GameCatalog:
                 icon="sword",
                 skill_id="bronze_power",
                 kind="weapon",
-                price=100,
             ),
             ItemDefinition(
                 id="steel_sword",
@@ -487,13 +521,11 @@ def default_catalog() -> GameCatalog:
                 icon="sword",
                 skill_id="steel_power",
                 kind="weapon",
-                price=300,
             ),
             ItemDefinition(
                 id="healing_potion",
                 name="回復薬",
                 skill_id="potion_heal",
-                price=30,
             ),
             ItemDefinition(
                 id="step_potion",
@@ -506,8 +538,13 @@ def default_catalog() -> GameCatalog:
                 name="MP回復薬",
                 icon="droplet",
                 skill_id="ether_heal",
-                price=50,
             ),
+        ],
+        shop=[
+            ShopListing(item_id="bronze_sword", price=100),
+            ShopListing(item_id="steel_sword", price=300),
+            ShopListing(item_id="healing_potion", price=30),
+            ShopListing(item_id="ether", price=50),
         ],
         enemies=[
             EnemyDefinition(id="ghost", name="ゴースト", icon="ghost"),

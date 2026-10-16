@@ -37,6 +37,7 @@ def catalog_products(
 ) -> list[Product]:
     """既存のショップ表示形式を保ち、効果はスキルから導出する。."""
     skills = {s.id: s for s in catalog.skills}
+    listings = {p.item_id: p for p in catalog.shop if p.enabled}
     kinds = {
         "equip_attack": "weapon",
         "heal_hp": "hp",
@@ -51,7 +52,11 @@ def catalog_products(
         Product(
             id=i.id,
             name=i.name,
-            price=i.price if i.enabled and skills[i.skill_id].enabled else None,
+            price=(
+                listings[i.id].price
+                if i.id in listings and i.enabled and skills[i.skill_id].enabled
+                else None
+            ),
             kind=kinds[skills[i.skill_id].effect],
             amount=skills[i.skill_id].amount,
             amount_mode=skills[i.skill_id].amount_mode,

@@ -66,6 +66,39 @@ def test_explicit_empty_usage_does_not_grant_direct_access():
         GameCatalog.model_validate(data)
 
 
+def test_legacy_prices_migrate_to_shop_and_explicit_empty_shop_stays_empty():
+    """非売品を販売に変えず、価格0も含めて旧カタログを移行する."""
+    data = default_catalog().model_dump()
+    data.pop("shop")
+    for index, item in enumerate(data["items"]):
+        item["price"] = index * 10 if index < 2 else None
+    migrated = GameCatalog.model_validate(data)
+    assert [p.price for p in migrated.shop] == [0, 10]
+    assert all("price" not in item for item in migrated.model_dump()["items"])
+    assert GameCatalog.model_validate_json(migrated.model_dump_json()) == migrated
+    data["shop"] = []
+    assert all(
+        p.price is None for p in catalog_products(GameCatalog.model_validate(data))
+    )
+
+
+def test_shop_references_and_sale_flags_are_validated():
+    """販売停止でもアイテム自体の使用は無効にしない."""
+    data = default_catalog().model_dump()
+    for shop in (
+        [{"item_id": "missing", "price": 10}],
+        [{"item_id": "healing_potion", "price": -1}],
+        [{"item_id": "healing_potion", "price": 1000001}],
+        [data["shop"][0], data["shop"][0]],
+    ):
+        with pytest.raises(ValidationError):
+            GameCatalog.model_validate(data | {"shop": shop})
+    data["shop"] = [{"item_id": "healing_potion", "price": 42, "enabled": False}]
+    products = {p.id: p for p in catalog_products(GameCatalog.model_validate(data))}
+    assert products["healing_potion"].price is None
+    assert products["healing_potion"].enabled
+
+
 def test_references_targets_icons_and_duplicate_ids_are_validated():
     """壊れた参照・対象・素材を保存できない."""
     catalog = default_catalog().model_dump()
@@ -150,14 +183,19 @@ async def test_catalog_requires_admin_and_shares_saved_definitions(ac):
 @mark_async_test()
 async def test_custom_items_use_their_saved_skills_and_reject_unknown_ids():
     """固定列挙だった所持品に追加定義を購入・使用できる."""
-    from .catalog import ItemDefinition, update_game_catalog  # noqa: PLC0415
+    from .catalog import (  # noqa: PLC0415
+        ItemDefinition,
+        ShopListing,
+        update_game_catalog,
+    )
     from .state import read_state  # noqa: PLC0415
 
     user = await seed_user()
     catalog = default_catalog()
     catalog.items.append(
-        ItemDefinition(id="red_potion", name="赤い薬", skill_id="potion_heal", price=5),
+        ItemDefinition(id="red_potion", name="赤い薬", skill_id="potion_heal"),
     )
+    catalog.shop.append(ShopListing(item_id="red_potion", price=5))
     await update_game_catalog(catalog)
     bought = await change_economy(
         user.uid,
