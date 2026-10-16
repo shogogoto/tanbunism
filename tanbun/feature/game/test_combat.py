@@ -51,7 +51,12 @@ async def test_practice_reads_live_content_without_changing_state_or_answers(u: 
     assert (await adb.cypher_query("MATCH (a:Answer) RETURN count(a)"))[0][0][0] == 0
 
 
-async def encounter(user: LUser) -> GameState:
+async def encounter(
+    user: LUser,
+    *,
+    new_place: bool = False,
+    hp: int = 35,
+) -> GameState:
     """本物の出題・リソースから二体の敵を準備する."""
     await update_game_balance(
         GameBalance(min_enemies=2, max_encounter_enemies=2, encounter_growth_rate=0),
@@ -68,7 +73,7 @@ async def encounter(user: LUser) -> GameState:
         run=Run(
             resourceId=str(growth.resource_id),
             name="本",
-            hp=35,
+            hp=hp,
             maxHp=35,
             attack=10,
             defense=1,
@@ -106,8 +111,111 @@ async def encounter(user: LUser) -> GameState:
     state = await write_state(user.uid, StateUpdate(revision=0, save=save))
     return await combat.start_combat(
         user.uid,
-        EncounterRequest(revision=state.revision, region=2),
+        EncounterRequest(
+            revision=state.revision,
+            region=2,
+            discovered_place=str(target.uid) if new_place else None,
+        ),
     )
+
+
+@mark_async_test()
+async def test_new_discovery_is_retained_in_the_battle_marker(u: LUser):
+    """新地点の情報はターンをまたげるようサーバーに保存する."""
+    state = await encounter(u, new_place=True)
+    marker = state.save.battle
+    assert marker.discoveredPlace == state.save.maps[state.save.run.resourceId].current
+    assert (
+        await read_state(u.uid)
+    ).save.battle.discoveredPlace == marker.discoveredPlace
+
+
+@pytest.mark.parametrize("abandon", [False, True])
+@mark_async_test()
+async def test_failed_new_discovery_is_removed_from_persisted_map(u: LUser, abandon):
+    """未回答・画面を閉じた敗北とも、新地点を削除して保存し、歩数は戻さない."""
+    before = await encounter(u, new_place=True, hp=1)
+    marker = before.save.battle
+    if abandon:
+        result = await combat.abandon_combat(u.uid)
+    else:
+        receipt = await combat.settle_turn(
+            u.uid,
+            TurnRequest(battle_id=marker.id, turn=marker.turn),
+        )
+        result = GameState.model_validate(receipt["state"])
+    run = result.save.run
+    assert run.phase == "defeated"
+    assert run.moves == before.save.run.moves
+    assert run.readIds == []
+    dungeon = result.save.maps[run.resourceId]
+    assert dungeon.current == "@entrance"
+    assert dungeon.places == []
+    assert dungeon.edges == []
+    assert result.save.battle is None
+    assert (await read_state(u.uid)).save.maps == result.save.maps
+
+
+@pytest.mark.parametrize("discovery", [None, "new"])
+@pytest.mark.parametrize("outcome", ["defeat", "victory", "retreat", "boss_defeat"])
+def test_only_defeat_at_a_new_place_rolls_back_that_discovery(discovery, outcome):
+    """既存地点・ボス・勝利・生存撤退では開拓を消さず、敗北時の新地点だけ戻す."""
+    state = GameState(
+        save=GameSave(
+            run=Run(
+                resourceId="book",
+                name="本",
+                hp=10,
+                maxHp=35,
+                attack=10,
+                defense=1,
+                moves=3,
+                kills=0,
+                enemyHp=0,
+                enemyMaxHp=1,
+                quizCursor=0,
+                readIds=["old", "new"],
+                phase="battle",
+            ),
+            maps={
+                "book": {
+                    "current": "new",
+                    "places": [{"id": "old", "region": 0}, {"id": "new", "region": 0}],
+                    "edges": [
+                        {"from": "@entrance", "to": "old", "kind": "detour"},
+                        {"from": "old", "to": "new", "kind": "relation"},
+                    ],
+                },
+            },
+            battle={
+                "id": "battle",
+                "region": 0,
+                "enemies": ["a"],
+                "checkpoint": "old",
+                "discoveredPlace": discovery,
+                "bossLevel": 5 if outcome == "boss_defeat" else None,
+            },
+        ),
+    )
+    result = combat.apply_turn_result(
+        state,
+        TurnRequest(
+            battle_id="battle",
+            turn=0,
+            defeated=["a"] if outcome == "victory" else [],
+            retreat=outcome == "retreat",
+        ),
+        {"a": outcome == "victory"},
+        10 if outcome in {"defeat", "boss_defeat"} else 0,
+        Allocation().stats(GameBalance()),
+    )
+    dungeon = result.save.maps["book"]
+    rollback = discovery == "new" and outcome == "defeat"
+    assert [p.id for p in dungeon.places] == (["old"] if rollback else ["old", "new"])
+    assert len(dungeon.edges) == (1 if rollback else 2)
+    assert result.save.run.readIds == (["old"] if rollback else ["old", "new"])
+    assert result.save.run.moves == 3
+    assert [p.id for p in state.save.maps["book"].places] == ["old", "new"]
 
 
 def answers(state: GameState) -> dict[str, list[str]]:

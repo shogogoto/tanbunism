@@ -38,6 +38,7 @@ class EncounterRequest(BaseModel):
     revision: int = Field(ge=0)
     region: int = Field(ge=0, le=10000)
     checkpoint: str = Field(default="@entrance", max_length=64)
+    discovered_place: str | None = Field(default=None, max_length=64)
 
 
 class TurnRequest(BaseModel):
@@ -289,6 +290,14 @@ async def start_combat(user_id: UUIDy, body: EncounterRequest) -> GameState:
         *dungeon.chest_ids,
     }:
         raise HTTPException(422, "撤退先がマップにありません。")
+    last_place = dungeon.places[-1] if dungeon and dungeon.places else None
+    if body.discovered_place is not None and (
+        not last_place
+        or (dungeon.current, last_place.id, last_place.region)
+        != (body.discovered_place, body.discovered_place, body.region)
+        or body.discovered_place == body.checkpoint
+    ):
+        raise HTTPException(422, "新しく開拓した地点がマップと一致しません。")
     context = await combat_context(user_id, previous)
     unique = {
         enemy.id: enemy for enemy in context.enemies if enemy.region == body.region
@@ -304,6 +313,7 @@ async def start_combat(user_id: UUIDy, body: EncounterRequest) -> GameState:
         id=uuid4().hex,
         region=body.region,
         checkpoint=body.checkpoint,
+        discoveredPlace=body.discovered_place,
         enemies=[e.id for e in chosen],
         quizIndices={
             enemy.id: choice(enemy.quizIndexes or [enemy.quizIndex]) for enemy in chosen
@@ -532,6 +542,13 @@ def apply_turn_result(
         dungeon = updated.save.maps.get(run.resourceId)
         if dungeon:
             dungeon.current = marker.checkpoint if next_run.hp else "@entrance"
+            if not next_run.hp and marker.discoveredPlace and not marker.bossLevel:
+                failed = marker.discoveredPlace
+                dungeon.places = [p for p in dungeon.places if p.id != failed]
+                dungeon.edges = [
+                    e for e in dungeon.edges if failed not in {e.from_, e.to}
+                ]
+                next_run.readIds = [p for p in next_run.readIds if p != failed]
     if next_run.phase == "cleared":
         updated.save.clears[run.resourceId] = (
             updated.save.clears.get(run.resourceId, 0) + 1

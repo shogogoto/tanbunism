@@ -71,6 +71,7 @@ class BattleMarker(BaseModel):
     turn: int = Field(default=0, ge=0)
     region: int = Field(ge=0)
     checkpoint: str = Field(default="@entrance", max_length=64)
+    discoveredPlace: str | None = Field(default=None, max_length=64)
     enemies: list[str] = Field(min_length=1, max_length=20)
     quizIndices: dict[str, int] = Field(default_factory=dict)
     bossLevel: int | None = Field(default=None, ge=5, le=20)
