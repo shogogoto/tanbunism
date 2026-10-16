@@ -35,6 +35,7 @@ from .economy import (
     quiz_review_progress,
     review_progress,
 )
+from .gambit_slots import GambitCapacity, gambit_capacity
 from .gambits import GambitRule, validate_rules
 from .knowledge import KnowledgeValidation, valid_knowledge
 from .population import (
@@ -84,6 +85,13 @@ class GambitUpdate(BaseModel):
     rules: list[GambitRule] = Field(max_length=10)
 
 
+@router.get("/gambits/capacity")
+async def read_gambit_capacity(user: ActiveUser, response: Response) -> GambitCapacity:
+    """本人のレベルで開放された枠数を返す."""
+    response.headers["Cache-Control"] = "no-store"
+    return await gambit_capacity(user.uid)
+
+
 @router.put("/gambits")
 async def save_gambits(user: ActiveUser, body: GambitUpdate) -> GameState:
     """戦闘外でのみ編集し、別端末の更新を上書きしない。."""
@@ -100,6 +108,8 @@ async def save_gambits(user: ActiveUser, body: GambitUpdate) -> GameState:
     ):
         raise HTTPException(409, "戦闘を終えてから最新の状態で設定してください。")
     await validate_gambit_update(body.rules)
+    if len(body.rules) > (await gambit_capacity(user.uid)).slots:
+        raise HTTPException(422, "ガンビットの開放済み枠数を超えています。")
     updated = state.model_copy(deep=True)
     updated.save.gambits = body.rules
     async with atomic():

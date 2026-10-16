@@ -50,6 +50,7 @@ class Product(BaseModel, frozen=True):
     price: int | None
     kind: Literal["weapon", "hp", "mp", "moves", "skill"]
     amount: int
+    amount_mode: Literal["fixed", "percent"] = "fixed"
     icon: str = "flask"
     skill_id: str | None = None
     skill_name: str | None = None

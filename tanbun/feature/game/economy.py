@@ -43,6 +43,8 @@ def catalog_products(
         "heal_mp": "mp",
         "recover_moves": "moves",
         "attack": "skill",
+        "buff": "skill",
+        "debuff": "skill",
     }
     return [
         Product(
@@ -51,6 +53,7 @@ def catalog_products(
             price=i.price if i.enabled and skills[i.skill_id].enabled else None,
             kind=kinds[skills[i.skill_id].effect],
             amount=skills[i.skill_id].amount,
+            amount_mode=skills[i.skill_id].amount_mode,
             icon=i.icon,
             skill_id=i.skill_id,
             skill_name=skills[i.skill_id].name,
@@ -269,5 +272,13 @@ def restore_energy(run, product: Product) -> None:
     setattr(
         run,
         "mp" if product.kind == "mp" else "hp",
-        min(maximum, current + product.amount),
+        min(
+            maximum,
+            current
+            + (
+                maximum * product.amount // 100
+                if product.amount_mode == "percent"
+                else product.amount
+            ),
+        ),
     )

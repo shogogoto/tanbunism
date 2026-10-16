@@ -89,7 +89,7 @@ async def start_boss(user_id: UUIDy, body: BossRequest) -> GameState:
         updated.save.run.kills = 0
     updated.save.run.phase = "battle"
     updated.save.run.answerDeadline = int(time() * 1000) + stats["answerSeconds"] * 1000
-    await prepare_action(updated.save)
+    await prepare_action(updated.save, user_id)
     async with atomic():
         await persist(user_id, previous, updated)
     return updated

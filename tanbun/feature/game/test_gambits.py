@@ -207,6 +207,16 @@ async def test_rules_are_revision_checked_and_legacy_snapshot_writes_preserve_th
     user = await aregister("gambit@example.com")
     headers = await aauth_header(user.email)
     body = {"revision": 0, "rules": [{"definition_id": "fire"}]}
+    assert (await ac.get("/game/gambits/capacity")).status_code == 401
+    capacity = await ac.get("/game/gambits/capacity", headers=headers)
+    assert capacity.json() == {"slots": 1, "next_level": 5}
+    assert (
+        await ac.put(
+            "/game/gambits",
+            headers=headers,
+            json={**body, "rules": body["rules"] * 2},
+        )
+    ).status_code == 422
     assert (await ac.put("/game/gambits", json=body)).status_code == 401
     response = await ac.put("/game/gambits", headers=headers, json=body)
     assert response.status_code == 200

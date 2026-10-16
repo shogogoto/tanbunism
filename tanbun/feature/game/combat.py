@@ -23,6 +23,7 @@ from .balance import Allocation, GameBalance, get_game_balance
 from .catalog import GameCatalog, get_game_catalog
 from .damage import enemy_damage
 from .economy import GOLD_PER_LEVEL
+from .effects import effect_amount, modified_stat
 from .gambits import apply_action, prepare_action
 from .inventory import equipped_stats
 from .state import BattleMarker, GameState, StateUpdate, compare_and_save, read_state
@@ -130,7 +131,11 @@ def style_enemies(
         template = templates[seed % len(templates)]
         skill = skills.get(template.attack_skill_id)
         attack = (
-            min(100000, int(enemy.attack * skill.multiplier) + skill.amount)
+            min(
+                100000,
+                int(enemy.attack * skill.multiplier)
+                + effect_amount(skill, enemy.attack),
+            )
             if skill and not preserve_stats
             else enemy.attack
         )
@@ -317,7 +322,7 @@ async def start_combat(user_id: UUIDy, body: EncounterRequest) -> GameState:
     next_run.enemyHp = 0
     next_run.enemyMaxHp = 1
     next_run.answerDeadline = int(time() * 1000) + stats["answerSeconds"] * 1000
-    await prepare_action(updated.save)
+    await prepare_action(updated.save, user_id)
     async with atomic():
         await persist(user_id, previous, updated)
     return updated
@@ -394,8 +399,13 @@ async def settle_turn(user_id: UUIDy, body: TurnRequest) -> dict:
     )
     incoming_damage = {
         e: enemy_damage(
-            (enemies[e].attack if e in enemies else context.balance.enemy_attack),
-            stats["defense"],
+            modified_stat(
+                enemies[e].attack if e in enemies else context.balance.enemy_attack,
+                marker,
+                e,
+                "attack",
+            ),
+            modified_stat(stats["defense"], marker, "player", "defense"),
             context.balance,
         )
         for e in marker.enemies
@@ -483,7 +493,7 @@ def apply_turn_result(
         setattr(next_run, key, value)
     first_only = (
         marker.gambitAction
-        and marker.gambitAction.skill.effect == "attack"
+        and marker.gambitAction.skill.effect in {"attack", "debuff"}
         and marker.gambitAction.skill.target == "enemy"
     )
     action_feedback = apply_action(
@@ -492,6 +502,7 @@ def apply_turn_result(
         if first_only
         else any(results.values()),
         retreat=body.retreat,
+        results=results,
     )
     next_run.hp = max(0, min(next_run.hp, next_run.maxHp) - damage)
     next_run.mp = min(next_run.mp, next_run.maxMp)
@@ -523,6 +534,11 @@ def apply_turn_result(
         )
     if next_run.phase == "battle":
         updated.save.battle.enemies = survivors
+        updated.save.battle.effects = [
+            e
+            for e in updated.save.battle.effects
+            if e.target_id == "player" or e.target_id in survivors
+        ]
         updated.save.battle.turn += 1
         # Starts only on explicit next-turn acknowledgement, not while reading results.
         next_run.answerDeadline = None
@@ -654,7 +670,7 @@ async def next_turn(user_id: UUIDy, body: TurnRequest) -> GameState:
     updated.save.run.answerSeconds = seconds
     updated.save.run.answerDeadline = int(time() * 1000) + seconds * 1000
     updated.save.battleFeedback = None
-    await prepare_action(updated.save)
+    await prepare_action(updated.save, user_id)
     async with atomic():
         await persist(user_id, previous, updated)
     return updated

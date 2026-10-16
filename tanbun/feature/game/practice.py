@@ -22,6 +22,8 @@ from .combat import (
     style_enemies,
 )
 from .damage import damage_range
+from .effects import modified_stat
+from .gambit_slots import gambit_capacity
 from .gambits import choose_action
 from .inventory import Economy, equipped_stats
 from .roster import assign_enemy_quizzes, enemy_identity
@@ -48,6 +50,7 @@ class PracticeSession(BaseModel):
     seed: int = Field(ge=0, le=2**31 - 1)
     server_now: int
     catalog: GameCatalog = Field(default_factory=default_catalog)
+    gambit_slots: int = Field(default=1, ge=1, le=10)
 
 
 class SimulatedPracticeRequest(BaseModel):
@@ -142,6 +145,9 @@ async def prepare_practice(body: PracticeRequest) -> PracticeSession:
         body.seed,
         rng,
         catalog=await get_game_catalog(),
+        slots=(
+            await gambit_capacity(body.player_user_id or body.user_id, body.balance)
+        ).slots,
     )
 
 
@@ -281,6 +287,9 @@ async def prepare_simulated_practice(body: SimulatedPracticeRequest) -> Practice
         body.seed,
         _random(body.seed),
         catalog=catalog,
+        slots=(await gambit_capacity(body.player_user_id, body.balance)).slots
+        if body.player_user_id
+        else 1,
     )
 
 
@@ -292,6 +301,7 @@ def _begin_practice(
     rng: Random,
     *,
     catalog: GameCatalog,
+    slots: int = 1,
 ) -> PracticeSession:
     """Share encounter draws and turn initialization for both trial sources."""
     chosen = select_encounter(
@@ -313,13 +323,14 @@ def _begin_practice(
     now = int(time() * 1000)
     stats = equipped_stats(state.save.allocation, context.balance, state.save.economy)
     state.save.run.answerDeadline = now + stats["answerSeconds"] * 1000
-    state.save.battle.gambitAction = choose_action(state.save, catalog)
+    state.save.battle.gambitAction = choose_action(state.save, catalog, slots=slots)
     return PracticeSession(
         state=state,
         context=context,
         seed=seed,
         server_now=now,
         catalog=catalog,
+        gambit_slots=slots,
     )
 
 
@@ -370,8 +381,8 @@ def practice_turn(body: PracticeTurn) -> dict:
     for enemy in marker.enemies:
         if not results.get(enemy):
             low, _, high = damage_range(
-                enemies[enemy].attack,
-                stats["defense"],
+                modified_stat(enemies[enemy].attack, marker, enemy, "attack"),
+                modified_stat(stats["defense"], marker, "player", "defense"),
                 session.context.balance,
             )
             incoming_damage[enemy] = rng.randint(low, high)
@@ -398,7 +409,12 @@ def next_practice_turn(session: PracticeSession) -> GameState:
         enemy: rng.choice(enemies[enemy].quizIndexes) for enemy in marker.enemies
     }
     state.save.battleFeedback = None
-    marker.gambitAction = choose_action(state.save, session.catalog)
+    marker.effects = [e for e in marker.effects if e.expires_turn > marker.turn]
+    marker.gambitAction = choose_action(
+        state.save,
+        session.catalog,
+        slots=session.gambit_slots,
+    )
     state.save.run.answerDeadline = (
         int(time() * 1000)
         + session.state.save.allocation.stats(session.context.balance)["answerSeconds"]

@@ -15,6 +15,7 @@ from tanbun.feature.domain.types import UUIDy, to_uuid
 
 from .access import SLOT_SECONDS, get_adventure_access
 from .balance import Allocation, GameBalance, get_game_balance
+from .effects import BattleEffect
 from .gambits import BattleAction, GambitRule
 from .inventory import Economy, equipped_stats
 from .settings import get_battle_settings
@@ -77,6 +78,7 @@ class BattleMarker(BaseModel):
     skill: SpecialtySkill | None = None
     skillUsed: bool = False
     gambitAction: BattleAction | None = None
+    effects: list[BattleEffect] = Field(default_factory=list, max_length=200)
 
 
 class GameSave(BaseModel):

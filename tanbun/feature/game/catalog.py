@@ -71,20 +71,41 @@ class SkillDefinition(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     icon: IconId = "sparkles"
     enabled: bool = True
-    effect: Literal["attack", "heal_hp", "heal_mp", "recover_moves", "equip_attack"]
+    effect: Literal[
+        "attack",
+        "heal_hp",
+        "heal_mp",
+        "recover_moves",
+        "equip_attack",
+        "buff",
+        "debuff",
+    ]
     target: Literal["enemy", "all_enemies", "self"] = "enemy"
     amount: int = Field(default=0, ge=0, le=10000)
     multiplier: float = Field(default=1, ge=0, le=10, allow_inf_nan=False)
     mp_cost: int = Field(default=0, ge=0, le=10000)
     requires_specialty: bool = False
     castable: bool = True
+    amount_mode: Literal["fixed", "percent"] = "fixed"
+    stat: Literal["attack", "defense"] = "attack"
+    duration_turns: int = Field(default=3, ge=1, le=20)
+    stack_limit: int = Field(default=1, ge=1, le=10)
 
     @model_validator(mode="after")
     def valid_target(self):
         """回復・装備は自分だけを対象にする。."""
-        if (self.effect == "attack") == (self.target == "self"):
-            msg = "攻撃は敵、それ以外は自分を対象にしてください。"
+        if (self.effect in {"attack", "debuff"}) == (self.target == "self"):
+            msg = "攻撃・debuffは敵、それ以外は自分を対象にしてください。"
             raise ValueError(msg)
+        if (
+            self.effect in {"recover_moves", "equip_attack"}
+            and self.amount_mode != "fixed"
+        ):
+            msg_0 = "歩数回復・装備効果は固定値で指定してください。"
+            raise ValueError(msg_0)
+        if self.effect == "debuff" and self.stat == "defense":
+            msg_0 = "現在の敵は守備力を持たないため、攻撃力を選んでください。"
+            raise ValueError(msg_0)
         return self
 
 

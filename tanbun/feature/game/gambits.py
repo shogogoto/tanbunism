@@ -6,6 +6,8 @@ from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
 from .catalog import DefinitionId, GameCatalog, SkillDefinition, get_game_catalog
+from .effects import add_effect, effect_amount
+from .gambit_slots import gambit_capacity
 
 if TYPE_CHECKING:
     from .state import GameSave
@@ -29,13 +31,18 @@ class BattleAction(BaseModel):
     name: str
 
 
-def choose_action(save: "GameSave", catalog: GameCatalog) -> BattleAction | None:
+def choose_action(
+    save: "GameSave",
+    catalog: GameCatalog,
+    *,
+    slots: int = 10,
+) -> BattleAction | None:
     """使用不能な条件は飛ばす。回復対象が満タンの場合も次の行へ進む。."""
     run, marker = save.run, save.battle
     if not run or not marker:
         return None
     skills, items = {s.id: s for s in catalog.skills}, {i.id: i for i in catalog.items}
-    for rule in save.gambits:
+    for rule in save.gambits[:slots]:
         matches = (
             rule.condition == "always"
             or (
@@ -65,7 +72,7 @@ def choose_action(save: "GameSave", catalog: GameCatalog) -> BattleAction | None
         if (
             not skill
             or not skill.enabled
-            or skill.effect not in {"attack", "heal_hp", "heal_mp"}
+            or skill.effect not in {"attack", "heal_hp", "heal_mp", "buff", "debuff"}
         ):
             continue
         if not can_execute(save, skill, uses_item=item is not None):
@@ -97,6 +104,7 @@ def apply_action(
     *,
     successful: bool,
     retreat: bool = False,
+    results: dict[str, bool] | None = None,
 ) -> str | None:
     """消費は発動時一回。通常クイズが正解なら、敵の反撃前に回復する。."""
     run, marker = save.run, save.battle
@@ -114,17 +122,46 @@ def apply_action(
             return None
         run.mp -= skill.mp_cost
     if successful and skill.effect == "heal_hp":
-        run.hp = min(run.maxHp, run.hp + skill.amount)
+        run.hp = min(run.maxHp, run.hp + effect_amount(skill, run.maxHp))
     if successful and skill.effect == "heal_mp":
-        run.mp = min(run.maxMp, run.mp + skill.amount)
+        run.mp = min(run.maxMp, run.mp + effect_amount(skill, run.maxMp))
+    apply_status_effects(marker, skill, successful=successful, results=results or {})
     return f"{action.name} · {'発動' if successful else '不発'}"
 
 
-async def prepare_action(save: "GameSave") -> None:
+def apply_status_effects(
+    marker,
+    skill: SkillDefinition,
+    *,
+    successful: bool,
+    results: dict[str, bool],
+) -> None:
+    """正解対象にだけ能力変化を付与する."""
+    if successful and skill.effect == "buff":
+        add_effect(marker, skill, "player")
+    if skill.effect == "debuff":
+        targets = (
+            marker.enemies if skill.target == "all_enemies" else marker.enemies[:1]
+        )
+        for target in targets:
+            if results.get(target):
+                add_effect(marker, skill, target)
+
+
+async def prepare_action(save: "GameSave", user_id) -> None:
     """ガンビット未設定の既存戦闘には追加の定義読み取りを行わない。."""
     if save.battle:
+        save.battle.effects = [
+            e for e in save.battle.effects if e.expires_turn > save.battle.turn
+        ]
         save.battle.gambitAction = (
-            choose_action(save, await get_game_catalog()) if save.gambits else None
+            choose_action(
+                save,
+                await get_game_catalog(),
+                slots=(await gambit_capacity(user_id)).slots,
+            )
+            if save.gambits
+            else None
         )
 
 
@@ -139,6 +176,6 @@ def validate_rules(rules: list[GambitRule], catalog: GameCatalog) -> None:
         if (
             not skill
             or (rule.action == "skill" and not skill.castable)
-            or skill.effect not in {"attack", "heal_hp", "heal_mp"}
+            or skill.effect not in {"attack", "heal_hp", "heal_mp", "buff", "debuff"}
         ):
             raise HTTPException(422, "戦闘に使えるスキル・アイテムを選んでください。")

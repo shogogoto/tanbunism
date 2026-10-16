@@ -1,4 +1,23 @@
-# Gold and inventory
+# Game systems
+
+## Gambit capacity and timed effects
+
+Gambit capacity is derived from the player's learning level: one initial slot,
+then one per multiple of `gambit_levels_per_slot` (default 5, maximum 10 slots).
+Saving too many rules is rejected; older saved lists are retained but only their
+unlocked prefix is executed. Practice uses the selected player's level and draft
+balance, without changing their actual state.
+
+Skills support fixed or percentage amounts. Recovery percentages use maximum
+HP/MP; attack percentages use the attacker's attack; stat changes use the original
+stat rather than the already modified value. Buffs affect player attack/defense;
+debuffs currently affect enemy attack (enemies have no defense stat).
+Correct answers attach effects, starting on the next turn for `duration_turns`.
+`stack_limit=1` refreshes that skill on that target; larger limits preserve each
+stack's independent expiry. Effects live only in the battle marker, so victory,
+defeat and retreat remove them. Ailments and enemy gambit lists are not yet enabled.
+
+## Gold and inventory
 
 Completed five-place regions expose a treasure chest after their last knowledge
 place. `/game/chests/open` validates the current endpoint, live phase and revision;
