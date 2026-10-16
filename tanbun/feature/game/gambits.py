@@ -40,11 +40,11 @@ def choose_action(save: "GameSave", catalog: GameCatalog) -> BattleAction | None
             rule.condition == "always"
             or (
                 rule.condition == "hp_below"
-                and run.hp * 100 < run.maxHp * rule.threshold
+                and run.hp * 100 <= run.maxHp * rule.threshold
             )
             or (
                 rule.condition == "mp_below"
-                and run.mp * 100 < run.maxMp * rule.threshold
+                and run.mp * 100 <= run.maxMp * rule.threshold
             )
             or (
                 rule.condition == "enemy_count"

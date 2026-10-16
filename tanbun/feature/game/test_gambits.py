@@ -81,6 +81,21 @@ def test_priority_conditions_affordability_and_frozen_definition():
     assert choose_action(state.save, catalog).item_id == "healing_potion"
 
 
+@pytest.mark.parametrize("condition", ["hp_below", "mp_below"])
+def test_percentage_trigger_includes_exact_boundary(condition):
+    """n%以下には、ちょうどn%も含まれる."""
+    state = battle_state()
+    run = state.save.run
+    run.maxHp = run.maxMp = 100
+    run.hp = run.mp = 30
+    state.save.gambits = [
+        GambitRule(condition=condition, threshold=30, definition_id="fire"),
+    ]
+    assert choose_action(state.save, default_catalog()) is not None
+    run.hp = run.mp = 31
+    assert choose_action(state.save, default_catalog()) is None
+
+
 @pytest.mark.parametrize("correct", [True, False])
 def test_recovery_uses_normal_answers_and_consumes_only_once_in_result(correct):
     """正解時だけ反撃前に回復し、未回答でも消費する。入力状態は変更しない."""

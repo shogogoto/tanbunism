@@ -1,13 +1,15 @@
 """定義の権限・参照検査と既存アイテムの互換性."""
 # ruff: noqa: PLR2004
 
+from typing import get_args
+
 import pytest
 from pydantic import ValidationError
 
 from tanbun.conftest import mark_async_test
 from tanbun.feature.user.testing import aauth_header, aregister
 
-from .catalog import GameCatalog, default_catalog
+from .catalog import GameCatalog, IconId, SkillDefinition, default_catalog
 from .economy import EconomyAction, catalog_products, change_economy
 from .test_economy import seed_user
 
@@ -31,6 +33,13 @@ def test_references_targets_icons_and_duplicate_ids_are_validated():
     )
     assert products["bronze_sword"].amount == 3
     assert products["step_potion"].kind == "moves"
+
+
+def test_all_gallery_icons_can_be_saved_in_skill_definitions():
+    """素材一覧の追加アイコンも定義として受け付ける."""
+    for icon in get_args(IconId):
+        skill = SkillDefinition(id="test", name="技", effect="attack", icon=icon)
+        assert SkillDefinition.model_validate_json(skill.model_dump_json()).icon == icon
 
 
 @mark_async_test()
