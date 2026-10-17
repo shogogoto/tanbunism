@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from tanbun.conftest import mark_async_test
 from tanbun.feature.user.testing import aauth_header, aregister
 
-from .catalog import GameCatalog, SkillEffect, default_catalog
+from .catalog import GameCatalog, SkillEffect, SkillSound, default_catalog
 from .gambits import BattleAction
 from .skill_files import SkillFile, SkillFilePreview
 
@@ -28,6 +28,16 @@ def test_sound_roundtrip_defaults_and_unknown_preset_validation():
     assert json.loads(selected.model_dump_json())["skills"][0]["sound"] == "fire"
     with pytest.raises(ValidationError):
         SkillFile.model_validate(document([{**definition, "sound": "missing"}]))
+
+
+@pytest.mark.parametrize("sound", list(SkillSound))
+def test_all_sound_materials_can_be_saved_and_exported(sound):
+    """演出パネルで選べる音声素材を、カタログと交換JSONで保持できる."""
+    definition = {"id": "effect", "name": "演出", "effect": "attack", "sound": sound}
+    file = SkillFile.model_validate({**document([definition]), "version": 2})
+    exported = json.loads(file.model_dump_json())
+    assert exported["skills"][0]["sound"] == sound.value
+    assert SkillFile.model_validate(exported).skills[0].sound == sound
 
 
 @pytest.mark.parametrize(
