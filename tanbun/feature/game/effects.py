@@ -60,10 +60,28 @@ def poison_damage(marker: "BattleMarker", maximum_hp: dict[str, int]) -> dict[st
             for e in marker.effects
             if e.target_id == target
             and e.skill.effect == "ailment"
+            and e.skill.ailment == "poison"
             and e.starts_turn <= marker.turn < e.expires_turn
         )
         if damage:
             result[target] = min(100000, damage)
+    return result
+
+
+def curse_damage(marker: "BattleMarker", maximum_mp: dict[str, int]) -> dict[str, int]:
+    """呪いは有効ターンごとにMPだけを減らし、毒とは混ぜない."""
+    result = {}
+    for target, mp in maximum_mp.items():
+        amount = sum(
+            effect_amount(e.skill, mp)
+            for e in marker.effects
+            if e.target_id == target
+            and e.skill.effect == "ailment"
+            and e.skill.ailment == "curse"
+            and e.starts_turn <= marker.turn < e.expires_turn
+        )
+        if amount:
+            result[target] = min(100000, amount)
     return result
 
 

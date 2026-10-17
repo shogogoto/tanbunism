@@ -21,6 +21,7 @@ from .economy import GOLD_PER_LEVEL
 from .effects import add_effect, effect_amount, sync_bubble
 from .gambit_slots import gambit_capacity
 from .gambits import choose_action
+from .inventory import consume_use
 from .skills import specialty_pools
 from .specialties import specialty_capacity, strengthened
 from .state import GameState, read_state
@@ -143,7 +144,7 @@ async def select_end_candidate(user_id, save):
 def begin_action(save, selected, skill, quizzes: list[str], enemy_hp: dict) -> None:
     """実戦と模擬戦で一回分の消費・出題状態を共通にする."""
     if selected.item_id:
-        save.economy.inventory[selected.item_id] -= 1
+        consume_use(save.economy, selected.item_id, selected.item_max_uses)
     else:
         save.run.mp -= skill.mp_cost
     save.battle.endAction = {

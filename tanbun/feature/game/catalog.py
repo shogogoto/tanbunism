@@ -288,7 +288,7 @@ class AilmentSkill(TimedSkill):
     effect: Literal[SkillEffect.AILMENT] = SkillEffect.AILMENT
     target: Literal[SkillTarget.ENEMY, SkillTarget.ALL_ENEMIES] = SkillTarget.ENEMY
     amount: int = Field(default=5, ge=1, le=10000)
-    ailment: Literal["poison"] = "poison"
+    ailment: Literal["poison", "curse"] = "poison"
 
 
 class UtilitySkill(SkillBase):
@@ -372,6 +372,15 @@ class ItemDefinition(BaseModel):
     enabled: bool = True
     skill_id: DefinitionId
     kind: Literal["weapon", "consumable"] = "consumable"
+    max_uses: int = Field(default=1, ge=1, le=10000)
+
+    @model_validator(mode="before")
+    @classmethod
+    def legacy_uses(cls, value):
+        """旧武器には30回、旧消耗品には1回を設定する."""
+        if isinstance(value, dict) and "max_uses" not in value:
+            return {**value, "max_uses": 30 if value.get("kind") == "weapon" else 1}
+        return value
 
 
 class ShopListing(BaseModel):
@@ -391,6 +400,7 @@ class EnemyDefinition(BaseModel):
     enabled: bool = True
     boss: bool = False
     attack_skill_id: DefinitionId | None = None
+    on_hit_skill_id: DefinitionId | None = None
 
 
 class TriggerDefinition(BaseModel):
@@ -546,14 +556,24 @@ class GameCatalog(BaseModel):
             if not skill or (item.kind == "weapon") != (skill.effect == "equip_attack"):
                 msg = f"{item.name}のスキルまたは種類が不正です。"
                 raise ValueError(msg)
+        self.validate_enemy_skills(skills)
+        return self
+
+    def validate_enemy_skills(self, skills: dict) -> None:
+        """敵の攻撃と命中時効果の参照を種類まで検証する."""
         for enemy in self.enemies:
+            if enemy.on_hit_skill_id and (
+                enemy.on_hit_skill_id not in skills
+                or skills[enemy.on_hit_skill_id].effect not in {"debuff", "ailment"}
+            ):
+                msg = "命中時のスキルにはdebuffまたは状態異常を選んでください。"
+                raise ValueError(msg)
             if enemy.attack_skill_id and (
                 enemy.attack_skill_id not in skills
                 or skills[enemy.attack_skill_id].effect != "attack"
             ):
                 msg = "敵の攻撃には攻撃スキルを選んでください。"
                 raise ValueError(msg)
-        return self
 
 
 def default_catalog() -> GameCatalog:

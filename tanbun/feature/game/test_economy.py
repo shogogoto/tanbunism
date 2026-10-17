@@ -128,6 +128,35 @@ async def test_snapshots_cannot_mint_gold_items_or_change_equipment():
 
 
 @mark_async_test()
+async def test_total_steps_counts_consumption_without_refill_or_retry_double_count():
+    """歩数の増分だけを記録し、回復・再送・旧クライアントで消さない."""
+    user = await seed_user()
+    previous = await read_state(user.uid)
+    previous.save.run.moves = 2
+    await adb.cypher_query(
+        "MATCH (u:User {uid:$uid}) SET u.game_state=$state",
+        {"uid": user.uid, "state": previous.model_dump_json()},
+    )
+    save = previous.save.model_copy(deep=True)
+    save.run.phase = "path"
+    save.run.moves += 1
+    save.totalSteps = 99999
+    first = await write_state(user.uid, StateUpdate(revision=0, save=save))
+    assert first.save.totalSteps == 1
+    with pytest.raises(HTTPException):
+        await write_state(user.uid, StateUpdate(revision=0, save=save))
+    save = first.save.model_copy(deep=True)
+    save.run.moves = 0
+    save.totalSteps = 0
+    refilled = await write_state(user.uid, StateUpdate(revision=1, save=save))
+    assert refilled.save.totalSteps == 1
+    save = refilled.save.model_copy(deep=True)
+    save.run.moves = 2
+    walked = await write_state(user.uid, StateUpdate(revision=2, save=save))
+    assert walked.save.totalSteps == 3
+
+
+@mark_async_test()
 async def test_review_completion_awards_once_per_day_even_concurrently():
     """保存済みの今日のセット全問を見たときのみ付与。再送は冪等."""
     user = await seed_user()

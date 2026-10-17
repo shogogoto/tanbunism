@@ -25,7 +25,7 @@ from .combat import (
     style_enemies,
 )
 from .damage import damage_range
-from .effects import modified_stat, poison_damage
+from .effects import curse_damage, modified_stat, poison_damage
 from .end_actions import EndActionAnswer, EndActionRequest, begin_action, finish_action
 from .gambit_slots import gambit_capacity
 from .gambits import choose_action
@@ -400,10 +400,29 @@ def practice_turn(body: PracticeTurn) -> dict:
             incoming_damage[enemy] = rng.randint(low, high)
     damage = sum(incoming_damage.values())
     return {
-        "state": apply_turn_result(state, turn, results, damage, stats),
+        "state": apply_turn_result(
+            state,
+            turn,
+            results,
+            damage,
+            stats,
+            on_hit_skills={
+                e: enemy.on_hit_skill
+                for e, enemy in enemies.items()
+                if enemy.on_hit_skill
+            },
+        ),
         "results": results,
         "damage": damage,
         "incoming_damage": incoming_damage,
+        "player_poison_damage": min(
+            state.save.run.hp,
+            poison_damage(marker, {"player": state.save.run.maxHp}).get("player", 0),
+        ),
+        "curse_damage": min(
+            state.save.run.mp,
+            curse_damage(marker, {"player": state.save.run.maxMp}).get("player", 0),
+        ),
         "poison_damage": poison_damage(
             marker,
             {e: enemies[e].hp for e in marker.enemies},

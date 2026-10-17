@@ -20,12 +20,19 @@ from tanbun.feature.quiz.answering.repo import create_answer_in_transaction
 from tanbun.feature.quiz.chain.usecase import expand_quiz_chain
 
 from .balance import Allocation, GameBalance, get_game_balance
-from .catalog import GameCatalog, get_game_catalog
+from .catalog import GameCatalog, StoredSkill, get_game_catalog
 from .damage import enemy_damage
 from .economy import GOLD_PER_LEVEL
-from .effects import effect_amount, modified_stat, poison_damage, sync_bubble
+from .effects import (
+    add_effect,
+    curse_damage,
+    effect_amount,
+    modified_stat,
+    poison_damage,
+    sync_bubble,
+)
 from .gambits import apply_action, prepare_action
-from .inventory import equipped_stats
+from .inventory import equipped_stats, wear_weapon
 from .state import BattleMarker, GameState, StateUpdate, compare_and_save, read_state
 
 MOVES_PER_EVENT = 5
@@ -64,6 +71,7 @@ class EnemyStats(BaseModel):
     region: int
     icon: str | None = None
     animation: str = "none"
+    on_hit_skill: StoredSkill | None = None
 
 
 class CombatContext(BaseModel):
@@ -144,6 +152,7 @@ def style_enemies(
         result.append(
             enemy.model_copy(
                 update={
+                    "on_hit_skill": skills.get(template.on_hit_skill_id),
                     "icon": template.icon,
                     "name": f"達成度 {enemy.region + 1}の{template.name}"
                     if boss
@@ -426,13 +435,30 @@ async def settle_turn(user_id: UUIDy, body: TurnRequest) -> dict:
         if not results.get(e)
     }
     damage = sum(incoming_damage.values())
-    updated = apply_turn_result(previous, body, results, damage, stats)
+    updated = apply_turn_result(
+        previous,
+        body,
+        results,
+        damage,
+        stats,
+        on_hit_skills={
+            e: enemy.on_hit_skill for e, enemy in enemies.items() if enemy.on_hit_skill
+        },
+    )
     award_kill_gold(updated, body, marker.region)
     receipt = {
         "id": f"{marker.id}:{marker.turn}",
         "results": results,
         "damage": damage,
         "incoming_damage": incoming_damage,
+        "player_poison_damage": min(
+            run.hp,
+            poison_damage(marker, {"player": run.maxHp}).get("player", 0),
+        ),
+        "curse_damage": min(
+            run.mp,
+            curse_damage(marker, {"player": run.maxMp}).get("player", 0),
+        ),
         "poison_damage": poison_damage(
             marker,
             {e: enemies[e].hp for e in marker.enemies if e in enemies},
@@ -499,6 +525,8 @@ def apply_turn_result(
     results: dict[str, bool],
     damage: int,
     stats: dict,
+    *,
+    on_hit_skills: dict | None = None,
 ) -> GameState:
     """相打ちの敗北優先・撤退先・歩数維持を一箇所で扱う."""
     marker, run = previous.save.battle, previous.save.run
@@ -507,8 +535,21 @@ def apply_turn_result(
         raise ValueError(msg)
     updated = previous.model_copy(deep=True)
     next_run = updated.save.run
+    apply_on_hit_effects(updated.save.battle, on_hit_skills or {}, results)
+    periodic_hp, periodic_mp = (
+        poison_damage(marker, {"player": run.maxHp}).get("player", 0),
+        curse_damage(marker, {"player": run.maxMp}).get("player", 0),
+    )
+    broken = wear_weapon(
+        updated.save.economy,
+        sum(bool(results.get(e)) for e in marker.enemies),
+    )
     for key, value in (stats | {"maxHp": next_run.maxHp}).items():
         setattr(next_run, key, value)
+    next_run.attack = max(
+        0,
+        next_run.attack - (previous.save.economy.weapon_attack if broken else 0),
+    )
     sync_bubble(next_run, updated.save.battle, stats["maxHp"])
     first_only = (
         marker.gambitAction
@@ -523,8 +564,8 @@ def apply_turn_result(
         retreat=body.retreat,
         results=results,
     )
-    next_run.hp = max(0, min(next_run.hp, next_run.maxHp) - damage)
-    next_run.mp = min(next_run.mp, next_run.maxMp)
+    next_run.hp = max(0, min(next_run.hp, next_run.maxHp) - damage - periodic_hp)
+    next_run.mp = max(0, min(next_run.mp, next_run.maxMp) - periodic_mp)
     next_run.kills += 0 if marker.bossLevel else len(set(body.defeated))
     next_run.quizCursor += len(body.answers)
     survivors = [e for e in marker.enemies if e not in body.defeated]
@@ -580,10 +621,35 @@ def apply_turn_result(
     if body.retreat:
         summary += " · 撤退"
     updated.save.battleFeedback = summary
+    updated.save.battleFeedback += status_feedback(
+        broken=broken,
+        hp=periodic_hp,
+        mp=periodic_mp,
+    )
     if action_feedback:
         updated.save.battleFeedback += f" · {action_feedback}"
     record_boss_victory(updated, marker, body, survivors)
     return updated
+
+
+def apply_on_hit_effects(marker: BattleMarker, skills: dict, results: dict) -> None:
+    """誤答・未回答で敵の攻撃が命中したときだけ付与する."""
+    for enemy, skill in skills.items():
+        if enemy in marker.enemies and not results.get(enemy):
+            add_effect(marker, skill, "player")
+
+
+def status_feedback(*, broken: bool, hp: int, mp: int) -> str:
+    """通常攻防以外の変化をまとめる."""
+    return "".join(
+        text
+        for enabled, text in [
+            (broken, " · 武器が壊れた"),
+            (hp, f" · 毒 HP -{hp}"),
+            (mp, f" · 呪い MP -{mp}"),
+        ]
+        if enabled
+    )
 
 
 def record_boss_victory(

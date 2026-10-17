@@ -85,6 +85,7 @@ async def start_boss(user_id: UUIDy, body: BossRequest) -> GameState:
     updated.save.run.hp = min(run.hp, stats["maxHp"])
     updated.save.run.mp = stats["maxMp"]
     updated.save.run.moves += 1
+    updated.save.totalSteps += 1
     if run.phase == "cleared":
         updated.save.run.kills = 0
     updated.save.run.phase = "battle"

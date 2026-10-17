@@ -16,7 +16,7 @@ from tanbun.feature.recommendation.settings import settings_scope
 
 from .balance import get_game_balance
 from .catalog import GameCatalog, get_game_catalog
-from .inventory import Economy, Product, ProductId, equipped_stats
+from .inventory import Economy, Product, ProductId, consume_use, equipped_stats
 from .state import GameSave, GameState, StateUpdate, compare_and_save, read_state
 
 MOVES_PER_EVENT = 5
@@ -64,6 +64,7 @@ def catalog_products(
             skill_id=i.skill_id,
             skill_name=skills[i.skill_id].name,
             enabled=i.enabled and skills[i.skill_id].enabled,
+            max_uses=i.max_uses,
         )
         for i in catalog.items
         if include_disabled or (i.enabled and skills[i.skill_id].enabled)
@@ -188,6 +189,7 @@ async def change_economy(user_id: UUIDy, body: EconomyAction, action: str) -> Ga
             raise HTTPException(422, "所持している武器を選んでください。")
         economy.weapon = None if economy.weapon == product.id else product.id
         economy.equipment_attack = product.amount if economy.weapon else 0
+        economy.weapon_max_uses = product.max_uses
     else:
         use_item(updated.save, product)
     stats = equipped_stats(updated.save.allocation, await get_game_balance(), economy)
@@ -260,7 +262,7 @@ def use_item(save: GameSave, product: Product) -> None:
         restore_energy(run, product)
         if run.phase == "defeated" and run.hp:
             run.phase = "rest" if run.moves >= MOVES_PER_EVENT else "path"
-    save.economy.inventory[product.id] = quantity - 1
+    consume_use(save.economy, product.id, product.max_uses)
 
 
 def restore_energy(run, product: Product) -> None:

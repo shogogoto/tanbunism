@@ -13,6 +13,7 @@ from .catalog import (
     StoredSkill,
 )
 from .effects import add_effect, effect_amount
+from .inventory import consume_use
 
 if TYPE_CHECKING:
     from .state import GameSave
@@ -45,6 +46,7 @@ class BattleAction(BaseModel):
     name: str
     specialty_id: str | None = None
     specialty_use: SpecialtySkillUse | None = None
+    item_max_uses: int = Field(default=1, ge=1, le=10000)
 
 
 def choose_action(
@@ -93,6 +95,7 @@ def choose_action(
                 and any(
                     e.target_id == "player"
                     and e.skill.effect == "ailment"
+                    and e.skill.ailment == "poison"
                     and e.starts_turn <= marker.turn < e.expires_turn
                     for e in marker.effects
                 )
@@ -159,6 +162,7 @@ def choose_action(
             name=item.name if item else skill.name,
             specialty_id=specialty.id if specialty else None,
             specialty_use=use if specialty else None,
+            item_max_uses=item.max_uses if item else 1,
         )
     return None
 
@@ -190,7 +194,7 @@ def apply_action(
         count = save.economy.inventory.get(action.item_id, 0)
         if count < 1:
             return None
-        save.economy.inventory[action.item_id] = count - 1
+        consume_use(save.economy, action.item_id, action.item_max_uses)
     else:
         if run.mp < skill.mp_cost:
             return None

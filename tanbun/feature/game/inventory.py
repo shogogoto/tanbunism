@@ -26,6 +26,10 @@ class Economy(BaseModel):
     )
     weapon: str | None = None
     equipment_attack: int | None = Field(default=None, ge=0, le=10000)
+    weapon_max_uses: int = Field(default=30, ge=1, le=10000)
+    remaining_uses: dict[str, Annotated[int, Field(ge=1, le=10000)]] = Field(
+        default_factory=dict,
+    )
     review_reward_day: str | None = None
     quiz_reward_day: str | None = None
     opened_chests: dict[str, dict[str, ChestReward]] = Field(default_factory=dict)
@@ -55,13 +59,28 @@ class Product(BaseModel, frozen=True):
     skill_id: str | None = None
     skill_name: str | None = None
     enabled: bool = True
+    max_uses: int = Field(default=1, ge=1, le=10000)
 
 
 CATALOG = {
     p.id: p
     for p in [
-        Product(id="bronze_sword", name="銅の剣", price=100, kind="weapon", amount=3),
-        Product(id="steel_sword", name="鋼の剣", price=300, kind="weapon", amount=8),
+        Product(
+            id="bronze_sword",
+            name="銅の剣",
+            price=100,
+            kind="weapon",
+            amount=3,
+            max_uses=30,
+        ),
+        Product(
+            id="steel_sword",
+            name="鋼の剣",
+            price=300,
+            kind="weapon",
+            amount=8,
+            max_uses=30,
+        ),
         Product(id="healing_potion", name="回復薬", price=30, kind="hp", amount=20),
         Product(
             id="step_potion",
@@ -72,6 +91,33 @@ CATALOG = {
         ),
     ]
 }
+
+
+def consume_use(economy: Economy, item_id: str, max_uses: int) -> bool:
+    """使用中の一個分だけ減らす。持ち替えや再購入で耐久を回復させない."""
+    count = economy.inventory.get(item_id, 0)
+    if count < 1:
+        return False
+    remaining = min(economy.remaining_uses.get(item_id, max_uses), max_uses) - 1
+    if remaining:
+        economy.remaining_uses[item_id] = remaining
+        return False
+    economy.inventory[item_id] = count - 1
+    economy.remaining_uses.pop(item_id, None)
+    if economy.weapon == item_id:
+        economy.weapon = None
+        economy.equipment_attack = 0
+    return True
+
+
+def wear_weapon(economy: Economy, hits: int) -> bool:
+    """正答による攻撃一回につき一回消費し、破損後の攻撃では消費しない."""
+    for _ in range(hits):
+        if not economy.weapon:
+            break
+        if consume_use(economy, economy.weapon, economy.weapon_max_uses):
+            return True
+    return False
 
 
 def equipped_stats(

@@ -90,6 +90,7 @@ class GameSave(BaseModel):
     """攻略数と固定された出題セット."""
 
     version: Literal[2] = 2
+    totalSteps: int = Field(default=0, ge=0)
     specialties: list[Specialty] = Field(default_factory=list, max_length=1000)
     endActionReceipt: dict | None = None
     clears: dict[str, int] = Field(default_factory=dict, max_length=1000)
@@ -318,6 +319,11 @@ async def write_state(user_id: UUIDy, update: StateUpdate) -> GameState:
     update.save.endActionReceipt = previous.save.endActionReceipt
     run = update.save.run
     old = previous.save.run
+    update.save.totalSteps = previous.save.totalSteps + (
+        max(0, run.moves - old.moves)
+        if run and old and run.resourceId == old.resourceId
+        else 0
+    )
     merge_exploration(previous.save, update.save)
     history = list(
         dict.fromkeys([
