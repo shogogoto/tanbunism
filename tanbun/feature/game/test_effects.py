@@ -4,7 +4,7 @@
 from tanbun.conftest import mark_async_test
 
 from .balance import GameBalance
-from .catalog import SkillDefinition
+from .catalog import SkillDefinition, parse_skill
 from .combat import TurnRequest, apply_turn_result
 from .effects import add_effect, modified_stat, poison_damage
 from .gambit_slots import capacity_at_level
@@ -14,7 +14,7 @@ from .test_gambits import battle_state
 
 def buff(**changes) -> SkillDefinition:
     """攻撃力を割合で増やす2ターンのサンプル."""
-    return SkillDefinition.model_validate({
+    return parse_skill({
         "id": "boost",
         "name": "強化",
         "effect": "buff",

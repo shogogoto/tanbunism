@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
-from .catalog import SkillDefinition
+from .catalog import SkillDefinition, StoredSkill
 
 MAX_BATTLE_EFFECTS = 200
 
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 class BattleEffect(BaseModel):
     """付与時の定義と有効期間を固定した効果一つ分."""
 
-    skill: SkillDefinition
+    skill: StoredSkill
     target_id: str = Field(max_length=200)
     starts_turn: int = Field(ge=0)
     expires_turn: int = Field(ge=1)
@@ -26,7 +26,7 @@ def effect_amount(skill: SkillDefinition, base: int) -> int:
     """割合は元の値を基準とし、重複で指数的に増えないようにする."""
     return (
         floor(base * skill.amount / 100)
-        if skill.amount_mode == "percent"
+        if getattr(skill, "amount_mode", "fixed") == "percent"
         else skill.amount
     )
 

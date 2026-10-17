@@ -4,13 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .catalog import GameCatalog, SkillDefinition
-
-
-class FileSkill(SkillDefinition):
-    """未知の設定を読み飛ばさず、入力間違いとして知らせる."""
-
-    model_config = ConfigDict(extra="forbid")
+from .catalog import GameCatalog, SkillDefinition, migrate_skill
 
 
 class SkillFile(BaseModel):
@@ -19,8 +13,20 @@ class SkillFile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     format: Literal["tanbunism.skills"]
-    version: Literal[1]
-    skills: list[FileSkill] = Field(max_length=200)
+    version: Literal[1, 2]
+    skills: list[SkillDefinition] = Field(max_length=200)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_v1(cls, value):
+        """初版の全項目入りファイルだけ、種類に無関係な旧項目を除去する."""
+        if (
+            isinstance(value, dict)
+            and value.get("version") == 1
+            and isinstance(value.get("skills"), list)
+        ):
+            return {**value, "skills": [migrate_skill(s) for s in value["skills"]]}
+        return value
 
     @model_validator(mode="after")
     def unique_ids(self):

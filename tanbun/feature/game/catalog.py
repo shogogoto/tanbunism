@@ -4,7 +4,15 @@ from enum import StrEnum
 from typing import Annotated, Literal
 
 from neomodel import adb
-from pydantic import BaseModel, Field, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    TypeAdapter,
+    model_validator,
+)
 
 DefinitionId = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
 IconId = Literal[
@@ -152,17 +160,15 @@ class SkillStat(StrEnum):
     MAX_HP = "maxHp"
 
 
-class SkillDefinition(BaseModel):
-    """利用元とは独立した共通の効果と演出。."""
+class SkillBase(BaseModel):
+    """種類に依存しない識別・表示・消費MP・演出だけを共有する."""
+
+    model_config = ConfigDict(extra="forbid")
 
     id: DefinitionId
     name: str = Field(min_length=1, max_length=80)
     icon: IconId = "sparkles"
     enabled: bool = True
-    effect: SkillEffect
-    target: SkillTarget = SkillTarget.ENEMY
-    amount: int = Field(default=0, ge=0, le=10000)
-    multiplier: float = Field(default=1, ge=0, le=10, allow_inf_nan=False)
     mp_cost: int = Field(default=0, ge=0, le=10000)
     animation: Literal[
         "none",
@@ -221,36 +227,124 @@ class SkillDefinition(BaseModel):
         "mochi_status_heal",
         "mochi_status_speed",
     ] = "none"
+
+
+class VariableAmountSkill(SkillBase):
+    """固定値または割合で効果量を指定する種類の共通項目."""
+
+    amount: int = Field(default=0, ge=0, le=10000)
     amount_mode: AmountMode = AmountMode.FIXED
-    stat: SkillStat = SkillStat.ATTACK
+
+
+class AttackSkill(VariableAmountSkill):
+    """攻撃。加算ダメージと攻撃力に掛ける倍率を持つ."""
+
+    effect: Literal[SkillEffect.ATTACK] = SkillEffect.ATTACK
+    target: Literal[SkillTarget.ENEMY, SkillTarget.ALL_ENEMIES] = SkillTarget.ENEMY
+    multiplier: float = Field(default=1, ge=0, le=10, allow_inf_nan=False)
+
+
+class RecoverySkill(VariableAmountSkill):
+    """HP・MP回復。攻撃倍率や持続効果は持たない."""
+
+    effect: Literal[SkillEffect.HEAL_HP, SkillEffect.HEAL_MP]
+    target: Literal[SkillTarget.SELF] = SkillTarget.SELF
+
+
+class TimedSkill(VariableAmountSkill):
+    """戦闘中に持続する効果の期間と重複上限."""
+
     duration_turns: int = Field(default=3, ge=1, le=20)
     stack_limit: int = Field(default=1, ge=1, le=10)
-    ailment: Literal["poison"] = "poison"
+
+
+class BuffSkill(TimedSkill):
+    """自分の能力向上。バブルは最大HPへの割合効果."""
+
+    effect: Literal[SkillEffect.BUFF] = SkillEffect.BUFF
+    target: Literal[SkillTarget.SELF] = SkillTarget.SELF
+    stat: SkillStat = SkillStat.ATTACK
 
     @model_validator(mode="after")
-    def valid_target(self):
-        """回復・装備は自分だけを対象にする。."""
-        if (self.effect in {"attack", "debuff", "ailment"}) == (self.target == "self"):
-            msg = "攻撃・debuff・状態変化は敵、それ以外は自分を対象にしてください。"
-            raise ValueError(msg)
-        if (
-            self.effect in {"recover_moves", "equip_attack"}
-            and self.amount_mode != "fixed"
-        ):
-            msg_0 = "歩数回復・装備効果は固定値で指定してください。"
-            raise ValueError(msg_0)
-        if self.effect == "debuff" and self.stat == "defense":
-            msg_0 = "現在の敵は守備力を持たないため、攻撃力を選んでください。"
-            raise ValueError(msg_0)
-        if self.stat == "maxHp" and (
-            self.effect != "buff" or self.amount_mode != "percent"
-        ):
-            msg_1 = "最大HPの変更は割合buffで指定してください。"
-            raise ValueError(msg_1)
-        if self.effect == "ailment" and self.amount < 1:
-            msg = "毒の効果量は1以上を指定してください。"
+    def valid_bubble(self):
+        """最大HPを固定値で変更しない."""
+        if self.stat == "maxHp" and self.amount_mode != "percent":
+            msg = "最大HPの変更は割合buffで指定してください。"
             raise ValueError(msg)
         return self
+
+
+class DebuffSkill(TimedSkill):
+    """敵の能力低下。現在の敵が持つ攻撃力を対象にする."""
+
+    effect: Literal[SkillEffect.DEBUFF] = SkillEffect.DEBUFF
+    target: Literal[SkillTarget.ENEMY, SkillTarget.ALL_ENEMIES] = SkillTarget.ENEMY
+    stat: Literal[SkillStat.ATTACK] = SkillStat.ATTACK
+
+
+class AilmentSkill(TimedSkill):
+    """状態異常。能力を指定するstatとは独立する."""
+
+    effect: Literal[SkillEffect.AILMENT] = SkillEffect.AILMENT
+    target: Literal[SkillTarget.ENEMY, SkillTarget.ALL_ENEMIES] = SkillTarget.ENEMY
+    amount: int = Field(default=5, ge=1, le=10000)
+    ailment: Literal["poison"] = "poison"
+
+
+class UtilitySkill(SkillBase):
+    """固定値の歩数回復・装備効果。割合や持続ターンは持たない."""
+
+    effect: Literal[SkillEffect.RECOVER_MOVES, SkillEffect.EQUIP_ATTACK]
+    target: Literal[SkillTarget.SELF] = SkillTarget.SELF
+    amount: int = Field(default=0, ge=0, le=10000)
+
+
+SkillDefinition = Annotated[
+    AttackSkill | RecoverySkill | BuffSkill | DebuffSkill | AilmentSkill | UtilitySkill,
+    Field(discriminator="effect"),
+]
+SKILL_MODELS = {
+    effect: model
+    for model, effects in (
+        (AttackSkill, (SkillEffect.ATTACK,)),
+        (RecoverySkill, (SkillEffect.HEAL_HP, SkillEffect.HEAL_MP)),
+        (BuffSkill, (SkillEffect.BUFF,)),
+        (DebuffSkill, (SkillEffect.DEBUFF,)),
+        (AilmentSkill, (SkillEffect.AILMENT,)),
+        (UtilitySkill, (SkillEffect.RECOVER_MOVES, SkillEffect.EQUIP_ATTACK)),
+    )
+    for effect in effects
+}
+LEGACY_SKILL_FIELDS = {
+    "multiplier",
+    "amount_mode",
+    "stat",
+    "duration_turns",
+    "stack_limit",
+    "ailment",
+}
+
+
+def migrate_skill(value):
+    """旧保存・戦闘スナップショットの無関係な既知項目だけを取り除く."""
+    if isinstance(value, SkillBase):
+        value = value.model_dump()
+    if not isinstance(value, dict):
+        return value
+    effect = value.get("effect")
+    if not isinstance(effect, str) or not (model := SKILL_MODELS.get(effect)):
+        return value
+    obsolete = LEGACY_SKILL_FIELDS - model.model_fields.keys()
+    return {key: item for key, item in value.items() if key not in obsolete}
+
+
+StoredSkill = Annotated[SkillDefinition, BeforeValidator(migrate_skill)]
+skill_adapter = TypeAdapter(StoredSkill)
+
+
+def parse_skill(value) -> SkillDefinition:
+    """保存済みの形式も受け付け、種類別の定義として復元する."""
+    return skill_adapter.validate_python(value)
 
 
 class PlayerSkillUse(BaseModel):
@@ -336,7 +430,7 @@ def default_triggers() -> list[TriggerDefinition]:
 class GameCatalog(BaseModel):
     """IDと参照をまとめて検査し、一括保存する定義。."""
 
-    skills: list[SkillDefinition] = Field(default_factory=list, max_length=200)
+    skills: list[StoredSkill] = Field(default_factory=list, max_length=200)
     items: list[ItemDefinition] = Field(default_factory=list, max_length=200)
     shop: list[ShopListing] = Field(default_factory=list, max_length=200)
     enemies: list[EnemyDefinition] = Field(default_factory=list, max_length=100)
@@ -373,7 +467,7 @@ class GameCatalog(BaseModel):
             return value
         value = dict(value)
         skills = [
-            s.model_dump() if isinstance(s, SkillDefinition) else s
+            s.model_dump() if isinstance(s, SkillBase) else s
             for s in value.get("skills", [])
         ]
         if "player_skills" not in value:
@@ -406,6 +500,18 @@ class GameCatalog(BaseModel):
                 for s in skills
                 if s.get("requires_specialty")
             ]
+        usage_fields = {
+            "castable",
+            "requires_specialty",
+            "quiz_required",
+            "quiz_seconds",
+            "wrong_multiplier",
+            "power_coefficient",
+        }
+        value["skills"] = [
+            {key: item for key, item in skill.items() if key not in usage_fields}
+            for skill in skills
+        ]
         return value
 
     @model_validator(mode="after")
@@ -454,7 +560,7 @@ def default_catalog() -> GameCatalog:
     """既存アイテムのID・価格・効果を維持した初期カタログ。."""
     return GameCatalog(
         skills=[
-            SkillDefinition(
+            AttackSkill(
                 id="fire",
                 animation="fire",
                 name="ファイア",
@@ -463,7 +569,7 @@ def default_catalog() -> GameCatalog:
                 multiplier=1.5,
                 mp_cost=3,
             ),
-            SkillDefinition(
+            AttackSkill(
                 id="fire_all",
                 animation="fire",
                 name="全体ファイア",
@@ -473,7 +579,7 @@ def default_catalog() -> GameCatalog:
                 multiplier=1.3,
                 mp_cost=5,
             ),
-            SkillDefinition(
+            RecoverySkill(
                 id="heal",
                 animation="heal",
                 name="ケアル",
@@ -483,7 +589,7 @@ def default_catalog() -> GameCatalog:
                 amount=20,
                 mp_cost=3,
             ),
-            SkillDefinition(
+            RecoverySkill(
                 id="potion_heal",
                 name="HP回復",
                 icon="flask",
@@ -492,7 +598,7 @@ def default_catalog() -> GameCatalog:
                 amount=20,
                 animation="heal",
             ),
-            SkillDefinition(
+            RecoverySkill(
                 id="ether_heal",
                 name="MP回復",
                 icon="droplet",
@@ -501,7 +607,7 @@ def default_catalog() -> GameCatalog:
                 amount=5,
                 animation="ripple",
             ),
-            SkillDefinition(
+            UtilitySkill(
                 id="recover_steps",
                 name="歩数回復",
                 icon="footprints",
@@ -509,7 +615,7 @@ def default_catalog() -> GameCatalog:
                 target="self",
                 amount=3,
             ),
-            SkillDefinition(
+            UtilitySkill(
                 id="bronze_power",
                 name="銅の剣の装備効果",
                 icon="sword",
@@ -517,7 +623,7 @@ def default_catalog() -> GameCatalog:
                 target="self",
                 amount=3,
             ),
-            SkillDefinition(
+            UtilitySkill(
                 id="steel_power",
                 name="鋼の剣の装備効果",
                 icon="sword",
@@ -525,7 +631,7 @@ def default_catalog() -> GameCatalog:
                 target="self",
                 amount=8,
             ),
-            SkillDefinition(
+            AttackSkill(
                 id="specialty_burst",
                 name="専門分野",
                 icon="book",

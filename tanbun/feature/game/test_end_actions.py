@@ -13,7 +13,7 @@ from tanbun.feature.quiz.fixture import fx_u
 
 from . import end_actions
 from .balance import GameBalance
-from .catalog import SkillDefinition, default_catalog
+from .catalog import AilmentSkill, BuffSkill, RecoverySkill, default_catalog
 from .combat import combat_context
 from .effects import add_effect, sync_bubble
 from .end_actions import (
@@ -111,7 +111,7 @@ async def test_practice_end_gambit_never_writes_live_state(u):
 
 def test_power_is_live_and_independent_of_fusion_order():
     """合計Powerの対数補正だけを使い、元スキルは変更しない."""
-    skill = SkillDefinition(
+    skill = RecoverySkill(
         id="heal",
         name="回復",
         effect="heal_hp",
@@ -138,7 +138,7 @@ def test_bubble_scales_current_hp_on_apply_restore_and_expiry():
     state = battle_state()
     run, marker = state.save.run, state.save.battle
     run.hp, run.maxHp = 30, 100
-    skill = SkillDefinition(
+    skill = BuffSkill(
         id="bubble",
         name="バブル",
         effect="buff",
@@ -164,7 +164,7 @@ def test_correct_ratio_applies_effect_once_and_status_is_binary():
     """二問中一問正解・誤答時半減なら75%の回復。状態付与は不発."""
     state = battle_state()
     marker = state.save.battle
-    skill = SkillDefinition(
+    skill = RecoverySkill(
         id="heal",
         name="回復",
         effect="heal_hp",
@@ -186,7 +186,7 @@ def test_correct_ratio_applies_effect_once_and_status_is_binary():
     assert state.save.run.hp == 25
     assert marker.endAction is None
     assert state.save.endActionReceipt["action_id"] == "action"
-    skill = SkillDefinition(id="poison", name="毒", effect="ailment", amount=5)
+    skill = AilmentSkill(id="poison", name="毒", effect="ailment", amount=5)
     marker.endAction = {**action, "skill": skill.model_dump()}
     finish_action(state)
     assert not marker.effects

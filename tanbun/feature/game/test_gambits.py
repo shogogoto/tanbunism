@@ -11,7 +11,7 @@ from tanbun.feature.user.testing import aauth_header, aregister
 
 from . import combat
 from .balance import GameBalance
-from .catalog import SkillDefinition, default_catalog
+from .catalog import AilmentSkill, default_catalog
 from .combat import EnemyStats, TurnRequest, apply_turn_result, style_enemies
 from .effects import BattleEffect
 from .gambits import GambitRule, choose_action, validate_rules
@@ -269,7 +269,7 @@ async def test_receipt_retries_never_consume_gambit_twice(u):
     poisoned_enemy = state.save.battle.enemies[0]
     state.save.battle.effects = [
         BattleEffect(
-            skill=SkillDefinition(id="poison", name="毒", effect="ailment", amount=1),
+            skill=AilmentSkill(id="poison", name="毒", effect="ailment", amount=1),
             target_id=poisoned_enemy,
             starts_turn=0,
             expires_turn=2,

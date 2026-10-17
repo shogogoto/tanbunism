@@ -59,7 +59,7 @@ def catalog_products(
             ),
             kind=kinds[skills[i.skill_id].effect],
             amount=skills[i.skill_id].amount,
-            amount_mode=skills[i.skill_id].amount_mode,
+            amount_mode=getattr(skills[i.skill_id], "amount_mode", "fixed"),
             icon=i.icon,
             skill_id=i.skill_id,
             skill_name=skills[i.skill_id].name,

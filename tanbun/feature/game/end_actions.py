@@ -15,7 +15,7 @@ from tanbun.feature.notification.usecase import dispatch_saved_notifications
 from tanbun.feature.quiz.answering.repo import create_answer_in_transaction
 from tanbun.feature.quiz.chain.usecase import expand_quiz_chain
 
-from .catalog import SkillDefinition, get_game_catalog
+from .catalog import get_game_catalog, parse_skill
 from .combat import ENEMIES_TO_CLEAR, MOVES_PER_EVENT, persist
 from .economy import GOLD_PER_LEVEL
 from .effects import add_effect, effect_amount, sync_bubble
@@ -223,7 +223,7 @@ def finish_action(state: GameState) -> dict[str, int]:
     """正答率から数値効果を一度適用。状態は全問正解時のみ付与する仮ルール."""
     marker, run = state.save.battle, state.save.run
     action = marker.endAction
-    skill = SkillDefinition.model_validate(action["skill"])
+    skill = parse_skill(action["skill"])
     total = len(action["quiz_ids"])
     rate = action["correct"] / total if total else 1
     wrong = action.get("wrong_multiplier", action["skill"].get("wrong_multiplier", 0))

@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from tanbun.conftest import mark_async_test
 from tanbun.feature.user.testing import aauth_header, aregister
 
-from .catalog import GameCatalog, IconId, SkillDefinition, default_catalog
+from .catalog import AttackSkill, GameCatalog, IconId, default_catalog
 from .economy import EconomyAction, catalog_products, change_economy
 from .test_economy import seed_user
 
@@ -123,8 +123,8 @@ def test_references_targets_icons_and_duplicate_ids_are_validated():
 def test_all_gallery_icons_can_be_saved_in_skill_definitions():
     """素材一覧の追加アイコンも定義として受け付ける."""
     for icon in get_args(IconId):
-        skill = SkillDefinition(id="test", name="技", effect="attack", icon=icon)
-        assert SkillDefinition.model_validate_json(skill.model_dump_json()).icon == icon
+        skill = AttackSkill(id="test", name="技", effect="attack", icon=icon)
+        assert AttackSkill.model_validate_json(skill.model_dump_json()).icon == icon
 
 
 def test_imported_animation_ids_are_accepted_but_arbitrary_sources_are_not():
@@ -143,18 +143,18 @@ def test_imported_animation_ids_are_accepted_but_arbitrary_sources_are_not():
         ),
     ]
     for animation in ids:
-        skill = SkillDefinition(
+        skill = AttackSkill(
             id="test",
             name="技",
             effect="attack",
             animation=animation,
         )
         assert (
-            SkillDefinition.model_validate_json(skill.model_dump_json()).animation
+            AttackSkill.model_validate_json(skill.model_dump_json()).animation
             == animation
         )
     with pytest.raises(ValidationError):
-        SkillDefinition(
+        AttackSkill(
             id="test",
             name="技",
             effect="attack",

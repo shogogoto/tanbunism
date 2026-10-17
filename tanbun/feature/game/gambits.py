@@ -5,7 +5,13 @@ from typing import TYPE_CHECKING, Literal
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
-from .catalog import DefinitionId, GameCatalog, SkillDefinition, SpecialtySkillUse
+from .catalog import (
+    DefinitionId,
+    GameCatalog,
+    SkillDefinition,
+    SpecialtySkillUse,
+    StoredSkill,
+)
 from .effects import add_effect, effect_amount
 
 if TYPE_CHECKING:
@@ -34,7 +40,7 @@ class GambitRule(BaseModel):
 class BattleAction(BaseModel):
     """選択時に固定された行動。定義編集や通信再送で変わらない。."""
 
-    skill: SkillDefinition
+    skill: StoredSkill
     item_id: DefinitionId | None = None
     name: str
     specialty_id: str | None = None

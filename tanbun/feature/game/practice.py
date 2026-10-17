@@ -14,7 +14,7 @@ from tanbun.feature.quiz.domain.domain import ReadableQuiz
 
 from .admin import EnemyBalanceSimulationResult, _dungeon_content, _legacy_pool_ids
 from .balance import Allocation, GameBalance
-from .catalog import GameCatalog, SkillDefinition, default_catalog, get_game_catalog
+from .catalog import GameCatalog, StoredSkill, default_catalog, get_game_catalog
 from .combat import (
     CombatContext,
     EnemyStats,
@@ -58,7 +58,7 @@ class PracticeSession(BaseModel):
     catalog: GameCatalog = Field(default_factory=default_catalog)
     gambit_slots: int = Field(default=1, ge=1, le=10)
     specialty_quizzes: dict[str, list[ReadableQuiz]] = Field(default_factory=dict)
-    specialty_skills: dict[str, SkillDefinition] = Field(default_factory=dict)
+    specialty_skills: dict[str, StoredSkill] = Field(default_factory=dict)
 
 
 class SimulatedPracticeRequest(BaseModel):
