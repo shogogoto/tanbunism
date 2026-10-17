@@ -71,6 +71,7 @@ class EnemyStats(BaseModel):
     region: int
     icon: str | None = None
     animation: str = "none"
+    sound: str = "auto"
     on_hit_skill: StoredSkill | None = None
 
 
@@ -159,6 +160,7 @@ def style_enemies(
                     else template.name,
                     "attack": attack,
                     "animation": skill.animation if skill else "none",
+                    "sound": skill.sound if skill else "auto",
                 },
             ),
         )

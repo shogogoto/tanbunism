@@ -170,6 +170,7 @@ def test_correct_ratio_applies_effect_once_and_status_is_binary():
         effect="heal_hp",
         target="self",
         amount=20,
+        sound="heal",
     )
     action = {
         "id": "action",
@@ -186,10 +187,14 @@ def test_correct_ratio_applies_effect_once_and_status_is_binary():
     assert state.save.run.hp == 25
     assert marker.endAction is None
     assert state.save.endActionReceipt["action_id"] == "action"
+    assert state.save.endActionReceipt["sound"] == "heal"
+    assert state.save.endActionReceipt["effect"] == "heal_hp"
+    assert state.save.endActionReceipt["target_ids"] == ["player"]
     skill = AilmentSkill(id="poison", name="毒", effect="ailment", amount=5)
     marker.endAction = {**action, "skill": skill.model_dump()}
     finish_action(state)
     assert not marker.effects
+    assert state.save.endActionReceipt["sound"] == "none"
 
 
 @mark_async_test()

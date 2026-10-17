@@ -19,6 +19,17 @@ def document(skills):
     return {"format": "tanbunism.skills", "version": 1, "skills": skills}
 
 
+def test_sound_roundtrip_defaults_and_unknown_preset_validation():
+    """旧定義は自動SE、指定した音はJSONにも残り、不明な音は拒否する."""
+    definition = {"id": "fire", "name": "炎", "effect": "attack"}
+    legacy = SkillFile.model_validate(document([definition]))
+    assert legacy.skills[0].sound == "auto"
+    selected = SkillFile.model_validate(document([{**definition, "sound": "fire"}]))
+    assert json.loads(selected.model_dump_json())["skills"][0]["sound"] == "fire"
+    with pytest.raises(ValidationError):
+        SkillFile.model_validate(document([{**definition, "sound": "missing"}]))
+
+
 @pytest.mark.parametrize(
     ("effect", "specific"),
     [
@@ -45,6 +56,7 @@ def test_v2_serializes_only_fields_belonging_to_its_effect(effect, specific):
         "enabled",
         "mp_cost",
         "animation",
+        "sound",
         "effect",
         "target",
         "amount",

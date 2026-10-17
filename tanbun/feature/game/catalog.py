@@ -160,6 +160,22 @@ class SkillStat(StrEnum):
     MAX_HP = "maxHp"
 
 
+class SkillSound(StrEnum):
+    """スキルの効果音。自動では効果種別に合う音を使う."""
+
+    AUTO = "auto"
+    NONE = "none"
+    IMPACT = "impact"
+    SLASH = "slash"
+    FIRE = "fire"
+    LIGHTNING = "lightning"
+    HEAL = "heal"
+    BUFF = "buff"
+    DEBUFF = "debuff"
+    POISON = "poison"
+    CURSE = "curse"
+
+
 class SkillBase(BaseModel):
     """種類に依存しない識別・表示・消費MP・演出だけを共有する."""
 
@@ -170,6 +186,7 @@ class SkillBase(BaseModel):
     icon: IconId = "sparkles"
     enabled: bool = True
     mp_cost: int = Field(default=0, ge=0, le=10000)
+    sound: SkillSound = SkillSound.AUTO
     animation: Literal[
         "none",
         "slash",

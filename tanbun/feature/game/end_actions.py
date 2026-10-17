@@ -229,6 +229,13 @@ def finish_action(state: GameState) -> dict[str, int]:
     rate = action["correct"] / total if total else 1
     wrong = action.get("wrong_multiplier", action["skill"].get("wrong_multiplier", 0))
     factor = wrong + (1 - wrong) * rate
+    targets = (
+        ["player"]
+        if skill.target == "self"
+        else list(marker.enemies)
+        if skill.target == "all_enemies"
+        else marker.enemies[:1]
+    )
     outgoing = {}
     if skill.effect == "heal_hp":
         run.hp = min(
@@ -241,9 +248,6 @@ def finish_action(state: GameState) -> dict[str, int]:
             run.mp + floor(effect_amount(skill, run.maxMp) * factor),
         )
     elif skill.effect == "attack":
-        targets = (
-            marker.enemies if skill.target == "all_enemies" else marker.enemies[:1]
-        )
         outgoing = {
             e: min(
                 action["enemy_hp"][e],
@@ -264,13 +268,6 @@ def finish_action(state: GameState) -> dict[str, int]:
         run.kills += 0 if marker.bossLevel else len(killed)
         state.save.economy.gold += len(killed) * (marker.region + 1) * GOLD_PER_LEVEL
     elif rate == 1 and skill.effect in {"buff", "debuff", "ailment"}:
-        targets = (
-            ["player"]
-            if skill.target == "self"
-            else marker.enemies
-            if skill.target == "all_enemies"
-            else marker.enemies[:1]
-        )
         for target in targets:
             add_effect(marker, skill, target)
             marker.effects[-1].starts_turn = marker.turn
@@ -286,6 +283,13 @@ def finish_action(state: GameState) -> dict[str, int]:
         "turn": marker.turn,
         "action_id": action["id"],
         "outgoing_damage": outgoing,
+        "sound": skill.sound
+        if (rate == 1 if skill.effect in {"buff", "debuff", "ailment"} else factor > 0)
+        else "none",
+        "effect": skill.effect,
+        "target": skill.target,
+        "target_ids": targets,
+        "ailment": getattr(skill, "ailment", None),
         "animation": skill.animation
         if (rate == 1 if skill.effect in {"buff", "debuff", "ailment"} else factor > 0)
         else "none",
