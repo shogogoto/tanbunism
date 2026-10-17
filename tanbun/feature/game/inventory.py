@@ -17,6 +17,13 @@ class ChestReward(BaseModel, frozen=True):
     step_potion: int = Field(default=0, ge=0)
 
 
+class DungeonKey(BaseModel, frozen=True):
+    """配布履歴を兼ねる、リソースを指定したダンジョン開放アイテム."""
+
+    resource_id: str = Field(max_length=64)
+    name: str = Field(max_length=1000)
+
+
 class Economy(BaseModel):
     """ゴールドは撃破、歩数回復薬は今日の復習完了から獲得する."""
 
@@ -33,6 +40,7 @@ class Economy(BaseModel):
     review_reward_day: str | None = None
     quiz_reward_day: str | None = None
     opened_chests: dict[str, dict[str, ChestReward]] = Field(default_factory=dict)
+    dungeon_keys: dict[str, DungeonKey] = Field(default_factory=dict)
 
     @computed_field
     @property
@@ -52,7 +60,8 @@ class Product(BaseModel, frozen=True):
     id: ProductId
     name: str
     price: int | None
-    kind: Literal["weapon", "hp", "mp", "moves", "skill"]
+    kind: Literal["weapon", "hp", "mp", "moves", "skill", "dungeon_unlock"]
+    resource_id: str | None = None
     amount: int
     amount_mode: Literal["fixed", "percent"] = "fixed"
     icon: str = "flask"

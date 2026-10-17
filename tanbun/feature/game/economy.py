@@ -16,6 +16,7 @@ from tanbun.feature.recommendation.settings import settings_scope
 
 from .balance import get_game_balance
 from .catalog import GameCatalog, get_game_catalog
+from .dungeon_keys import use_dungeon_key
 from .inventory import Economy, Product, ProductId, consume_use, equipped_stats
 from .state import GameSave, GameState, StateUpdate, compare_and_save, read_state
 
@@ -177,21 +178,7 @@ async def change_economy(user_id: UUIDy, body: EconomyAction, action: str) -> Ga
         raise HTTPException(409, "戦闘中はショップ・所持品を操作できません。")
     updated = previous.model_copy(deep=True)
     economy = updated.save.economy
-    product = await active_product(
-        body.product_id,
-        allow_disabled=action == "equip" and economy.weapon == body.product_id,
-    )
-    quantity = economy.inventory.get(product.id, 0)
-    if action == "buy":
-        buy(economy, product)
-    elif action == "equip":
-        if product.kind != "weapon" or not quantity:
-            raise HTTPException(422, "所持している武器を選んでください。")
-        economy.weapon = None if economy.weapon == product.id else product.id
-        economy.equipment_attack = product.amount if economy.weapon else 0
-        economy.weapon_max_uses = product.max_uses
-    else:
-        use_item(updated.save, product)
+    await apply_inventory_action(user_id, updated.save, body.product_id, action)
     stats = equipped_stats(updated.save.allocation, await get_game_balance(), economy)
     for current in [updated.save.run, *(d.run for d in updated.save.dungeons.values())]:
         if current:
@@ -211,6 +198,36 @@ async def change_economy(user_id: UUIDy, body: EconomyAction, action: str) -> Ga
                 "所持品が更新されました。もう一度操作してください。",
             )
     return updated
+
+
+async def apply_inventory_action(
+    user_id: UUIDy,
+    save: GameSave,
+    product_id: str,
+    action: str,
+) -> None:
+    """通常カタログの品物と対象付き開放キーを同じ所持品操作で扱う."""
+    economy = save.economy
+    if product_id in economy.dungeon_keys:
+        if action != "use":
+            raise HTTPException(422, "ダンジョン開放キーは使用のみ可能です。")
+        await use_dungeon_key(user_id, save, product_id)
+        return
+    product = await active_product(
+        product_id,
+        allow_disabled=action == "equip" and economy.weapon == product_id,
+    )
+    quantity = economy.inventory.get(product.id, 0)
+    if action == "buy":
+        buy(economy, product)
+    elif action == "equip":
+        if product.kind != "weapon" or not quantity:
+            raise HTTPException(422, "所持している武器を選んでください。")
+        economy.weapon = None if economy.weapon == product.id else product.id
+        economy.equipment_attack = product.amount if economy.weapon else 0
+        economy.weapon_max_uses = product.max_uses
+    else:
+        use_item(save, product)
 
 
 async def active_product(product_id: str, *, allow_disabled: bool = False) -> Product:

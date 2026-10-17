@@ -27,6 +27,7 @@ from .combat import (
     settle_turn,
     start_combat,
 )
+from .dungeon_keys import key_products
 from .economy import (
     EconomyAction,
     catalog_products,
@@ -278,7 +279,10 @@ async def get_shop(user: ActiveUser, response: Response) -> dict:
     return {
         "products": [
             p.model_dump()
-            for p in catalog_products(await get_game_catalog(), include_disabled=True)
+            for p in [
+                *catalog_products(await get_game_catalog(), include_disabled=True),
+                *key_products(state.save),
+            ]
         ],
         "specialties": [
             {

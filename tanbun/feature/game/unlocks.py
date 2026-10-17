@@ -2,10 +2,10 @@
 # ruff: noqa: N815
 
 from secrets import choice
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from neomodel import adb
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from tanbun.feature.domain.types import UUIDy, to_uuid
 
@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 PLACES_PER_UNLOCK = 15
 MAX_UNLOCKED_DUNGEONS = 1000
+ACHIEVEMENTS_PER_UNLOCK = 3
 
 
 class DungeonUnlock(BaseModel):
@@ -22,7 +23,16 @@ class DungeonUnlock(BaseModel):
     sourceId: str = Field(max_length=64)
     resourceId: str = Field(max_length=64)
     name: str = Field(max_length=1000)
-    achievement: int = Field(ge=3)
+    achievement: int = Field(ge=0)
+    source: Literal["exploration", "item"] = "exploration"
+
+    @model_validator(mode="after")
+    def valid_achievement(self):
+        """アイテム開放と探索の達成度報酬を区別する."""
+        if self.source == "exploration" and self.achievement < ACHIEVEMENTS_PER_UNLOCK:
+            msg = "探索による開放は達成度3以上です。"
+            raise ValueError(msg)
+        return self
 
 
 async def discover_dungeons(user_id: UUIDy, save: "GameSave") -> bool:
@@ -32,6 +42,7 @@ async def discover_dungeons(user_id: UUIDy, save: "GameSave") -> bool:
     claimed = {
         (item.sourceId.replace("-", "").lower(), item.achievement)
         for item in save.unlockedDungeons
+        if item.source == "exploration"
     }
     sizes = {
         key.replace("-", "").lower(): len(value.places)
