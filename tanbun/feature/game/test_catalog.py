@@ -137,6 +137,10 @@ def test_imported_animation_ids_are_accepted_but_arbitrary_sources_are_not():
         *(f"oga_arcane_{i}" for i in range(1, 7)),
         *(f"oga_earth_{i}" for i in range(1, 6)),
         *(f"oga_cosmic_{i}" for i in range(1, 6)),
+        *(
+            f"mochi_status_{effect}"
+            for effect in ("curse", "buff", "shield", "heal", "speed")
+        ),
     ]
     for animation in ids:
         skill = SkillDefinition(
@@ -170,7 +174,7 @@ async def test_catalog_requires_admin_and_shares_saved_definitions(ac):
     user.is_superuser = True
     await user.save()
     data["skills"][0]["amount"] = 7
-    data["skills"][0]["animation"] = "oga_cosmic_2"
+    data["skills"][0]["animation"] = "mochi_status_curse"
     data["enemies"][0]["icon"] = "crawl_dragon"
     data["skills"][0]["icon"] = "crawl_fireball"
     data["items"][0]["icon"] = "crawl_red_potion"

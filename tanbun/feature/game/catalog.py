@@ -187,6 +187,11 @@ class SkillDefinition(BaseModel):
         "oga_cosmic_3",
         "oga_cosmic_4",
         "oga_cosmic_5",
+        "mochi_status_curse",
+        "mochi_status_buff",
+        "mochi_status_shield",
+        "mochi_status_heal",
+        "mochi_status_speed",
     ] = "none"
     amount_mode: Literal["fixed", "percent"] = "fixed"
     stat: Literal["attack", "defense", "maxHp"] = "attack"
