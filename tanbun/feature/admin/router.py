@@ -54,6 +54,7 @@ from tanbun.feature.game.simulation import (
     CombatSimulationResult,
     simulate_combat,
 )
+from tanbun.feature.game.skill_files import SkillFilePreview
 from tanbun.feature.game.state import GameState, read_state
 from tanbun.feature.gamification.power import (
     PowerWeights,
@@ -120,6 +121,15 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 async def read_catalog(_admin: AdminUser) -> GameCatalog:
     """スキル・アイテム・敵の共通定義。."""
     return await get_game_catalog()
+
+
+@router.post("/game/skills/preview")
+async def preview_skills(body: SkillFilePreview, _admin: AdminUser) -> GameCatalog:
+    """ファイルを未保存の編集内容に統合する。DBには書き込まない."""
+    try:
+        return body.merged_catalog()
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
 
 
 @router.put("/game/catalog")

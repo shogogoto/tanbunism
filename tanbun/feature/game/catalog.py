@@ -1,5 +1,6 @@
 """管理者が定義するスキル・所持品・敵の素材。戦闘開始時に効果を固定する。."""
 
+from enum import StrEnum
 from typing import Annotated, Literal
 
 from neomodel import adb
@@ -115,6 +116,42 @@ IconId = Literal[
 ]
 
 
+class SkillEffect(StrEnum):
+    """スキルの共通効果。JSONでは読みやすい文字列を維持する."""
+
+    ATTACK = "attack"
+    HEAL_HP = "heal_hp"
+    HEAL_MP = "heal_mp"
+    RECOVER_MOVES = "recover_moves"
+    EQUIP_ATTACK = "equip_attack"
+    BUFF = "buff"
+    DEBUFF = "debuff"
+    AILMENT = "ailment"
+
+
+class SkillTarget(StrEnum):
+    """効果の対象。利用者や入手経路とは独立する."""
+
+    ENEMY = "enemy"
+    ALL_ENEMIES = "all_enemies"
+    SELF = "self"
+
+
+class AmountMode(StrEnum):
+    """効果量の指定方式."""
+
+    FIXED = "fixed"
+    PERCENT = "percent"
+
+
+class SkillStat(StrEnum):
+    """持続効果が変更する能力."""
+
+    ATTACK = "attack"
+    DEFENSE = "defense"
+    MAX_HP = "maxHp"
+
+
 class SkillDefinition(BaseModel):
     """利用元とは独立した共通の効果と演出。."""
 
@@ -122,17 +159,8 @@ class SkillDefinition(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     icon: IconId = "sparkles"
     enabled: bool = True
-    effect: Literal[
-        "attack",
-        "heal_hp",
-        "heal_mp",
-        "recover_moves",
-        "equip_attack",
-        "buff",
-        "debuff",
-        "ailment",
-    ]
-    target: Literal["enemy", "all_enemies", "self"] = "enemy"
+    effect: SkillEffect
+    target: SkillTarget = SkillTarget.ENEMY
     amount: int = Field(default=0, ge=0, le=10000)
     multiplier: float = Field(default=1, ge=0, le=10, allow_inf_nan=False)
     mp_cost: int = Field(default=0, ge=0, le=10000)
@@ -193,8 +221,8 @@ class SkillDefinition(BaseModel):
         "mochi_status_heal",
         "mochi_status_speed",
     ] = "none"
-    amount_mode: Literal["fixed", "percent"] = "fixed"
-    stat: Literal["attack", "defense", "maxHp"] = "attack"
+    amount_mode: AmountMode = AmountMode.FIXED
+    stat: SkillStat = SkillStat.ATTACK
     duration_turns: int = Field(default=3, ge=1, le=20)
     stack_limit: int = Field(default=1, ge=1, le=10)
     ailment: Literal["poison"] = "poison"
