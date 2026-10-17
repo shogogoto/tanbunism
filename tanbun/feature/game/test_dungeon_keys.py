@@ -2,6 +2,7 @@
 # ruff: noqa: PLR2004
 
 import asyncio
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -9,6 +10,7 @@ from fastapi import HTTPException
 from neomodel import adb
 
 from tanbun.conftest import mark_async_test
+from tanbun.feature.notification.repo import list_notifications
 from tanbun.feature.user.testing import aauth_header, aregister
 
 from .dungeon_keys import grant_dungeon_key, key_products
@@ -69,6 +71,13 @@ async def test_grants_once_uses_once_and_preserves_current_adventure():
     imported_again = await grant_dungeon_key(user.uid, resource)
     assert imported_again.save.economy.inventory[identity] == 0
     assert imported_again.revision == used.revision
+    feed = await list_notifications(user.uid, limit=100)
+    assert len(feed.notifications) == 1
+    notification = feed.notifications[0]
+    assert notification.kind == "dungeon_key_granted"
+    assert notification.title == "ダンジョン開放キーを入手しました"
+    assert "学びの本" in notification.description
+    assert notification.href == "/game/item"
 
 
 @mark_async_test()
@@ -83,6 +92,7 @@ async def test_parallel_grants_do_not_duplicate_inventory():
     assert (await read_state(user.uid)).save.economy.inventory[
         f"@dungeon:{resource}"
     ] == 1
+    assert len((await list_notifications(user.uid, limit=100)).notifications) == 1
 
 
 @mark_async_test()
@@ -196,3 +206,38 @@ async def test_text_and_file_import_distribute_targeted_keys_once(ac):
         if p["kind"] == "dungeon_unlock"
     } == {resource, *uploaded.json()["resource_ids"]}
     assert state.save == GameSave.model_validate(state.save.model_dump())
+    feed = await list_notifications(user.uid, limit=100)
+    assert len(feed.notifications) == 2
+    assert all(n.kind == "dungeon_key_granted" for n in feed.notifications)
+
+
+@mark_async_test()
+async def test_import_does_not_notify_when_dungeon_is_already_open():
+    """未配布でも既に開放済みなら個数ゼロなので通知しない."""
+    user = await seed_user()
+    resource = await resource_for(user.uid)
+    state = await read_state(user.uid)
+    state.save.visitedDungeons.append(resource)
+    await adb.cypher_query(
+        "MATCH (u:User {uid:$uid}) SET u.game_state=$state",
+        {"uid": user.uid, "state": state.model_dump_json()},
+    )
+    granted = await grant_dungeon_key(user.uid, resource)
+    assert granted.save.economy.inventory[f"@dungeon:{resource}"] == 0
+    assert not (await list_notifications(user.uid, limit=100)).notifications
+
+
+@mark_async_test()
+async def test_notification_failure_rolls_back_key_distribution(monkeypatch):
+    """通知保存の失敗で配布だけが確定し、以後通知できなくならない."""
+    user = await seed_user()
+    resource = await resource_for(user.uid)
+    previous = await read_state(user.uid)
+    monkeypatch.setattr(
+        "tanbun.feature.game.dungeon_keys.create_notification",
+        AsyncMock(side_effect=RuntimeError("notification failed")),
+    )
+    with pytest.raises(RuntimeError, match="notification failed"):
+        await grant_dungeon_key(user.uid, resource)
+    assert await read_state(user.uid) == previous
+    assert not (await list_notifications(user.uid, limit=100)).notifications

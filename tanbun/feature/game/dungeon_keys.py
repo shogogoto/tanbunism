@@ -5,6 +5,9 @@ from neomodel import adb
 
 from tanbun.config.transactions import atomic
 from tanbun.feature.domain.types import UUIDy, to_uuid
+from tanbun.feature.notification.domain import NewNotification, NotificationKind
+from tanbun.feature.notification.repo import create_notification
+from tanbun.feature.notification.usecase import dispatch_saved_notifications
 
 from .inventory import DungeonKey, Product, consume_use
 from .state import GameSave, GameState, StateUpdate, compare_and_save, read_state
@@ -80,13 +83,28 @@ async def grant_dungeon_key(user_id: UUIDy, resource_id: UUIDy) -> GameState:
             resource not in opened_resources(previous.save),
         )
         updated.revision = previous.revision + 1
+        notifications = []
         async with atomic():
             rows = await compare_and_save(
                 user_id,
                 StateUpdate(revision=previous.revision, save=updated.save),
                 updated,
             )
+            if rows and updated.save.economy.inventory[identity]:
+                notifications.append(
+                    await create_notification(
+                        user_id,
+                        NewNotification(
+                            kind=NotificationKind.DUNGEON_KEY_GRANTED,
+                            title="ダンジョン開放キーを入手しました",
+                            description=f"「{name[:400]}」の開放キーを1個入手しました。所持品から使うとダンジョンを開放できます。",
+                            href="/game/item",
+                        ),
+                    ),
+                )
         if rows:
+            if notifications:
+                await dispatch_saved_notifications(user_id, notifications)
             return updated
     raise HTTPException(409, "所持品が更新されました。importを再試行してください。")
 

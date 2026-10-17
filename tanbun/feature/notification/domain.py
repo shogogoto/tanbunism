@@ -17,6 +17,7 @@ class NotificationKind(StrEnum):
     PAGERANK_COMPLETE = "pagerank_complete"
     USER_LEVEL_UP = "user_level_up"
     RESOURCE_LEVEL_UP = "resource_level_up"
+    DUNGEON_KEY_GRANTED = "dungeon_key_granted"
 
 
 class NewNotification(BaseModel, frozen=True):
