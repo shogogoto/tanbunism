@@ -26,7 +26,15 @@ from .unlocks import DungeonUnlock, discover_dungeons
 MAX_SNAPSHOT_BYTES = 1000000
 MAX_VISITED_DUNGEONS = 1000
 PLACES_PER_REGION = 5
-DERIVED_PLAYER_FIELDS = {"maxHp", "maxMp", "attack", "defense", "speed"}
+DERIVED_PLAYER_FIELDS = {
+    "maxHp",
+    "maxMp",
+    "attack",
+    "defense",
+    "speed",
+    "specialAttack",
+    "specialDefense",
+}
 
 
 class Run(BaseModel):
@@ -41,6 +49,8 @@ class Run(BaseModel):
     maxMp: int = Field(default=0, ge=0, le=100000)
     attack: int = Field(ge=0, le=100000)
     defense: int = Field(ge=0, le=100000)
+    specialAttack: int = Field(default=10, ge=0, le=100000)
+    specialDefense: int = Field(default=1, ge=0, le=100000)
     speed: int = Field(default=10, ge=1, le=100000)
     moves: int = Field(ge=0, le=5)
     kills: int = Field(ge=0, le=10000)

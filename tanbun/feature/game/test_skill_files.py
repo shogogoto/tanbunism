@@ -43,12 +43,35 @@ def test_all_sound_materials_can_be_saved_and_exported(sound):
 @pytest.mark.parametrize(
     ("effect", "specific"),
     [
-        ("attack", {"amount_mode", "multiplier"}),
-        ("heal_hp", {"amount_mode"}),
-        ("heal_mp", {"amount_mode"}),
-        ("buff", {"amount_mode", "stat", "duration_turns", "stack_limit"}),
-        ("debuff", {"amount_mode", "stat", "duration_turns", "stack_limit"}),
-        ("ailment", {"amount_mode", "ailment", "duration_turns", "stack_limit"}),
+        (
+            "attack",
+            {"amount_mode", "multiplier", "damage_type", "target_count", "on_wrong"},
+        ),
+        ("heal_hp", {"amount_mode", "on_wrong"}),
+        ("heal_mp", {"amount_mode", "on_wrong"}),
+        ("buff", {"amount_mode", "stat", "duration_turns", "stack_limit", "on_wrong"}),
+        (
+            "debuff",
+            {
+                "amount_mode",
+                "stat",
+                "duration_turns",
+                "stack_limit",
+                "target_count",
+                "on_wrong",
+            },
+        ),
+        (
+            "ailment",
+            {
+                "amount_mode",
+                "ailment",
+                "duration_turns",
+                "stack_limit",
+                "target_count",
+                "on_wrong",
+            },
+        ),
         ("recover_moves", set()),
         ("equip_attack", set()),
     ],
@@ -161,7 +184,7 @@ def test_import_updates_by_id_appends_new_and_preserves_consumers():
 @pytest.mark.parametrize(
     "patch",
     [
-        {"version": 3},
+        {"version": 4},
         {"format": "other"},
         {"skills": [{"id": "wrong", "name": "誤記", "effect": "unknown"}]},
         {"skills": [{"id": "wrong", "name": "誤記", "effect": "attack", "mpcost": 3}]},

@@ -16,12 +16,13 @@ from tanbun.feature.quiz.answering.repo import create_answer_in_transaction
 from tanbun.feature.quiz.chain.usecase import expand_quiz_chain
 
 from .catalog import get_game_catalog, parse_skill
-from .combat import ENEMIES_TO_CLEAR, MOVES_PER_EVENT, persist
+from .combat import ENEMIES_TO_CLEAR, MOVES_PER_EVENT, combat_context, persist
 from .economy import GOLD_PER_LEVEL
 from .effects import add_effect, effect_amount, sync_bubble
 from .gambit_slots import gambit_capacity
 from .gambits import choose_action
 from .inventory import consume_use
+from .skill_outcomes import answer_effect, attack_stat, normal_attack, skill_targets
 from .skills import specialty_pools
 from .specialties import specialty_capacity, strengthened
 from .state import GameState, read_state
@@ -96,6 +97,12 @@ async def start_end_action(user_id, body: EndActionRequest) -> dict:
         skill,
         quizzes,
         marker.schedule.enemy_hp if marker.schedule else body.enemy_hp,
+        counter_damage=prepare_counter_damage(
+            updated,
+            await combat_context(user_id, updated),
+        )
+        if quizzes and skill.on_wrong.type == "counter"
+        else 0,
     )
     outgoing = finish_action(updated) if not quizzes else {}
     async with atomic():
@@ -140,14 +147,32 @@ async def select_end_candidate(user_id, save):
                         r for r in search.gambits if r.definition_id != specialty.id
                     ]
                     continue
-                quizzes = [choice(pools[r]) for r in specialty.resource_ids]
+                # One action is one question, even after resources are fused.
+                quizzes = [choice(pools[choice(specialty.resource_ids)])]
                 for quiz_id in quizzes:
                     await expand_quiz_chain(user_id, to_uuid(quiz_id))
         return selected, skill, quizzes
     return None, None, []
 
 
-def begin_action(save, selected, skill, quizzes: list[str], enemy_hp: dict) -> None:
+def prepare_counter_damage(state, context) -> int:
+    """反撃用の一体分の通常攻撃を、出題時にサーバーで固定する。."""
+    from .damage import enemy_damage  # noqa: PLC0415
+    from .scheduled_combat import incoming_attack  # noqa: PLC0415
+
+    enemy = next(e for e in context.enemies if e.id == state.save.battle.enemies[0])
+    return incoming_attack(state, context, enemy, normal_attack(), enemy_damage)
+
+
+def begin_action(
+    save,
+    selected,
+    skill,
+    quizzes: list[str],
+    enemy_hp: dict,
+    *,
+    counter_damage=0,
+) -> None:
     """実戦と模擬戦で一回分の消費・出題状態を共通にする."""
     if selected.item_id:
         consume_use(save.economy, selected.item_id, selected.item_max_uses)
@@ -160,6 +185,7 @@ def begin_action(save, selected, skill, quizzes: list[str], enemy_hp: dict) -> N
         "quiz_ids": quizzes,
         "index": 0,
         "correct": 0,
+        "counter_damage": counter_damage,
         "quiz_seconds": selected.specialty_use.quiz_seconds
         if selected.specialty_use
         else 30,
@@ -248,21 +274,28 @@ def sync_scheduled_damage(marker, outgoing, killed) -> None:
     marker.schedule.queue = predict(marker.schedule)
 
 
-def finish_action(state: GameState) -> dict[str, int]:
-    """正答率から数値効果を一度適用。状態は全問正解時のみ付与する仮ルール."""
-    marker, run = state.save.battle, state.save.run
-    action = marker.endAction
+def resolved_end_effect(action):
+    """新しい一問形式と、進行中の旧複数問形式の効果を選ぶ。."""
     skill = parse_skill(action["skill"])
     total = len(action["quiz_ids"])
     rate = action["correct"] / total if total else 1
+    if total <= 1 and "on_wrong" in action["skill"]:
+        effect = answer_effect(skill, rate == 1)
+        return effect or skill, int(effect is not None), effect is not None
     wrong = action.get("wrong_multiplier", action["skill"].get("wrong_multiplier", 0))
     factor = wrong + (1 - wrong) * rate
+    applies = rate == 1 if skill.effect in {"buff", "debuff", "ailment"} else factor > 0
+    return skill, factor, applies
+
+
+def finish_action(state: GameState) -> dict[str, int]:
+    """一問の正誤に応じた効果を一度だけ適用する。."""
+    marker, run = state.save.battle, state.save.run
+    action = marker.endAction
+    skill, factor, applies = resolved_end_effect(action)
+    total = len(action["quiz_ids"])
     targets = (
-        ["player"]
-        if skill.target == "self"
-        else list(marker.enemies)
-        if skill.target == "all_enemies"
-        else marker.enemies[:1]
+        ["player"] if skill.target == "self" else skill_targets(skill, marker.enemies)
     )
     outgoing = {}
     if skill.effect == "heal_hp":
@@ -282,7 +315,7 @@ def finish_action(state: GameState) -> dict[str, int]:
                 floor(
                     (
                         effect_amount(skill, action["enemy_hp"][e])
-                        + run.attack * skill.multiplier
+                        + getattr(run, attack_stat(skill)) * skill.multiplier
                     )
                     * factor,
                 ),
@@ -296,7 +329,11 @@ def finish_action(state: GameState) -> dict[str, int]:
         marker.enemies = [e for e in marker.enemies if e not in killed]
         run.kills += 0 if marker.bossLevel else len(killed)
         state.save.economy.gold += len(killed) * (marker.region + 1) * GOLD_PER_LEVEL
-    elif rate == 1 and skill.effect in {"buff", "debuff", "ailment"}:
+    elif applies and skill.effect in {
+        "buff",
+        "debuff",
+        "ailment",
+    }:
         for target in targets:
             add_effect(marker, skill, target)
             marker.effects[-1].starts_turn = marker.turn
@@ -312,17 +349,14 @@ def finish_action(state: GameState) -> dict[str, int]:
         "turn": marker.turn,
         "action_id": action["id"],
         "outgoing_damage": outgoing,
-        "sound": skill.sound
-        if (rate == 1 if skill.effect in {"buff", "debuff", "ailment"} else factor > 0)
-        else "none",
+        "sound": skill.sound if applies else "none",
         "effect": skill.effect,
         "target": skill.target,
         "target_ids": targets,
         "ailment": getattr(skill, "ailment", None),
-        "animation": skill.animation
-        if (rate == 1 if skill.effect in {"buff", "debuff", "ailment"} else factor > 0)
-        else "none",
+        "animation": skill.animation if applies else "none",
     }
+    apply_end_counter(state, action, skill)
     if not marker.enemies:
         if marker.bossLevel:
             resource = to_uuid(run.resourceId).hex
@@ -343,3 +377,19 @@ def finish_action(state: GameState) -> dict[str, int]:
         state.save.battle = None
     sync_bubble(run, state.save.battle)
     return outgoing
+
+
+def apply_end_counter(state, action, skill):
+    """失敗時の反撃を一度反映し、戦闘不能なら入口へ戻す。."""
+    if not action["quiz_ids"] or action["correct"] or skill.on_wrong.type != "counter":
+        return
+    damage = action.get("counter_damage", 0)
+    run = state.save.run
+    run.hp = max(0, run.hp - damage)
+    state.save.endActionReceipt["damage"] = damage
+    if run.hp == 0:
+        run.phase = "defeated"
+        dungeon = state.save.maps.get(run.resourceId)
+        if dungeon:
+            dungeon.current = "@entrance"
+        state.save.battle = None

@@ -272,8 +272,8 @@ async def test_fusion_consumes_parents_and_never_recreates_a_resource(u):
 
 
 @mark_async_test()
-async def test_fused_quizzes_are_sequential_independent_and_idempotent(u, monkeypatch):
-    """二つの出題元を一問ずつ、個別の締切で出題し消費は一回."""
+async def test_fused_specialty_asks_one_question_and_is_idempotent(u, monkeypatch):
+    """配合した出題元から一問だけ選び、再送でも消費は一回."""
     state = await intermission(u)
     source = state.save.run.resourceId.replace("-", "")
     other = uuid4().hex
@@ -310,28 +310,23 @@ async def test_fused_quizzes_are_sequential_independent_and_idempotent(u, monkey
         ),
     )
     action = result["action"]
-    assert len(action["quiz_ids"]) == 2
+    assert len(action["quiz_ids"]) == 1
+    assert action["quiz_ids"][0] in quiz_ids
     request = EndActionAnswer(
         action_id=action["id"],
         index=0,
         selected=list(result["quiz"].correct),
     )
     first = await answer_end_action(u.uid, request)
-    assert first["action"]["index"] == 1
+    assert first["action"] is None
     assert first["state"].save.run.mp == 7
     again = await answer_end_action(u.uid, request)
-    assert again["action"]["index"] == 1
+    assert again["action"] is None
     assert again["state"].revision == first["state"].revision
-    last = await answer_end_action(
-        u.uid,
-        EndActionAnswer(action_id=action["id"], index=1, selected=None),
-    )
-    assert last["action"] is None
-    assert last["state"].save.run.mp == 7
-    assert last["outgoing_damage"]
+    assert first["outgoing_damage"]
     retried = await answer_end_action(
         u.uid,
-        EndActionAnswer(action_id=action["id"], index=1, selected=None),
+        request,
     )
-    assert retried["outgoing_damage"] == last["outgoing_damage"]
-    assert (await read_state(u.uid)).revision == last["state"].revision
+    assert retried["outgoing_damage"] == first["outgoing_damage"]
+    assert (await read_state(u.uid)).revision == first["state"].revision

@@ -94,6 +94,8 @@ def test_legacy_time_allocation_is_ignored_and_cannot_extend_quiz_time() -> None
         "mp": 0,
         "attack": 0,
         "defense": 0,
+        "specialAttack": 0,
+        "specialDefense": 0,
         "speed": 0,
     }
     assert allocation.stats(balance)["answerSeconds"] == 40

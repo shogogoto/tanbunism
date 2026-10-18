@@ -16,6 +16,7 @@ from .action_queue import ActionSchedule, interval, predict, refresh_speeds, tak
 from .catalog import get_game_catalog
 from .combat import (
     TurnRequest,
+    apply_on_hit_effects,
     apply_turn_result,
     award_kill_gold,
     combat_context,
@@ -25,8 +26,16 @@ from .combat import (
 from .damage import enemy_damage, player_damage
 from .effects import effect_amount, modified_stat, poison_damage
 from .gambit_slots import gambit_capacity
-from .gambits import choose_action
+from .gambits import BattleAction, choose_action
 from .inventory import equipped_stats
+from .skill_outcomes import (
+    answer_effect,
+    attack_stat,
+    defense_stat,
+    enemy_attack_value,
+    normal_attack,
+    skill_targets,
+)
 
 
 def prepare_scheduled_gambit(state, catalog, slots=1) -> None:
@@ -37,6 +46,8 @@ def prepare_scheduled_gambit(state, catalog, slots=1) -> None:
         marker.gambitAction = (
             selected if selected and not selected.specialty_id else None
         )
+        if selected is None:
+            marker.gambitAction = BattleAction(skill=normal_attack(), name="戦う")
 
 
 async def prepare_live_gambit(user_id, state) -> None:
@@ -100,40 +111,105 @@ def begin_scheduled_action(state, context) -> None:
     run.answerDeadline = int(time() * 1000) + run.answerSeconds * 1000
 
 
+def outgoing_attack(state, context, skill, targets, *, roll_player, roll_enemy):
+    """プレイヤーから敵への、カテゴリ別能力を使った一回の攻撃。."""
+    marker = state.save.battle
+    stats = equipped_stats(state.save.allocation, context.balance, state.save.economy)
+    attack = modified_stat(
+        stats[attack_stat(skill)],
+        marker,
+        "player",
+        attack_stat(skill),
+    )
+    outgoing = {}
+    for enemy in context.enemies:
+        if enemy.id not in targets:
+            continue
+        defense = modified_stat(
+            enemy.special_defense if skill.damage_type == "special" else enemy.defense,
+            marker,
+            enemy.id,
+            defense_stat(skill),
+        )
+        base = (
+            roll_enemy(attack, defense, context.balance)
+            if defense
+            else roll_player(attack, context.balance)
+        )
+        amount = int(base * skill.multiplier) + effect_amount(skill, attack)
+        outgoing[enemy.id] = min(marker.schedule.enemy_hp[enemy.id], max(0, amount))
+    return outgoing
+
+
+def incoming_attack(state, context, enemy, skill, roll_enemy):
+    """敵からプレイヤーへの特殊攻撃・物理攻撃と通常反撃。."""
+    marker = state.save.battle
+    stats = equipped_stats(state.save.allocation, context.balance, state.save.economy)
+    attack = modified_stat(
+        enemy_attack_value(enemy, skill),
+        marker,
+        enemy.id,
+        attack_stat(skill),
+    )
+    base = roll_enemy(
+        attack,
+        modified_stat(
+            stats[defense_stat(skill)],
+            marker,
+            "player",
+            defense_stat(skill),
+        ),
+        context.balance,
+    )
+    return max(0, int(base * skill.multiplier) + effect_amount(skill, attack))
+
+
 def action_damage(state, context, *, correct, roll_player, roll_enemy):
-    """Calculate normal risky attacks or the sealed gambit's effect."""
+    """正答は常にプレイヤーに有利。敵の行動ではスキルの成否を反転する。."""
     marker = state.save.battle
     schedule = marker.schedule
     target = schedule.quiz_enemy_id
-    enemies = {e.id: e for e in context.enemies}
-    enemy = enemies[target]
-    stats = equipped_stats(state.save.allocation, context.balance, state.save.economy)
-    action = marker.gambitAction
-    outgoing = {}
-    incoming = 0
-    if correct:
-        attack = modified_stat(stats["attack"], marker, "player", "attack")
-        if not action or action.skill.effect == "attack":
-            targets = (
-                list(marker.enemies)
-                if action and action.skill.target == "all_enemies"
-                else [target]
+    enemy = next(e for e in context.enemies if e.id == target)
+    player_turn = schedule.actor_id == "player"
+    action = marker.gambitAction if player_turn else None
+    skill = (
+        action.skill
+        if action
+        else normal_attack()
+        if player_turn
+        else (enemy.attack_skill or normal_attack())
+    )
+    successful = correct if player_turn else not correct
+    effect = answer_effect(skill, successful)
+    if effect and effect.effect == "attack":
+        if player_turn:
+            return outgoing_attack(
+                state,
+                context,
+                effect,
+                skill_targets(effect, marker.enemies),
+                roll_player=roll_player,
+                roll_enemy=roll_enemy,
+            ), 0
+        return {}, incoming_attack(state, context, enemy, effect, roll_enemy)
+    if not successful and skill.on_wrong.type == "counter":
+        if player_turn:
+            return {}, incoming_attack(
+                state,
+                context,
+                enemy,
+                normal_attack(),
+                roll_enemy,
             )
-            for identity in targets:
-                amount = roll_player(attack, context.balance)
-                if action:
-                    amount = int(amount * action.skill.multiplier) + effect_amount(
-                        action.skill,
-                        attack,
-                    )
-                outgoing[identity] = min(schedule.enemy_hp[identity], max(0, amount))
-    elif not action or schedule.actor_id != "player":
-        incoming = roll_enemy(
-            modified_stat(enemy.attack, marker, target, "attack"),
-            modified_stat(stats["defense"], marker, "player", "defense"),
-            context.balance,
-        )
-    return outgoing, incoming
+        return outgoing_attack(
+            state,
+            context,
+            normal_attack(),
+            [target],
+            roll_player=roll_player,
+            roll_enemy=roll_enemy,
+        ), 0
+    return {}, 0
 
 
 def resolve_scheduled(
@@ -164,6 +240,8 @@ def resolve_scheduled(
         roll_player=roll_player,
         roll_enemy=roll_enemy,
     )
+    if body.retreat:
+        outgoing = {}
     working = state.model_copy(deep=True)
     hp = working.save.battle.schedule.enemy_hp
     for identity, amount in outgoing.items():
@@ -176,13 +254,18 @@ def resolve_scheduled(
             hp[identity] = max(1, hp[identity] - amount)
     defeated = [identity for identity in marker.enemies if hp[identity] <= 0]
     authoritative = body.model_copy(update={"defeated": defeated})
+    if incoming > 0 and enemy.on_hit_skill:
+        apply_on_hit_effects(
+            working.save.battle,
+            {target: enemy.on_hit_skill},
+            {target: False},
+        )
     updated = apply_turn_result(
         working,
         authoritative,
         {target: correct} if target in body.answers else {},
         incoming,
         equipped_stats(state.save.allocation, context.balance, state.save.economy),
-        on_hit_skills={target: enemy.on_hit_skill} if enemy.on_hit_skill else {},
     )
     updated.save.battleFeedback = updated.save.battleFeedback.replace(
         f"/{len(marker.enemies)} ·",

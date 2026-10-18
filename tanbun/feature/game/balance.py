@@ -21,6 +21,10 @@ class GameBalance(BaseModel, frozen=True):
     base_mp: int = Field(default=10, ge=0, le=10000)
     base_attack: int = Field(default=10, ge=1, le=1000)
     base_defense: int = Field(default=1, ge=0, le=1000)
+    base_special_attack: int = Field(default=10, ge=0, le=1000)
+    base_special_defense: int = Field(default=1, ge=0, le=1000)
+    special_attack_per_point: int = Field(default=2, ge=1, le=100)
+    special_defense_per_point: int = Field(default=1, ge=1, le=100)
     base_speed: int = Field(default=10, ge=1, le=1000)
     speed_per_point: int = Field(default=1, ge=1, le=100)
     enemy_speed: int = Field(default=10, ge=1, le=1000)
@@ -237,6 +241,8 @@ class Allocation(BaseModel):
     mp: int = Field(default=0, ge=0, le=10000)
     attack: int = Field(default=0, ge=0, le=10000)
     defense: int = Field(default=0, ge=0, le=10000)
+    specialAttack: int = Field(default=0, ge=0, le=10000)  # noqa: N815
+    specialDefense: int = Field(default=0, ge=0, le=10000)  # noqa: N815
     speed: int = Field(default=0, ge=0, le=10000)
 
     def stats(self, balance: GameBalance) -> dict[str, int]:
@@ -253,6 +259,16 @@ class Allocation(BaseModel):
                 balance.base_defense + self.defense * balance.defense_per_point,
             ),
             "answerSeconds": balance.base_seconds,
+            "specialAttack": min(
+                100000,
+                balance.base_special_attack
+                + self.specialAttack * balance.special_attack_per_point,
+            ),
+            "specialDefense": min(
+                100000,
+                balance.base_special_defense
+                + self.specialDefense * balance.special_defense_per_point,
+            ),
             "speed": min(
                 100000,
                 balance.base_speed + self.speed * balance.speed_per_point,

@@ -14,6 +14,7 @@ from .catalog import (
 )
 from .effects import add_effect, effect_amount
 from .inventory import consume_use
+from .skill_outcomes import answer_effect, skill_targets
 
 if TYPE_CHECKING:
     from .state import GameSave
@@ -199,12 +200,20 @@ def apply_action(
         if run.mp < skill.mp_cost:
             return None
         run.mp -= skill.mp_cost
-    if successful and skill.effect == "heal_hp":
-        run.hp = min(run.maxHp, run.hp + effect_amount(skill, run.maxHp))
-    if successful and skill.effect == "heal_mp":
-        run.mp = min(run.maxMp, run.mp + effect_amount(skill, run.maxMp))
+    effect = answer_effect(skill, successful)
+    if effect and effect.effect == "heal_hp":
+        run.hp = min(run.maxHp, run.hp + effect_amount(effect, run.maxHp))
+    if effect and effect.effect == "heal_mp":
+        run.mp = min(run.maxMp, run.mp + effect_amount(effect, run.maxMp))
     apply_status_effects(marker, skill, successful=successful, results=results or {})
-    return f"{action.name} · {'発動' if successful else '不発'}"
+    label = (
+        "発動"
+        if successful
+        else "軽減"
+        if effect
+        else ("反撃" if skill.on_wrong.type == "counter" else "不発")
+    )
+    return f"{action.name} · {label}"
 
 
 def apply_status_effects(
@@ -215,17 +224,19 @@ def apply_status_effects(
     results: dict[str, bool],
 ) -> None:
     """正解対象にだけ能力変化を付与する."""
-    if successful and skill.effect == "buff":
-        add_effect(marker, skill, "player")
+    effect = answer_effect(skill, successful)
+    if effect and skill.effect == "buff":
+        add_effect(marker, effect, "player")
     if skill.effect in {"debuff", "ailment"}:
-        targets = (
-            marker.enemies if skill.target == "all_enemies" else marker.enemies[:1]
-        )
+        targets = skill_targets(skill, marker.enemies)
         for target in targets:
-            if results.get(target) or (
-                marker.schedule and successful and skill.target == "all_enemies"
-            ):
-                add_effect(marker, skill, target)
+            applied = (
+                effect
+                if marker.schedule
+                else answer_effect(skill, bool(results.get(target)))
+            )
+            if applied:
+                add_effect(marker, applied, target)
 
 
 async def prepare_action(save: "GameSave", user_id) -> None:  # noqa: RUF029

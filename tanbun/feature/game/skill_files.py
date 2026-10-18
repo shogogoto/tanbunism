@@ -13,7 +13,7 @@ class SkillFile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     format: Literal["tanbunism.skills"]
-    version: Literal[1, 2]
+    version: Literal[1, 2, 3]
     skills: list[SkillDefinition] = Field(max_length=200)
 
     @model_validator(mode="before")

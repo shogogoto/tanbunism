@@ -26,7 +26,13 @@ from .combat import (
 )
 from .damage import damage_range
 from .effects import curse_damage, modified_stat, poison_damage
-from .end_actions import EndActionAnswer, EndActionRequest, begin_action, finish_action
+from .end_actions import (
+    EndActionAnswer,
+    EndActionRequest,
+    begin_action,
+    finish_action,
+    prepare_counter_damage,
+)
 from .gambit_slots import gambit_capacity
 from .gambits import choose_action
 from .inventory import Economy, equipped_stats
@@ -631,16 +637,17 @@ def practice_action(body: PracticeAction) -> dict:
                 ):
                     raise HTTPException(422, "模擬専門分野の出題元が不足しています。")
                 rng = _random(session.seed, marker.turn)
-                ids = [
-                    str(rng.choice(session.specialty_quizzes[r]).quiz_id)
-                    for r in specialty.resource_ids
-                ]
+                resource = rng.choice(specialty.resource_ids)
+                ids = [str(rng.choice(session.specialty_quizzes[resource]).quiz_id)]
             begin_action(
                 state.save,
                 selected,
                 skill,
                 ids,
                 marker.schedule.enemy_hp if marker.schedule else request.enemy_hp,
+                counter_damage=prepare_counter_damage(state, session.context)
+                if ids and skill.on_wrong.type == "counter"
+                else 0,
             )
             if not ids:
                 outgoing = finish_action(state)

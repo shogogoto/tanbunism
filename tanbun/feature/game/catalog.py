@@ -152,12 +152,56 @@ class AmountMode(StrEnum):
     PERCENT = "percent"
 
 
+class FizzleResult(BaseModel):
+    """誤答では効果なし。MPやアイテムの消費は取り消さない。."""
+
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["fizzle"] = "fizzle"
+
+
+class CounterResult(BaseModel):
+    """誤答時に対象一体から通常攻撃で反撃される。."""
+
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["counter"] = "counter"
+
+
+class ReducedResult(BaseModel):
+    """正答時と同じ単位で、誤答時の効果量を直接指定する。."""
+
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["reduced"] = "reduced"
+    amount: int = Field(default=0, ge=0, le=10000)
+
+
+class ReducedAttackResult(ReducedResult):
+    """攻撃だけは誤答時の倍率も指定できる。."""
+
+    multiplier: float = Field(default=0.5, ge=0, le=10, allow_inf_nan=False)
+
+
+class ReducedAilmentResult(BaseModel):
+    """状態異常は確率ではなく、付与するかどうかだけを指定する。."""
+
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["reduced"] = "reduced"
+    apply: bool = False
+
+
+NumericWrongResult = Annotated[
+    FizzleResult | ReducedResult,
+    Field(discriminator="type"),
+]
+
+
 class SkillStat(StrEnum):
     """持続効果が変更する能力."""
 
     ATTACK = "attack"
     DEFENSE = "defense"
     MAX_HP = "maxHp"
+    SPECIAL_ATTACK = "specialAttack"
+    SPECIAL_DEFENSE = "specialDefense"
 
 
 class SkillSound(StrEnum):
@@ -311,6 +355,12 @@ class AttackSkill(VariableAmountSkill):
     effect: Literal[SkillEffect.ATTACK] = SkillEffect.ATTACK
     target: Literal[SkillTarget.ENEMY, SkillTarget.ALL_ENEMIES] = SkillTarget.ENEMY
     multiplier: float = Field(default=1, ge=0, le=10, allow_inf_nan=False)
+    damage_type: Literal["physical", "special"] = "physical"
+    target_count: int = Field(default=1, ge=1, le=5)
+    on_wrong: Annotated[
+        CounterResult | FizzleResult | ReducedAttackResult,
+        Field(discriminator="type"),
+    ] = Field(default_factory=FizzleResult)
 
 
 class RecoverySkill(VariableAmountSkill):
@@ -318,6 +368,7 @@ class RecoverySkill(VariableAmountSkill):
 
     effect: Literal[SkillEffect.HEAL_HP, SkillEffect.HEAL_MP]
     target: Literal[SkillTarget.SELF] = SkillTarget.SELF
+    on_wrong: NumericWrongResult = Field(default_factory=FizzleResult)
 
 
 class TimedSkill(VariableAmountSkill):
@@ -333,6 +384,7 @@ class BuffSkill(TimedSkill):
     effect: Literal[SkillEffect.BUFF] = SkillEffect.BUFF
     target: Literal[SkillTarget.SELF] = SkillTarget.SELF
     stat: SkillStat = SkillStat.ATTACK
+    on_wrong: NumericWrongResult = Field(default_factory=FizzleResult)
 
     @model_validator(mode="after")
     def valid_bubble(self):
@@ -348,7 +400,14 @@ class DebuffSkill(TimedSkill):
 
     effect: Literal[SkillEffect.DEBUFF] = SkillEffect.DEBUFF
     target: Literal[SkillTarget.ENEMY, SkillTarget.ALL_ENEMIES] = SkillTarget.ENEMY
-    stat: Literal[SkillStat.ATTACK] = SkillStat.ATTACK
+    stat: Literal[
+        SkillStat.ATTACK,
+        SkillStat.DEFENSE,
+        SkillStat.SPECIAL_ATTACK,
+        SkillStat.SPECIAL_DEFENSE,
+    ] = SkillStat.ATTACK
+    target_count: int = Field(default=1, ge=1, le=5)
+    on_wrong: NumericWrongResult = Field(default_factory=FizzleResult)
 
 
 class AilmentSkill(TimedSkill):
@@ -358,6 +417,11 @@ class AilmentSkill(TimedSkill):
     target: Literal[SkillTarget.ENEMY, SkillTarget.ALL_ENEMIES] = SkillTarget.ENEMY
     amount: int = Field(default=5, ge=1, le=10000)
     ailment: Literal["poison", "curse"] = "poison"
+    target_count: int = Field(default=1, ge=1, le=5)
+    on_wrong: Annotated[
+        FizzleResult | ReducedAilmentResult,
+        Field(discriminator="type"),
+    ] = Field(default_factory=FizzleResult)
 
 
 class UtilitySkill(SkillBase):
@@ -507,6 +571,32 @@ def default_triggers() -> list[TriggerDefinition]:
     ]
 
 
+def migrate_wrong_effects(skills, policies) -> None:
+    """旧専門分野の誤答倍率を、明示的な設定がないスキルへ一度だけ移す。."""
+    normalized = [p.model_dump() if isinstance(p, BaseModel) else p for p in policies]
+    uses = {
+        p["skill_id"]: p for p in normalized if isinstance(p, dict) and "skill_id" in p
+    }
+    for skill in skills:
+        factor = uses.get(skill.get("id"), {}).get("wrong_multiplier", 0)
+        if (
+            "on_wrong" not in skill
+            and skill.get("effect")
+            in {"attack", "heal_hp", "heal_mp", "buff", "debuff"}
+            and isinstance(factor, (int, float))
+            and 0 < factor <= 1
+        ):
+            skill["on_wrong"] = {
+                "type": "reduced",
+                "amount": int(skill.get("amount", 0) * factor),
+                **(
+                    {"multiplier": skill.get("multiplier", 1) * factor}
+                    if skill["effect"] == "attack"
+                    else {}
+                ),
+            }
+
+
 class GameCatalog(BaseModel):
     """IDと参照をまとめて検査し、一括保存する定義。."""
 
@@ -592,6 +682,7 @@ class GameCatalog(BaseModel):
             {key: item for key, item in skill.items() if key not in usage_fields}
             for skill in skills
         ]
+        migrate_wrong_effects(value["skills"], value["specialty_skills"])
         return value
 
     @model_validator(mode="after")

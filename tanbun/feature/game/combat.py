@@ -68,6 +68,10 @@ class EnemyStats(BaseModel):
     quizIndexes: list[int] = Field(default_factory=list)  # noqa: N815
     hp: int
     attack: int
+    defense: int = Field(default=0, ge=0, le=100000)
+    special_attack: int | None = Field(default=None, ge=0, le=100000)
+    special_defense: int = Field(default=0, ge=0, le=100000)
+    unmodified_attack: int | None = None
     speed: int = Field(default=10, ge=1, le=100000)
     relations: int
     region: int
@@ -75,6 +79,7 @@ class EnemyStats(BaseModel):
     animation: str = "none"
     sound: str = "auto"
     on_hit_skill: StoredSkill | None = None
+    attack_skill: StoredSkill | None = None
 
 
 class CombatContext(BaseModel):
@@ -156,11 +161,13 @@ def style_enemies(
             enemy.model_copy(
                 update={
                     "on_hit_skill": skills.get(template.on_hit_skill_id),
+                    "attack_skill": skill,
                     "icon": template.icon,
                     "name": f"達成度 {enemy.region + 1}の{template.name}"
                     if boss
                     else template.name,
                     "attack": attack,
+                    "unmodified_attack": enemy.attack,
                     "speed": template.speed
                     if template.speed is not None and not preserve_stats
                     else enemy.speed,
