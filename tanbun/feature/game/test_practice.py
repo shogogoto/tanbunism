@@ -136,7 +136,11 @@ async def test_practice_uses_enemy_snapshot_and_draft_initial_player_values(
     assert len(session.context.enemies) == 2
     for enemy in session.context.enemies:
         source = snapshot.enemies[int(enemy.id.split("#", 1)[0].rsplit(":", 1)[1])]
-        assert (enemy.hp, enemy.attack) == (source.hp, source.attack)
+        assert (enemy.hp, enemy.attack, enemy.speed) == (
+            source.hp,
+            source.attack,
+            source.speed,
+        )
         assert len(enemy.quizIndexes) == source.quiz_count
     second = await practice.prepare_simulated_practice(request)
     assert session.context == second.context

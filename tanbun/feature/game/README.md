@@ -263,3 +263,8 @@ double settlement. Existing batched encounters continue under their old protocol
 Direct gambit skills replace the player's normal action; specialty quiz gambits
 retain their separate end-action flow. Status durations currently count resolved
 actions. Practice uses the identical scheduling/damage transition without writes.
+Enemy speed uses `(enemy_speed + log(1 + Power) * power_speed)` multiplied by
+achievement growth (`region_speed_growth_percent`) and the same stable individual
+variation as HP/attack. Both new growth coefficients default to zero. Enemy catalog
+overrides still apply to live encounters; generated practice trials retain their
+previewed speed alongside HP/attack.

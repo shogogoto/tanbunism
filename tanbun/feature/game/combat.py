@@ -162,7 +162,7 @@ def style_enemies(
                     else template.name,
                     "attack": attack,
                     "speed": template.speed
-                    if template.speed is not None
+                    if template.speed is not None and not preserve_stats
                     else enemy.speed,
                     "animation": skill.animation if skill else "none",
                     "sound": skill.sound if skill else "auto",
@@ -221,7 +221,7 @@ def derive_enemies(
                     quizIndexes=valid,
                     hp=hp,
                     attack=attack,
-                    speed=balance.enemy_speed,
+                    speed=balance.enemy_speed_stat(power, region, item["id"]),
                     relations=relation_count,
                     region=region,
                 ),
@@ -274,7 +274,7 @@ def derive_boss(
         quizIndex=marker.get("quizIndices", {}).get(identity, indexes[0]),
         hp=min(100000, ceil(hp * balance.boss_hp_multiplier)),
         attack=min(100000, ceil(attack * balance.boss_attack_multiplier)),
-        speed=balance.enemy_speed,
+        speed=balance.enemy_speed_stat(power, level - 1, identity),
         relations=0,
         region=level - 1,
     )

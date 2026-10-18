@@ -24,6 +24,13 @@ class GameBalance(BaseModel, frozen=True):
     base_speed: int = Field(default=10, ge=1, le=1000)
     speed_per_point: int = Field(default=1, ge=1, le=100)
     enemy_speed: int = Field(default=10, ge=1, le=1000)
+    power_speed: float = Field(default=0, ge=0, le=100, allow_inf_nan=False)
+    region_speed_growth_percent: float = Field(
+        default=0,
+        ge=0,
+        le=1000,
+        allow_inf_nan=False,
+    )
     speed_formula: SpeedFormula = "sqrt"
     base_seconds: int = Field(default=45, ge=5, le=300)
     hp_per_point: int = Field(default=5, ge=1, le=100)
@@ -193,12 +200,9 @@ class GameBalance(BaseModel, frozen=True):
         attack = (self.enemy_attack + scale * self.power_attack) * (
             1 + level * self.region_attack_growth_percent / 100
         )
-        if self.enemy_variance_percent and variation_key:
-            digest = blake2b(variation_key.encode(), digest_size=8).digest()
-            normalized = int.from_bytes(digest, "big") / (2**64 - 1)
-            factor = 1 + (normalized * 2 - 1) * self.enemy_variance_percent / 100
-            hp *= factor
-            attack *= factor
+        factor = self.enemy_variation(variation_key)
+        hp *= factor
+        attack *= factor
         return (
             min(
                 100000,
@@ -209,6 +213,21 @@ class GameBalance(BaseModel, frozen=True):
                 ceil(attack),
             ),
         )
+
+    def enemy_variation(self, variation_key: str) -> float:
+        """Use the same stable individual variation for all enemy stats."""
+        if not self.enemy_variance_percent or not variation_key:
+            return 1
+        digest = blake2b(variation_key.encode(), digest_size=8).digest()
+        normalized = int.from_bytes(digest, "big") / (2**64 - 1)
+        return 1 + (normalized * 2 - 1) * self.enemy_variance_percent / 100
+
+    def enemy_speed_stat(self, power: int, region: int, variation_key: str = "") -> int:
+        """Derive speed using the HP/attack growth formula, bounded above zero."""
+        value = (self.enemy_speed + log1p(max(0, power)) * self.power_speed) * (
+            1 + max(0, region) * self.region_speed_growth_percent / 100
+        )
+        return max(1, min(100000, ceil(value * self.enemy_variation(variation_key))))
 
 
 class Allocation(BaseModel):

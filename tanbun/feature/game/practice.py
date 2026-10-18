@@ -296,7 +296,7 @@ async def prepare_simulated_practice(body: SimulatedPracticeRequest) -> Practice
                 quizIndexes=list(range(enemy.quiz_count)),
                 hp=enemy.hp,
                 attack=enemy.attack,
-                speed=body.balance.enemy_speed,
+                speed=enemy.speed,
                 relations=enemy.relations,
                 region=region,
             )

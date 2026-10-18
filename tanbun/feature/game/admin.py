@@ -166,6 +166,7 @@ class SimulatedEnemy(BaseModel, frozen=True):
     quiz_count: int
     hp: int
     attack: int
+    speed: int = Field(default=10, ge=1, le=100000)
     relations: int
 
 
@@ -212,6 +213,11 @@ def simulate_enemy_balance(
                 quiz_count=len(quiz_indexes),
                 hp=hp,
                 attack=attack,
+                speed=request.balance.enemy_speed_stat(
+                    request.power,
+                    request.achievement - 1,
+                    enemy_identity("simulation", request.achievement - 1, index),
+                ),
                 relations=min(
                     request.balance.relation_cap,
                     request.average_relations,

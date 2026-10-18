@@ -39,6 +39,44 @@ def test_zero_growth_ignores_legacy_additive_settings() -> None:
     )
 
 
+@pytest.mark.parametrize("region", [0, 2, 4])
+def test_enemy_speed_uses_power_growth_and_shared_variation(region: int):
+    """Speed follows the same WYSIWYG formula as HP/attack."""
+    balance = GameBalance(
+        enemy_speed=10,
+        power_speed=2,
+        region_speed_growth_percent=15,
+    )
+    expected = ceil(
+        (10 + log1p(100) * 2) * (1 + region * 0.15) * balance.enemy_variation("enemy"),
+    )
+    assert balance.enemy_speed_stat(100, region, "enemy") == expected
+    assert balance.enemy_speed_stat(100, region, "enemy") == expected
+
+
+def test_speed_defaults_and_bounds():
+    """Old settings still load and speed cannot reach zero or overflow."""
+    balance = GameBalance.model_validate({"enemy_speed": 12})
+    assert balance.power_speed == 0
+    assert balance.region_speed_growth_percent == 0
+    assert balance.enemy_speed_stat(1000, 20) == 12
+    assert (
+        GameBalance(enemy_speed=1, enemy_variance_percent=50).enemy_speed_stat(
+            0,
+            0,
+            "e",
+        )
+        >= 1
+    )
+    assert (
+        GameBalance(power_speed=100, region_speed_growth_percent=1000).enemy_speed_stat(
+            10**9,
+            100,
+        )
+        == 100000
+    )
+
+
 def test_old_settings_receive_growth_defaults_without_reinterpreting_values() -> None:
     """保存済みの加算値は割合に変換せず、新しい既定成長率を適用する."""
     balance = GameBalance.model_validate({"region_hp": 5, "region_attack": 2})
