@@ -51,7 +51,13 @@ def test_legacy_time_allocation_is_ignored_and_cannot_extend_quiz_time() -> None
     """旧クライアントの秒ポイントも読み飛ばし、持ち時間は管理値に固定する."""
     allocation = Allocation.model_validate({"hp": 2, "seconds": 100})
     balance = GameBalance.model_validate({"base_seconds": 40, "seconds_per_point": 30})
-    assert allocation.model_dump() == {"hp": 2, "mp": 0, "attack": 0, "defense": 0}
+    assert allocation.model_dump() == {
+        "hp": 2,
+        "mp": 0,
+        "attack": 0,
+        "defense": 0,
+        "speed": 0,
+    }
     assert allocation.stats(balance)["answerSeconds"] == 40
 
 

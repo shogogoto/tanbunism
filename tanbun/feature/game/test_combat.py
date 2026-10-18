@@ -56,6 +56,7 @@ async def encounter(
     *,
     new_place: bool = False,
     hp: int = 35,
+    scheduled: bool = False,
 ) -> GameState:
     """本物の出題・リソースから二体の敵を準備する."""
     await update_game_balance(
@@ -113,10 +114,47 @@ async def encounter(
         user.uid,
         EncounterRequest(
             revision=state.revision,
+            scheduled=scheduled,
             region=2,
             discovered_place=str(target.uid) if new_place else None,
         ),
     )
+
+
+@mark_async_test()
+async def test_scheduled_combat_seals_one_question_and_replays_receipt(u: LUser):
+    """The live protocol persists enemy HP and never doubles an answer or damage."""
+    state = await encounter(u, scheduled=True)
+    marker = state.save.battle
+    schedule = marker.schedule
+    assert len(schedule.queue) == 10
+    assert len(marker.quizIndices) == 1
+    target = schedule.quiz_enemy_id
+    quiz = state.save.content["quizzes"][marker.quizIndices[target]]
+    body = TurnRequest(
+        battle_id=marker.id,
+        turn=marker.turn,
+        answers={target: quiz["correct"]},
+    )
+    resolved = await combat.settle_turn(u.uid, body)
+    assert resolved["results"] == {target: True}
+    assert resolved["outgoing_damage"][target] > 0
+    restored = await read_state(u.uid)
+    if restored.save.battle:
+        assert (
+            restored.save.battle.schedule.enemy_hp[target] < schedule.enemy_hp[target]
+        )
+    again = await combat.settle_turn(u.uid, body)
+    assert again["outgoing_damage"] == resolved["outgoing_damage"]
+    assert await read_state(u.uid) == restored
+    assert (await adb.cypher_query("MATCH (a:Answer) RETURN count(a)"))[0][0][0] == 1
+    if restored.save.battle:
+        next_body = TurnRequest(
+            battle_id=marker.id,
+            turn=restored.save.battle.turn,
+        )
+        started = await combat.next_turn(u.uid, next_body)
+        assert await combat.next_turn(u.uid, next_body) == started
 
 
 @mark_async_test()

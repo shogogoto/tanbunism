@@ -6,6 +6,8 @@ from math import ceil, log1p
 from neomodel import adb
 from pydantic import BaseModel, Field, model_validator
 
+from .action_queue import SpeedFormula
+
 
 class GameBalance(BaseModel, frozen=True):
     """数値は仮値。既存の敵にも読み取り時に適用する."""
@@ -19,6 +21,10 @@ class GameBalance(BaseModel, frozen=True):
     base_mp: int = Field(default=10, ge=0, le=10000)
     base_attack: int = Field(default=10, ge=1, le=1000)
     base_defense: int = Field(default=1, ge=0, le=1000)
+    base_speed: int = Field(default=10, ge=1, le=1000)
+    speed_per_point: int = Field(default=1, ge=1, le=100)
+    enemy_speed: int = Field(default=10, ge=1, le=1000)
+    speed_formula: SpeedFormula = "sqrt"
     base_seconds: int = Field(default=45, ge=5, le=300)
     hp_per_point: int = Field(default=5, ge=1, le=100)
     mp_per_point: int = Field(default=2, ge=1, le=100)
@@ -212,6 +218,7 @@ class Allocation(BaseModel):
     mp: int = Field(default=0, ge=0, le=10000)
     attack: int = Field(default=0, ge=0, le=10000)
     defense: int = Field(default=0, ge=0, le=10000)
+    speed: int = Field(default=0, ge=0, le=10000)
 
     def stats(self, balance: GameBalance) -> dict[str, int]:
         """初期値と育成ポイントから戦闘能力を導出する."""
@@ -227,6 +234,10 @@ class Allocation(BaseModel):
                 balance.base_defense + self.defense * balance.defense_per_point,
             ),
             "answerSeconds": balance.base_seconds,
+            "speed": min(
+                100000,
+                balance.base_speed + self.speed * balance.speed_per_point,
+            ),
         }
 
 

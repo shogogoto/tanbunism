@@ -46,6 +46,7 @@ class EncounterRequest(BaseModel):
     region: int = Field(ge=0, le=10000)
     checkpoint: str = Field(default="@entrance", max_length=64)
     discovered_place: str | None = Field(default=None, max_length=64)
+    scheduled: bool = False
 
 
 class TurnRequest(BaseModel):
@@ -67,6 +68,7 @@ class EnemyStats(BaseModel):
     quizIndexes: list[int] = Field(default_factory=list)  # noqa: N815
     hp: int
     attack: int
+    speed: int = Field(default=10, ge=1, le=100000)
     relations: int
     region: int
     icon: str | None = None
@@ -159,6 +161,9 @@ def style_enemies(
                     if boss
                     else template.name,
                     "attack": attack,
+                    "speed": template.speed
+                    if template.speed is not None
+                    else enemy.speed,
                     "animation": skill.animation if skill else "none",
                     "sound": skill.sound if skill else "auto",
                 },
@@ -216,6 +221,7 @@ def derive_enemies(
                     quizIndexes=valid,
                     hp=hp,
                     attack=attack,
+                    speed=balance.enemy_speed,
                     relations=relation_count,
                     region=region,
                 ),
@@ -268,6 +274,7 @@ def derive_boss(
         quizIndex=marker.get("quizIndices", {}).get(identity, indexes[0]),
         hp=min(100000, ceil(hp * balance.boss_hp_multiplier)),
         attack=min(100000, ceil(attack * balance.boss_attack_multiplier)),
+        speed=balance.enemy_speed,
         relations=0,
         region=level - 1,
     )
@@ -348,6 +355,14 @@ async def start_combat(user_id: UUIDy, body: EncounterRequest) -> GameState:
     next_run.enemyMaxHp = 1
     next_run.answerDeadline = int(time() * 1000) + stats["answerSeconds"] * 1000
     await prepare_action(updated.save, user_id)
+    if body.scheduled:
+        from .scheduled_combat import (  # noqa: PLC0415
+            initialize_schedule,
+            prepare_live_gambit,
+        )
+
+        initialize_schedule(updated, context.model_copy(update={"enemies": chosen}))
+        await prepare_live_gambit(user_id, updated)
     async with atomic():
         await persist(user_id, previous, updated)
     return updated
@@ -408,6 +423,10 @@ async def settle_turn(user_id: UUIDy, body: TurnRequest) -> dict:
     marker, run = previous.save.battle, previous.save.run
     if not marker or not run or (marker.id, marker.turn) != (body.battle_id, body.turn):
         raise HTTPException(409, "戦闘ターンが変更されました。再読み込みしてください。")
+    if marker.schedule:
+        from .scheduled_combat import settle_scheduled  # noqa: PLC0415
+
+        return await settle_scheduled(user_id, previous, body)
     if not set(body.answers) <= set(marker.enemies) or not set(body.defeated) <= set(
         marker.enemies,
     ):
@@ -762,6 +781,14 @@ async def next_turn(user_id: UUIDy, body: TurnRequest) -> GameState:
     previous = await read_state(user_id)
     marker = previous.save.battle
     if (
+        marker
+        and marker.schedule
+        and (marker.id, marker.turn) == (body.battle_id, body.turn)
+        and marker.schedule.actor_id is not None
+        and not previous.save.battleFeedback
+    ):
+        return previous
+    if (
         not marker
         or (marker.id, marker.turn) != (body.battle_id, body.turn)
         or not previous.save.battleFeedback
@@ -771,6 +798,17 @@ async def next_turn(user_id: UUIDy, body: TurnRequest) -> GameState:
         raise HTTPException(409, "次のターンを開始できません。")
     updated = previous.model_copy(deep=True)
     context = await combat_context(user_id, previous)
+    if marker.schedule:
+        from .scheduled_combat import (  # noqa: PLC0415
+            begin_scheduled_action,
+            prepare_live_gambit,
+        )
+
+        begin_scheduled_action(updated, context)
+        await prepare_live_gambit(user_id, updated)
+        async with atomic():
+            await persist(user_id, previous, updated)
+        return updated
     selected = {
         enemy.id: choice(enemy.quizIndexes or [enemy.quizIndex])
         for enemy in context.enemies

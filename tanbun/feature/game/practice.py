@@ -40,6 +40,7 @@ class PracticeRequest(BaseModel):
     """Draft settings and existing dungeon content; no generation or writes."""
 
     user_id: UUID
+    scheduled: bool = False
     player_user_id: UUID | None = None
     resource_id: UUID
     level: int = Field(ge=1, le=20)
@@ -65,6 +66,7 @@ class SimulatedPracticeRequest(BaseModel):
     """Use an enemy trial snapshot and the current draft player/damage settings."""
 
     simulation: EnemyBalanceSimulationResult
+    scheduled: bool = False
     balance: GameBalance
     player_user_id: UUID | None = None
     allocation: Allocation | None = None
@@ -158,6 +160,18 @@ async def prepare_practice(body: PracticeRequest) -> PracticeSession:
             await gambit_capacity(body.player_user_id or body.user_id, body.balance)
         ).slots,
     )
+    if body.scheduled:
+        from .scheduled_combat import (  # noqa: PLC0415
+            initialize_schedule,
+            prepare_scheduled_gambit,
+        )
+
+        initialize_schedule(prepared.state, prepared.context)
+        prepare_scheduled_gambit(
+            prepared.state,
+            prepared.catalog,
+            prepared.gambit_slots,
+        )
     return await _prepare_specialties(prepared, body.player_user_id or body.user_id)
 
 
@@ -282,6 +296,7 @@ async def prepare_simulated_practice(body: SimulatedPracticeRequest) -> Practice
                 quizIndexes=list(range(enemy.quiz_count)),
                 hp=enemy.hp,
                 attack=enemy.attack,
+                speed=body.balance.enemy_speed,
                 relations=enemy.relations,
                 region=region,
             )
@@ -302,6 +317,14 @@ async def prepare_simulated_practice(body: SimulatedPracticeRequest) -> Practice
         if body.player_user_id
         else 1,
     )
+    if body.scheduled:
+        from .scheduled_combat import (  # noqa: PLC0415
+            initialize_schedule,
+            prepare_scheduled_gambit,
+        )
+
+        initialize_schedule(prepared.state, prepared.context)
+        prepare_scheduled_gambit(prepared.state, catalog, prepared.gambit_slots)
     return await _prepare_specialties(prepared, body.player_user_id)
 
 
@@ -346,6 +369,25 @@ def _begin_practice(
     )
 
 
+def validate_practice_questions(marker, turn, enemies, quizzes) -> None:
+    """Restrict scheduled battles to their single sealed question."""
+    if not set(turn.answers) <= set(marker.enemies) or not set(turn.defeated) <= set(
+        marker.enemies,
+    ):
+        raise HTTPException(422, "模擬戦に存在しない敵です。")
+    if marker.schedule and set(turn.answers) - {marker.schedule.quiz_enemy_id}:
+        raise HTTPException(422, "現在の行動以外には回答できません。")
+    if any(
+        enemy not in enemies
+        or enemy not in marker.quizIndices
+        or not 0 <= marker.quizIndices[enemy] < len(quizzes)
+        for enemy in (
+            [marker.schedule.quiz_enemy_id] if marker.schedule else marker.enemies
+        )
+    ):
+        raise HTTPException(422, "模擬戦の敵またはクイズが見つかりません。")
+
+
 def practice_turn(body: PracticeTurn) -> dict:
     """Reuse correctness, damage and turn transitions without saving answers/XP."""
     session, turn = body.session, body.turn
@@ -356,19 +398,9 @@ def practice_turn(body: PracticeTurn) -> dict:
         or (marker.id, marker.turn) != (turn.battle_id, turn.turn)
     ):
         raise HTTPException(422, "模擬戦のターンが一致しません。")
-    if not set(turn.answers) <= set(marker.enemies) or not set(turn.defeated) <= set(
-        marker.enemies,
-    ):
-        raise HTTPException(422, "模擬戦に存在しない敵です。")
     enemies = {enemy.id: enemy for enemy in session.context.enemies}
     quizzes = (state.save.content or {}).get("quizzes", [])
-    if any(
-        enemy not in enemies
-        or enemy not in marker.quizIndices
-        or not 0 <= marker.quizIndices[enemy] < len(quizzes)
-        for enemy in marker.enemies
-    ):
-        raise HTTPException(422, "模擬戦の敵またはクイズが見つかりません。")
+    validate_practice_questions(marker, turn, enemies, quizzes)
     results = {}
     for enemy_id, selected in turn.answers.items():
         try:
@@ -383,6 +415,8 @@ def practice_turn(body: PracticeTurn) -> dict:
         results[enemy_id] = quiz.is_correct(selected)
     if any(not results.get(enemy) for enemy in turn.defeated):
         raise HTTPException(422, "未正解の敵は撃破できません。")
+    if marker.schedule:
+        return scheduled_practice_turn(session, turn, results)
     stats = equipped_stats(
         state.save.allocation,
         session.context.balance,
@@ -430,12 +464,50 @@ def practice_turn(body: PracticeTurn) -> dict:
     }
 
 
+def scheduled_practice_turn(session, turn, results):
+    """Use deterministic damage but the same scheduler and resolver as live."""
+    from .scheduled_combat import resolve_scheduled  # noqa: PLC0415
+
+    state = session.state
+    rng = _random(session.seed, state.save.battle.turn)
+
+    def roll(attack, defense, balance):
+        low, _, high = damage_range(attack, defense, balance)
+        return rng.randint(low, high)
+
+    if (
+        state.save.run.answerDeadline
+        and int(time() * 1000) > state.save.run.answerDeadline
+    ):
+        turn = turn.model_copy(update={"answers": {}})
+        results = {}
+    return resolve_scheduled(
+        state,
+        turn,
+        results,
+        session.context,
+        roll_player=lambda attack, balance: roll(attack, 0, balance),
+        roll_enemy=roll,
+    )
+
+
 def next_practice_turn(session: PracticeSession) -> GameState:
     """Start the next disposable turn only after reading its feedback."""
     state = session.state.model_copy(deep=True)
     marker = state.save.battle
     if not marker or not state.save.run or not state.save.battleFeedback:
         raise HTTPException(422, "模擬戦の次のターンを開始できません。")
+    if marker.endAction:
+        raise HTTPException(422, "専門分野の回答を完了してください。")
+    if marker.schedule:
+        from .scheduled_combat import (  # noqa: PLC0415
+            begin_scheduled_action,
+            prepare_scheduled_gambit,
+        )
+
+        begin_scheduled_action(state, session.context)
+        prepare_scheduled_gambit(state, session.catalog, session.gambit_slots)
+        return state
     rng = _random(session.seed, marker.turn)
     enemies = {enemy.id: enemy for enemy in session.context.enemies}
     if not set(marker.enemies) <= enemies.keys():
@@ -563,7 +635,13 @@ def practice_action(body: PracticeAction) -> dict:
                     str(rng.choice(session.specialty_quizzes[r]).quiz_id)
                     for r in specialty.resource_ids
                 ]
-            begin_action(state.save, selected, skill, ids, request.enemy_hp)
+            begin_action(
+                state.save,
+                selected,
+                skill,
+                ids,
+                marker.schedule.enemy_hp if marker.schedule else request.enemy_hp,
+            )
             if not ids:
                 outgoing = finish_action(state)
     action = state.save.battle.endAction if state.save.battle else None

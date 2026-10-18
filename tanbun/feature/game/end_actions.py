@@ -90,7 +90,13 @@ async def start_end_action(user_id, body: EndActionRequest) -> dict:
         async with atomic():
             await persist(user_id, previous, updated)
         return await action_view(user_id, updated)
-    begin_action(updated.save, selected, skill, quizzes, body.enemy_hp)
+    begin_action(
+        updated.save,
+        selected,
+        skill,
+        quizzes,
+        marker.schedule.enemy_hp if marker.schedule else body.enemy_hp,
+    )
     outgoing = finish_action(updated) if not quizzes else {}
     async with atomic():
         await persist(user_id, previous, updated)
@@ -220,6 +226,28 @@ async def answer_end_action(user_id, body: EndActionAnswer) -> dict:
     return await action_view(user_id, updated, outgoing)
 
 
+def sync_scheduled_damage(marker, outgoing, killed) -> None:
+    """Keep specialty damage in the authoritative CTB HP and forecast."""
+    if not marker.schedule:
+        return
+    from .action_queue import predict, refresh_speeds  # noqa: PLC0415
+
+    for identity, damage in outgoing.items():
+        marker.schedule.enemy_hp[identity] = max(
+            0,
+            marker.schedule.enemy_hp[identity] - damage,
+        )
+    refresh_speeds(
+        marker.schedule,
+        {
+            key: speed
+            for key, speed in marker.schedule.speeds.items()
+            if key not in killed
+        },
+    )
+    marker.schedule.queue = predict(marker.schedule)
+
+
 def finish_action(state: GameState) -> dict[str, int]:
     """正答率から数値効果を一度適用。状態は全問正解時のみ付与する仮ルール."""
     marker, run = state.save.battle, state.save.run
@@ -264,6 +292,7 @@ def finish_action(state: GameState) -> dict[str, int]:
         killed = [
             e for e, damage in outgoing.items() if damage >= action["enemy_hp"][e]
         ]
+        sync_scheduled_damage(marker, outgoing, killed)
         marker.enemies = [e for e in marker.enemies if e not in killed]
         run.kills += 0 if marker.bossLevel else len(killed)
         state.save.economy.gold += len(killed) * (marker.region + 1) * GOLD_PER_LEVEL

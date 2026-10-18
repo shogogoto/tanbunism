@@ -60,6 +60,50 @@ def source_state(resource):
 
 
 @mark_async_test()
+async def test_scheduled_practice_uses_draft_speed_and_keeps_server_queue():
+    """Unsaved speed settings use the real action resolver without writes."""
+    balance = GameBalance(
+        base_speed=40,
+        enemy_speed=10,
+        speed_formula="sqrt",
+        min_enemies=1,
+        max_encounter_enemies=1,
+        encounter_growth_rate=0,
+    )
+    trial = simulate_enemy_balance(
+        EnemyBalanceSimulationRequest(balance=balance, power=100, achievement=1),
+    )
+    session = await practice.prepare_simulated_practice(
+        practice.SimulatedPracticeRequest(
+            simulation=trial,
+            balance=balance,
+            scheduled=True,
+            allocation=Allocation(speed=2),
+        ),
+    )
+    marker = session.state.save.battle
+    assert session.state.save.run.speed == 42
+    assert marker.schedule.actor_id == "player"
+    target = marker.schedule.quiz_enemy_id
+    reply = practice.practice_turn(
+        practice.PracticeTurn(
+            session=session,
+            turn=TurnRequest(
+                battle_id=marker.id,
+                turn=marker.turn,
+                answers={target: ["yes"]},
+            ),
+        ),
+    )
+    assert reply["outgoing_damage"][target] > 0
+    if reply["state"].save.battle:
+        session.state = reply["state"]
+        expected = session.state.save.battle.schedule.queue[0].actor_id
+        next_state = practice.next_practice_turn(session)
+        assert next_state.save.battle.schedule.actor_id == expected
+
+
+@mark_async_test()
 async def test_practice_uses_enemy_snapshot_and_draft_initial_player_values(
     monkeypatch,
 ):

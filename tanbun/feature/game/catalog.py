@@ -468,6 +468,7 @@ class EnemyDefinition(BaseModel):
     icon: IconId = "ghost"
     enabled: bool = True
     boss: bool = False
+    speed: int | None = Field(default=None, ge=1, le=1000)
     attack_skill_id: DefinitionId | None = None
     on_hit_skill_id: DefinitionId | None = None
 

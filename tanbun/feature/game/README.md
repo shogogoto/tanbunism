@@ -246,4 +246,20 @@ presenting the next question. Reopening, changing devices or hiding the dialog
 does not extend it. `battleFeedback` persists the result: reading feedback does
 not consume the next question's time; Continue starts the new question.
 Timeout damages the player once, without fabricating quiz answers or learning XP.
-Answers submitted before the deadline are not penalized for network wait time.
+For scheduled battles the server reception deadline determines timeout; reading
+the result never consumes time for the next question.
+
+New clients request `scheduled: true` on normal/boss/practice starts. Each character
+has a speed stat; player speed is derived from current base settings and allocated
+points. Enemies can override the common speed in their catalog definition.
+`speed_formula` selects `linear` (12 / speed) or `sqrt` (12 / sqrt(speed)). It is
+sealed in the encounter, together with persistent virtual waits and deterministic
+tie entropy. No real-time scheduling loop or least common multiple is involved.
+The server supplies the current actor, one sealed quiz and ten forecast positions.
+Forecasts use copies and are recalculated after defeat or speed changes.
+Both outgoing/incoming damage and enemy HP are server-owned. Client defeated IDs
+are ignored for this protocol, and action receipts plus revision CAS prevent
+double settlement. Existing batched encounters continue under their old protocol.
+Direct gambit skills replace the player's normal action; specialty quiz gambits
+retain their separate end-action flow. Status durations currently count resolved
+actions. Practice uses the identical scheduling/damage transition without writes.

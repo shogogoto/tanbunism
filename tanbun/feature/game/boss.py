@@ -23,6 +23,7 @@ class BossRequest(BaseModel):
 
     revision: int = Field(ge=0)
     level: int = Field(ge=5, le=20, multiple_of=5)
+    scheduled: bool = False
 
 
 async def start_boss(user_id: UUIDy, body: BossRequest) -> GameState:
@@ -91,6 +92,14 @@ async def start_boss(user_id: UUIDy, body: BossRequest) -> GameState:
     updated.save.run.phase = "battle"
     updated.save.run.answerDeadline = int(time() * 1000) + stats["answerSeconds"] * 1000
     await prepare_action(updated.save, user_id)
+    if body.scheduled:
+        from .scheduled_combat import (  # noqa: PLC0415
+            initialize_schedule,
+            prepare_live_gambit,
+        )
+
+        initialize_schedule(updated, context)
+        await prepare_live_gambit(user_id, updated)
     async with atomic():
         await persist(user_id, previous, updated)
     return updated

@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, model_validator
 from tanbun.feature.domain.types import UUIDy, to_uuid
 
 from .access import SLOT_SECONDS, get_adventure_access
+from .action_queue import ActionSchedule
 from .balance import Allocation, GameBalance, get_game_balance
 from .effects import BattleEffect, bubble_factor, sync_bubble
 from .gambits import BattleAction, GambitRule
@@ -25,7 +26,7 @@ from .unlocks import DungeonUnlock, discover_dungeons
 MAX_SNAPSHOT_BYTES = 1000000
 MAX_VISITED_DUNGEONS = 1000
 PLACES_PER_REGION = 5
-DERIVED_PLAYER_FIELDS = {"maxHp", "maxMp", "attack", "defense"}
+DERIVED_PLAYER_FIELDS = {"maxHp", "maxMp", "attack", "defense", "speed"}
 
 
 class Run(BaseModel):
@@ -40,6 +41,7 @@ class Run(BaseModel):
     maxMp: int = Field(default=0, ge=0, le=100000)
     attack: int = Field(ge=0, le=100000)
     defense: int = Field(ge=0, le=100000)
+    speed: int = Field(default=10, ge=1, le=100000)
     moves: int = Field(ge=0, le=5)
     kills: int = Field(ge=0, le=10000)
     enemyHp: int = Field(ge=0, le=100000)
@@ -67,7 +69,7 @@ class SpecialtySkill(BaseModel):
 
 
 class BattleMarker(BaseModel):
-    """途中のHP/選択は保存せず、未精算の戦闘と撤退先だけを保存する."""
+    """旧一括戦闘と、敵HP・行動順も保存するCTB戦闘の互換マーカー."""
 
     id: str
     turn: int = Field(default=0, ge=0)
@@ -83,6 +85,7 @@ class BattleMarker(BaseModel):
     skill: SpecialtySkill | None = None
     skillUsed: bool = False
     gambitAction: BattleAction | None = None
+    schedule: ActionSchedule | None = None
     effects: list[BattleEffect] = Field(default_factory=list, max_length=200)
 
 

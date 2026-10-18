@@ -222,7 +222,9 @@ def apply_status_effects(
             marker.enemies if skill.target == "all_enemies" else marker.enemies[:1]
         )
         for target in targets:
-            if results.get(target):
+            if results.get(target) or (
+                marker.schedule and successful and skill.target == "all_enemies"
+            ):
                 add_effect(marker, skill, target)
 
 
