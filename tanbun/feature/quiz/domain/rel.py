@@ -14,6 +14,7 @@ QUIZ_REL_EDGE_TYPES: Final = (
     EdgeType.RESOLVED,
     EdgeType.TO,
     EdgeType.EXAMPLE,
+    EdgeType.ANTI,
 )
 
 
@@ -36,6 +37,7 @@ class QuizRel(StrEnum):
     # hierarchy
     GENERAL = "一般"
     EXAMPLE = "具体例"
+    ANTI = "反対"
 
     @property
     def edge(self) -> tuple[EdgeType, bool]:
@@ -50,6 +52,7 @@ class QuizRel(StrEnum):
             self.REFERRED: (EdgeType.RESOLVED, True),
             self.GENERAL: (EdgeType.EXAMPLE, False),
             self.EXAMPLE: (EdgeType.EXAMPLE, True),
+            self.ANTI: (EdgeType.ANTI, True),
         }[self]
 
     @classmethod
@@ -60,6 +63,7 @@ class QuizRel(StrEnum):
             EdgeType.TO: cls.CONCLUSION,
             EdgeType.RESOLVED: cls.REFERRED,
             EdgeType.EXAMPLE: cls.EXAMPLE,
+            EdgeType.ANTI: cls.ANTI,
             cls.DETAIL: cls.DETAIL,
             cls.PEER: cls.PEER,
         }
@@ -72,6 +76,7 @@ class QuizRel(StrEnum):
             EdgeType.TO: cls.PREMISE,
             EdgeType.RESOLVED: cls.REFER,
             EdgeType.EXAMPLE: cls.GENERAL,
+            EdgeType.ANTI: cls.ANTI,
             cls.DETAIL: cls.PARENT,
             cls.PEER: cls.PEER,
         }

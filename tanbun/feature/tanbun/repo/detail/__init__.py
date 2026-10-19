@@ -214,6 +214,11 @@ async def fetch_tanbun_chains(  # noqa: PLR0914
             // detail がない場合にsentが返らなくなるのを防ぐ
             RETURN (sent) as start, null as end, null as type
             UNION
+            // Opposition is symmetric but not transitive: only direct pairs.
+            MATCH (sent)-[r:ANTI]-(opposite:Sentence|Quoterm)
+            WHERE opposite <> sent
+            RETURN startNode(r) as start, endNode(r) as end, type(r) as type
+            UNION
             // Part Chain
             MATCH (sent)-[r:BELOW]->(:Sentence|Quoterm)
             RETURN startNode(r) as start, endNode(r) as end, type(r) as type

@@ -241,7 +241,12 @@ def _forward_graph(
     for index, edge in enumerate(edges):
         edge_name = "" if conceal_relations else edge.name
         node = _graph_node(end) if index == len(edges) - 1 else "…"
-        parts.extend((f"-[{edge_name}]->", node))
+        arrow = (
+            f"<-[{edge_name}]->"
+            if edge is EdgeType.ANTI and not conceal_relations
+            else f"-[{edge_name}]->"
+        )
+        parts.extend((arrow, node))
     return "".join(parts)
 
 

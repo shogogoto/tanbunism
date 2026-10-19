@@ -50,6 +50,7 @@ class TanbunStats(BaseModel, frozen=True):
     n_conclusion: int = Field(ge=-100, le=1000)
     n_refer: int = Field(ge=-100, le=1000)
     n_referred: int = Field(ge=-100, le=1000)
+    n_anti: int = Field(default=0, ge=0, le=1000)
     # dist_axiom: int = Field(ge=-100, le=1000)
     # dist_leaf: int = Field(ge=-100, le=1000)
     score: int | None = Field(default=None, ge=-100, le=1000)
@@ -151,6 +152,7 @@ class TanbunAdjacency(BaseModel):
     referreds: list[Tanbun]
     abstracts: list[Tanbun]
     examples: list[Tanbun]
+    antis: list[Tanbun] = Field(default_factory=list)
 
     def __str__(self) -> str:
         """For display in CLI."""

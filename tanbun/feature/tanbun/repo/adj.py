@@ -44,6 +44,7 @@ class AdjType(StrEnum):
     DETAIL = "detail"
     SIBLING = "sibling"
     PARENT = "parent"
+    ANTI = "anti"
 
     @classmethod
     def location_types(cls) -> list["AdjType"]:
@@ -56,6 +57,7 @@ class AdjType(StrEnum):
             cls.ABSTRACT,
             cls.EXAMPLE,
             cls.DETAIL,
+            cls.ANTI,
         ]
 
     @property
@@ -71,12 +73,18 @@ class AdjType(StrEnum):
             AdjType.DETAIL: (EdgeType.BELOW, Direction.FORWARD),
             AdjType.SIBLING: (EdgeType.SIBLING, Direction.BOTH),
             AdjType.PARENT: (EdgeType.BELOW, Direction.BACKWARD),
+            AdjType.ANTI: (EdgeType.ANTI, Direction.BOTH),
         }[self]
 
     def match(self, sent_var: str, dist: int | None) -> str:
         """Match query."""
         if self == AdjType.DETAIL:
             return detail_match(sent_var, dist)
+        if self == AdjType.ANTI:
+            return f"""
+            OPTIONAL MATCH ({sent_var})-[:ANTI]-(anti:Sentence)
+            WHERE anti <> {sent_var}
+            """
         name = self.value
         et, direc = self.edge_type
         ar = q_arrow(et.name, direc)

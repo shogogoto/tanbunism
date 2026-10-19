@@ -25,6 +25,7 @@ class OrderBy(BaseModel):
     n_referred: int = 1
     n_abstract: int = 1
     n_example: int = 1
+    n_anti: int = 3
     desc: bool = True  # スコアの高い順がデフォルト
 
     def score_prop(self) -> str:

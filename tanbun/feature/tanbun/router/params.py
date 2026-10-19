@@ -31,6 +31,7 @@ def get_search_param(  # noqa: PLR0917
     n_conclusion: int = Query(default=3),
     n_refer: int = Query(default=3),
     n_referred: int = Query(default=3),
+    n_anti: int = Query(default=3),
     desc: bool = Query(default=True),  # noqa: FBT001
     sort: Literal["score", "pagerank"] = Query(default="score"),
     resource_id: UUID | None = Query(default=None),
@@ -43,6 +44,7 @@ def get_search_param(  # noqa: PLR0917
         n_conclusion=n_conclusion,
         n_refer=n_refer,
         n_referred=n_referred,
+        n_anti=n_anti,
         desc=desc,
     )
     return SearchParam(

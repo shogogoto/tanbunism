@@ -67,6 +67,7 @@ def q_stats(tgt: str, order_by: OrderBy | None = None) -> str:
                 , n_detail: n_detail
                 , n_abstract: n_abstract
                 , n_example: n_example
+                , n_anti: n_anti
                 {(order_by.score_prop() if order_by else "")}
             }} AS stats
         }}
@@ -156,7 +157,7 @@ def q_upper(sent_var: str) -> str:
     """parentの末尾 upper を取得する."""
     # RESOLVED は含めない ブロックを飛び越えて広範囲に探索することになって
     #   応答が返ってこなくなる
-    complex_ = "TO|EXAMPLE"  # resourceに近づくとは限らない方向
+    complex_ = "TO|EXAMPLE|ANTI"  # resourceに近づくとは限らない方向
     return f"""
         CALL ({sent_var}) {{
             MATCH (r:Resource {{uid: {sent_var}.resource_uid}})

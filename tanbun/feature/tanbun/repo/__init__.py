@@ -190,6 +190,7 @@ async def adj_tanbun_ids(
             , details
             , abstracts
             , examples
+            , antis
         """
     if do_print:
         print(q)  # noqa: T201
@@ -211,9 +212,17 @@ async def adj_tanbun(
     knowdes = await fetch_tanbuns_with_detail(uids)
     ls = []
     for row in rows:
-        sent, premises, conclusions, refers, referreds, details, abstracts, examples = (
-            row
-        )
+        (
+            sent,
+            premises,
+            conclusions,
+            refers,
+            referreds,
+            details,
+            abstracts,
+            examples,
+            antis,
+        ) = row
         adj = TanbunAdjacency(
             center=knowdes[sent],
             details=[knowdes[d] for d in details],
@@ -223,6 +232,7 @@ async def adj_tanbun(
             referreds=[knowdes[r] for r in referreds],
             abstracts=[knowdes[a] for a in abstracts],
             examples=[knowdes[e] for e in examples],
+            antis=[knowdes[a] for a in antis],
         )
         ls.append(adj)
     return ls
