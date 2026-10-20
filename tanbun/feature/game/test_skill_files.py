@@ -93,6 +93,8 @@ def test_v2_serializes_only_fields_belonging_to_its_effect(effect, specific):
         "effect",
         "target",
         "amount",
+        "template_id",
+        "element",
     }
     skill = file.skills[0]
     assert type(skill).model_fields.keys() == base | specific
@@ -184,7 +186,7 @@ def test_import_updates_by_id_appends_new_and_preserves_consumers():
 @pytest.mark.parametrize(
     "patch",
     [
-        {"version": 4},
+        {"version": 5},
         {"format": "other"},
         {"skills": [{"id": "wrong", "name": "誤記", "effect": "unknown"}]},
         {"skills": [{"id": "wrong", "name": "誤記", "effect": "attack", "mpcost": 3}]},

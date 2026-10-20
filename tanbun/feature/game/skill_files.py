@@ -4,7 +4,15 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .catalog import GameCatalog, SkillDefinition, migrate_skill
+from .catalog import (
+    GameCatalog,
+    SkillDefinition,
+    SkillTemplate,
+    migrate_skill,
+    resolve_skill_templates,
+)
+
+TEMPLATE_FILE_VERSION = 4
 
 
 class SkillFile(BaseModel):
@@ -13,8 +21,17 @@ class SkillFile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     format: Literal["tanbunism.skills"]
-    version: Literal[1, 2, 3]
+    version: Literal[1, 2, 3, 4]
     skills: list[SkillDefinition] = Field(max_length=200)
+    skill_templates: list[SkillTemplate] = Field(default_factory=list, max_length=200)
+
+    @model_validator(mode="before")
+    @classmethod
+    def apply_templates(cls, value):
+        """交換ファイル内の共通設定で参照を解決する."""
+        if isinstance(value, dict) and value.get("version") == TEMPLATE_FILE_VERSION:
+            return resolve_skill_templates({"skill_templates": [], **value})
+        return value
 
     @model_validator(mode="before")
     @classmethod
@@ -47,6 +64,12 @@ class SkillFilePreview(BaseModel):
         """同じIDは置換し、それ以外は維持する。参照も再検査する."""
         skills = {skill.id: skill for skill in self.catalog.skills}
         skills.update({skill.id: skill for skill in self.document.skills})
+        templates = {t.id: t for t in self.catalog.skill_templates}
+        templates.update({t.id: t for t in self.document.skill_templates})
         return GameCatalog.model_validate(
-            self.catalog.model_dump() | {"skills": list(skills.values())},
+            self.catalog.model_dump()
+            | {
+                "skills": list(skills.values()),
+                "skill_templates": list(templates.values()),
+            },
         )

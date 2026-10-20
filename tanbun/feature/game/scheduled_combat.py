@@ -47,7 +47,8 @@ def prepare_scheduled_gambit(state, catalog, slots=1) -> None:
             selected if selected and not selected.specialty_id else None
         )
         if selected is None:
-            marker.gambitAction = BattleAction(skill=normal_attack(), name="戦う")
+            fallback = normal_attack(catalog)
+            marker.gambitAction = BattleAction(skill=fallback, name=fallback.name)
 
 
 async def prepare_live_gambit(user_id, state) -> None:
@@ -172,12 +173,13 @@ def action_damage(state, context, *, correct, roll_player, roll_enemy):
     enemy = next(e for e in context.enemies if e.id == target)
     player_turn = schedule.actor_id == "player"
     action = marker.gambitAction if player_turn else None
+    fallback = context.default_attack or normal_attack()
     skill = (
         action.skill
         if action
-        else normal_attack()
+        else fallback
         if player_turn
-        else (enemy.attack_skill or normal_attack())
+        else (enemy.attack_skill or fallback)
     )
     successful = correct if player_turn else not correct
     effect = answer_effect(skill, successful)
@@ -198,13 +200,13 @@ def action_damage(state, context, *, correct, roll_player, roll_enemy):
                 state,
                 context,
                 enemy,
-                normal_attack(),
+                fallback,
                 roll_enemy,
             )
         return outgoing_attack(
             state,
             context,
-            normal_attack(),
+            fallback,
             [target],
             roll_player=roll_player,
             roll_enemy=roll_enemy,

@@ -345,6 +345,9 @@ def _begin_practice(
     slots: int = 1,
 ) -> PracticeSession:
     """Share encounter draws and turn initialization for both trial sources."""
+    from .skill_outcomes import normal_attack  # noqa: PLC0415
+
+    context.default_attack = normal_attack(catalog)
     chosen = select_encounter(
         context.enemies,
         context.balance,

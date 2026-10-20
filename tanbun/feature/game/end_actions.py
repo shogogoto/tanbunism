@@ -161,7 +161,13 @@ def prepare_counter_damage(state, context) -> int:
     from .scheduled_combat import incoming_attack  # noqa: PLC0415
 
     enemy = next(e for e in context.enemies if e.id == state.save.battle.enemies[0])
-    return incoming_attack(state, context, enemy, normal_attack(), enemy_damage)
+    return incoming_attack(
+        state,
+        context,
+        enemy,
+        context.default_attack or normal_attack(),
+        enemy_damage,
+    )
 
 
 def begin_action(

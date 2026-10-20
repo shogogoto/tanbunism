@@ -87,6 +87,7 @@ class CombatContext(BaseModel):
 
     balance: GameBalance
     enemies: list[EnemyStats]
+    default_attack: StoredSkill | None = None
 
 
 async def combat_context(
@@ -115,8 +116,12 @@ async def combat_context(
     )
     relations = dict(rows)
     battle_payload = state.save.battle.model_dump() if state.save.battle else {}
+    from .skill_outcomes import normal_attack  # noqa: PLC0415
+
+    catalog = await get_game_catalog()
     return CombatContext(
         balance=balance,
+        default_attack=normal_attack(catalog),
         enemies=style_enemies(
             derive_enemies(
                 {**content, "battle": battle_payload},
@@ -124,7 +129,7 @@ async def combat_context(
                 power,
                 balance,
             ),
-            await get_game_catalog(),
+            catalog,
         ),
     )
 
@@ -136,18 +141,29 @@ def style_enemies(
     preserve_stats: bool = False,
 ) -> list[EnemyStats]:
     """クイズの固定セットを変えず、同じ種類には同じ素材を割り当てる。."""
+    from .skill_outcomes import normal_attack  # noqa: PLC0415
+
     skills = {s.id: s for s in catalog.skills if s.enabled}
     result = []
     for enemy in enemies:
         boss = enemy.id.startswith("boss:")
         templates = [e for e in catalog.enemies if e.enabled and e.boss == boss]
         if not templates:
-            result.append(enemy)
+            fallback = normal_attack(catalog)
+            result.append(
+                enemy.model_copy(
+                    update={
+                        "attack_skill": fallback,
+                        "animation": fallback.animation,
+                        "sound": fallback.sound,
+                    },
+                ),
+            )
             continue
         identity = enemy.id.split("#", 1)[0]
         seed = sum((i + 1) * ord(c) for i, c in enumerate(identity))
         template = templates[seed % len(templates)]
-        skill = skills.get(template.attack_skill_id)
+        skill = skills.get(template.attack_skill_id) or normal_attack(catalog)
         attack = (
             min(
                 100000,

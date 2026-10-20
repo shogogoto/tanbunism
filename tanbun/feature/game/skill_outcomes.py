@@ -1,16 +1,15 @@
 """クイズ一問に対する効果。利用経路・画面表示から独立した共通規則。."""
 
-from .catalog import AttackSkill, CounterResult, SkillDefinition
+from .catalog import AttackSkill, GameCatalog, SkillDefinition, default_normal_attack
 
 
-def normal_attack() -> AttackSkill:
+def normal_attack(catalog: GameCatalog | None = None) -> AttackSkill:
     """全キャラクターの最下位ガンビット。装備枠・MPを消費しない。."""
-    return AttackSkill(
-        id="normal_attack",
-        name="戦う",
-        animation="impact",
-        on_wrong=CounterResult(),
-    )
+    if catalog:
+        skill = next((s for s in catalog.skills if s.id == "normal_attack"), None)
+        if isinstance(skill, AttackSkill):
+            return skill.model_copy(deep=True)
+    return default_normal_attack()
 
 
 def answer_effect(skill: SkillDefinition, correct: bool) -> SkillDefinition | None:  # noqa: FBT001

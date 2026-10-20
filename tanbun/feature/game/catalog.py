@@ -1,5 +1,6 @@
 """管理者が定義するスキル・所持品・敵の素材。戦闘開始時に効果を固定する。."""
 
+import json
 from enum import StrEnum
 from typing import Annotated, Literal
 
@@ -281,7 +282,19 @@ class SkillBase(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     icon: IconId = "sparkles"
     enabled: bool = True
-    mp_cost: int = Field(default=0, ge=0, le=10000)
+    template_id: DefinitionId | None = None
+    element: Literal[
+        "none",
+        "fire",
+        "ice",
+        "lightning",
+        "water",
+        "wind",
+        "earth",
+        "light",
+        "dark",
+        "poison",
+    ] = "none"
     sound: SkillSound = SkillSound.AUTO
     animation: Literal[
         "none",
@@ -342,14 +355,21 @@ class SkillBase(BaseModel):
     ] = "none"
 
 
-class VariableAmountSkill(SkillBase):
+class EffectBase(BaseModel):
+    """表示情報とは独立した効果の設定."""
+
+    model_config = ConfigDict(extra="forbid")
+    mp_cost: int = Field(default=0, ge=0, le=10000)
+
+
+class VariableAmountEffect(EffectBase):
     """固定値または割合で効果量を指定する種類の共通項目."""
 
     amount: int = Field(default=0, ge=0, le=10000)
     amount_mode: AmountMode = AmountMode.FIXED
 
 
-class AttackSkill(VariableAmountSkill):
+class AttackEffect(VariableAmountEffect):
     """攻撃。加算ダメージと攻撃力に掛ける倍率を持つ."""
 
     effect: Literal[SkillEffect.ATTACK] = SkillEffect.ATTACK
@@ -363,7 +383,7 @@ class AttackSkill(VariableAmountSkill):
     ] = Field(default_factory=FizzleResult)
 
 
-class RecoverySkill(VariableAmountSkill):
+class RecoveryEffect(VariableAmountEffect):
     """HP・MP回復。攻撃倍率や持続効果は持たない."""
 
     effect: Literal[SkillEffect.HEAL_HP, SkillEffect.HEAL_MP]
@@ -371,14 +391,14 @@ class RecoverySkill(VariableAmountSkill):
     on_wrong: NumericWrongResult = Field(default_factory=FizzleResult)
 
 
-class TimedSkill(VariableAmountSkill):
+class TimedEffect(VariableAmountEffect):
     """戦闘中に持続する効果の期間と重複上限."""
 
     duration_turns: int = Field(default=3, ge=1, le=20)
     stack_limit: int = Field(default=1, ge=1, le=10)
 
 
-class BuffSkill(TimedSkill):
+class BuffEffect(TimedEffect):
     """自分の能力向上。バブルは最大HPへの割合効果."""
 
     effect: Literal[SkillEffect.BUFF] = SkillEffect.BUFF
@@ -395,7 +415,7 @@ class BuffSkill(TimedSkill):
         return self
 
 
-class DebuffSkill(TimedSkill):
+class DebuffEffect(TimedEffect):
     """敵の能力低下。現在の敵が持つ攻撃力を対象にする."""
 
     effect: Literal[SkillEffect.DEBUFF] = SkillEffect.DEBUFF
@@ -410,7 +430,7 @@ class DebuffSkill(TimedSkill):
     on_wrong: NumericWrongResult = Field(default_factory=FizzleResult)
 
 
-class AilmentSkill(TimedSkill):
+class AilmentEffect(TimedEffect):
     """状態異常。能力を指定するstatとは独立する."""
 
     effect: Literal[SkillEffect.AILMENT] = SkillEffect.AILMENT
@@ -424,12 +444,151 @@ class AilmentSkill(TimedSkill):
     ] = Field(default_factory=FizzleResult)
 
 
-class UtilitySkill(SkillBase):
+class UtilityEffect(EffectBase):
     """固定値の歩数回復・装備効果。割合や持続ターンは持たない."""
 
     effect: Literal[SkillEffect.RECOVER_MOVES, SkillEffect.EQUIP_ATTACK]
     target: Literal[SkillTarget.SELF] = SkillTarget.SELF
     amount: int = Field(default=0, ge=0, le=10000)
+
+
+class AttackSkill(SkillBase, AttackEffect):
+    """名前・演出を持つ攻撃スキル."""
+
+
+class RecoverySkill(SkillBase, RecoveryEffect):
+    """名前・演出を持つ回復スキル."""
+
+
+class BuffSkill(SkillBase, BuffEffect):
+    """名前・演出を持つバフスキル."""
+
+
+class DebuffSkill(SkillBase, DebuffEffect):
+    """名前・演出を持つデバフスキル."""
+
+
+class AilmentSkill(SkillBase, AilmentEffect):
+    """名前・演出を持つ状態異常スキル."""
+
+
+class UtilitySkill(SkillBase, UtilityEffect):
+    """名前・演出を持つ補助スキル."""
+
+
+class TemplateBase(BaseModel):
+    """共通の効果設定の識別子と名前."""
+
+    model_config = ConfigDict(extra="forbid")
+    id: DefinitionId
+    name: str = Field(min_length=1, max_length=80)
+
+
+class AttackTemplate(TemplateBase, AttackEffect):
+    """攻撃の共通設定."""
+
+
+class RecoveryTemplate(TemplateBase, RecoveryEffect):
+    """回復の共通設定."""
+
+
+class BuffTemplate(TemplateBase, BuffEffect):
+    """バフの共通設定."""
+
+
+class DebuffTemplate(TemplateBase, DebuffEffect):
+    """デバフの共通設定."""
+
+
+class AilmentTemplate(TemplateBase, AilmentEffect):
+    """状態異常の共通設定."""
+
+
+class UtilityTemplate(TemplateBase, UtilityEffect):
+    """補助効果の共通設定."""
+
+
+SkillTemplate = Annotated[
+    AttackTemplate
+    | RecoveryTemplate
+    | BuffTemplate
+    | DebuffTemplate
+    | AilmentTemplate
+    | UtilityTemplate,
+    Field(discriminator="effect"),
+]
+SKILL_IDENTITY_FIELDS = set(SkillBase.model_fields)
+
+
+def default_skill_templates() -> list[SkillTemplate]:
+    """既存スキルへ勝手に適用せず、選択可能な雛形だけ提供する."""
+    return [
+        AttackTemplate(
+            id="basic_physical",
+            name="基本の物理攻撃",
+            on_wrong=CounterResult(),
+        ),
+        AttackTemplate(
+            id="basic_spell",
+            name="初級単体魔法",
+            damage_type="special",
+            multiplier=1.5,
+            mp_cost=3,
+        ),
+        RecoveryTemplate(
+            id="basic_heal",
+            name="初級HP割合回復",
+            effect="heal_hp",
+            amount=20,
+            amount_mode="percent",
+            mp_cost=3,
+            on_wrong=ReducedResult(amount=10),
+        ),
+    ]
+
+
+def default_normal_attack() -> AttackSkill:
+    """装備枠・MPを消費しない標準行動の初期値."""
+    return AttackSkill(
+        id="normal_attack",
+        name="戦う",
+        animation="impact",
+        on_wrong=CounterResult(),
+    )
+
+
+def resolve_skill_templates(value):
+    """参照した共通値を一意に解決し、個別の数値上書きを許さない."""
+    if not isinstance(value, dict):
+        return value
+    templates = TypeAdapter(list[SkillTemplate]).validate_python(
+        value.get("skill_templates", default_skill_templates()),
+    )
+    by_id = {template.id: template for template in templates}
+    if len(by_id) != len(templates):
+        msg = "効果テンプレートのIDが重複しています。"
+        raise ValueError(msg)
+    skills = []
+    if not isinstance(value.get("skills", []), list):
+        msg = "スキル一覧は配列として指定してください。"
+        raise ValueError(msg)  # noqa: TRY004 - Pydantic validator requires ValueError
+    for original in value.get("skills", []):
+        if not isinstance(original, (dict, BaseModel)):
+            msg = "スキルはオブジェクトとして指定してください。"
+            raise ValueError(msg)  # noqa: TRY004 - Pydantic validator requires ValueError
+        skill = (
+            original.model_dump() if isinstance(original, BaseModel) else dict(original)
+        )
+        if reference := skill.get("template_id"):
+            if reference not in by_id:
+                msg = f"効果テンプレートが見つかりません: {reference}"
+                raise ValueError(msg)
+            skill = {
+                **by_id[reference].model_dump(exclude={"id", "name"}),
+                **{key: v for key, v in skill.items() if key in SKILL_IDENTITY_FIELDS},
+            }
+        skills.append(skill)
+    return {**value, "skill_templates": templates, "skills": skills}
 
 
 SkillDefinition = Annotated[
@@ -601,6 +760,10 @@ class GameCatalog(BaseModel):
     """IDと参照をまとめて検査し、一括保存する定義。."""
 
     skills: list[StoredSkill] = Field(default_factory=list, max_length=200)
+    skill_templates: list[SkillTemplate] = Field(
+        default_factory=default_skill_templates,
+        max_length=200,
+    )
     items: list[ItemDefinition] = Field(default_factory=list, max_length=200)
     shop: list[ShopListing] = Field(default_factory=list, max_length=200)
     enemies: list[EnemyDefinition] = Field(default_factory=list, max_length=100)
@@ -645,6 +808,7 @@ class GameCatalog(BaseModel):
                 {"skill_id": s["id"]}
                 for s in skills
                 if s.get("castable", True)
+                and s.get("id") != "normal_attack"
                 and not s.get("requires_specialty")
                 and not s.get("quiz_required")
                 and s.get("effect")
@@ -685,6 +849,23 @@ class GameCatalog(BaseModel):
         migrate_wrong_effects(value["skills"], value["specialty_skills"])
         return value
 
+    @model_validator(mode="before")
+    @classmethod
+    def apply_templates(cls, value):
+        """利用設定の旧形式移行より先にテンプレート参照を解決する."""
+        return resolve_skill_templates(value)
+
+    def stored_document(self) -> dict:
+        """参照スキルは共通値を複製せず、識別情報だけを保存する."""
+        document = self.model_dump(mode="json")
+        document["skills"] = [
+            {key: value for key, value in skill.items() if key in SKILL_IDENTITY_FIELDS}
+            if skill.get("template_id")
+            else skill
+            for skill in document["skills"]
+        ]
+        return document
+
     @model_validator(mode="after")
     def valid_shop(self):
         """ショップには存在するアイテムを一度ずつ登録する."""
@@ -705,6 +886,22 @@ class GameCatalog(BaseModel):
                 msg = "定義IDが重複しています。"
                 raise ValueError(msg)
         skills = {s.id: s for s in self.skills}
+        normal = skills.get("normal_attack")
+        expected_normal = {
+            "effect": "attack",
+            "damage_type": "physical",
+            "target": "enemy",
+            "target_count": 1,
+            "mp_cost": 0,
+            "on_wrong": {"type": "counter"},
+            "enabled": True,
+        }
+        if (
+            normal
+            and normal.model_dump(include=set(expected_normal)) != expected_normal
+        ):
+            msg = "戦うは有効な物理攻撃・反撃・敵1体・消費MP0として定義してください。"
+            raise ValueError(msg)
         for uses in (self.player_skills, self.specialty_skills):
             if len({u.skill_id for u in uses}) != len(uses):
                 msg_0 = "スキル利用の参照IDが重複しています。"
@@ -822,6 +1019,7 @@ def default_catalog() -> GameCatalog:
                 mp_cost=3,
                 animation="lightning",
             ),
+            default_normal_attack(),
         ],
         player_skills=[
             PlayerSkillUse(skill_id=s) for s in ("fire", "fire_all", "heal")
@@ -880,7 +1078,10 @@ async def get_game_catalog() -> GameCatalog:
     rows, _ = await adb.cypher_query(
         "MATCH (s:AdminSettings {key:'game_catalog'}) RETURN s.config LIMIT 1",
     )
-    return GameCatalog.model_validate_json(rows[0][0]) if rows else default_catalog()
+    catalog = GameCatalog.model_validate_json(rows[0][0]) if rows else default_catalog()
+    if not any(s.id == "normal_attack" for s in catalog.skills):
+        catalog.skills.append(default_normal_attack())
+    return catalog
 
 
 async def update_game_catalog(catalog: GameCatalog) -> GameCatalog:
@@ -892,6 +1093,6 @@ async def update_game_catalog(catalog: GameCatalog) -> GameCatalog:
         raise ValueError(msg)
     await adb.cypher_query(
         "MERGE (s:AdminSettings {key:'game_catalog'}) SET s.config=$config",
-        {"config": catalog.model_dump_json()},
+        {"config": json.dumps(catalog.stored_document(), ensure_ascii=False)},
     )
     return catalog
