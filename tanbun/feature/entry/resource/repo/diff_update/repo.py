@@ -22,9 +22,12 @@ from tanbun.feature.entry.resource.repo.diff_update.domain.builder import (
     build_term_updiff,
 )
 from tanbun.feature.entry.resource.repo.diff_update.domain.domain import (
-    diff2sets,
+    diff_relationships,
     edges2nodes,
     sysnet2edges,
+)
+from tanbun.feature.entry.resource.repo.diff_update.relationships import (
+    update_relationships,
 )
 from tanbun.feature.entry.resource.repo.restore import restore_sysnet
 from tanbun.feature.entry.resource.repo.retirement import (
@@ -62,7 +65,7 @@ async def prepare_resource_diff(
     old, uids = await restore_sysnet(resource_id)
     rm_s, add_s, upd_s = build_sentency_updiff(old, upd, identity_resolutions)
     rm_t, add_t, upd_t = build_term_updiff(old, upd, term_identity_resolutions)
-    e_rem, e_add = diff2sets(sysnet2edges(old), sysnet2edges(upd))
+    e_rem, e_add = diff_relationships(sysnet2edges(old), sysnet2edges(upd), upd_s)
     return ResourceDiffPlan(
         old=old,
         uids=uids,
@@ -94,6 +97,26 @@ async def update_resource_diff(
         identity_resolutions,
         term_identity_resolutions,
     )
+    if not (
+        plan.removed_sentences
+        or plan.added_sentences
+        or plan.removed_terms
+        or plan.added_terms
+        or plan.updated_terms
+        or any(
+            type(old) is not type(new) or str(old) != str(new)
+            for old, new in plan.updated_sentences.items()
+        )
+    ):
+        if plan.removed_edges or plan.added_edges:
+            await update_relationships(
+                plan.removed_edges,
+                plan.added_edges,
+                plan.uids,
+                plan.old.root,
+                plan.updated_sentences,
+            )
+        return
     sn = plan.old
     uids = plan.uids
     rm_s = plan.removed_sentences

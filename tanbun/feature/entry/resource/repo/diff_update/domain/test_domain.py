@@ -13,10 +13,32 @@ from tanbun.feature.parsing.tree2net import parse2net
 from .domain import (
     create_updatediff,
     diff2sets,
+    diff_relationships,
     identify_updatediff_term,
     identify_updatediff_txt,
     sysnet2edges,
 )
+
+
+def test_relationship_diff_preserves_edges_when_node_identity_is_inherited():
+    """同一単文へ引き継ぐ変更では、維持された関係を削除・再作成しない。."""
+    old = {("before", "other", EdgeType.ANTI), ("parent", "before", EdgeType.BELOW)}
+    new = {("after", "other", EdgeType.ANTI), ("parent", "after", EdgeType.BELOW)}
+    assert diff_relationships(old, new, {"before": "after"}) == (set(), set())
+
+
+def test_relationship_diff_keeps_original_endpoints_for_actual_changes():
+    """変更する辺の削除元は旧ノード、追加先は新ノードのまま返す。."""
+    old = {("before", "other", EdgeType.ANTI)}
+    new = {("after", "another", EdgeType.ANTI)}
+    assert diff_relationships(old, new, {"before": "after"}) == (old, new)
+
+
+def test_relationship_diff_excludes_separately_stored_metadata():
+    """メタ情報を本文の新規関係と誤認せず、Resourceから本文への接続を維持する."""
+    with_metadata = parse2net("# title\n  @published 1999/12/31\n  sentence\n")
+    without_metadata = parse2net("# title\n  sentence\n")
+    assert sysnet2edges(with_metadata) == sysnet2edges(without_metadata)
 
 
 def test_sentence_diff() -> None:

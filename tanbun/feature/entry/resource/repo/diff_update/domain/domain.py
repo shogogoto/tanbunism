@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 import Levenshtein
 
+from tanbun.feature.domain.graph.edge_type import EdgeType
 from tanbun.feature.domain.types import Duplicable
 from tanbun.feature.entry.resource.repo.diff_update.errors import (
     IdentificationError,
@@ -198,6 +199,25 @@ def diff2sets[T](old: Iterable[T], new: Iterable[T]) -> tuple[set[T], set[T]]:
     return removed, added
 
 
+def diff_relationships(
+    old: Iterable[EdgeRel],
+    new: Iterable[EdgeRel],
+    updated_sentences: dict[Sentency, Sentency],
+) -> tuple[set[EdgeRel], set[EdgeRel]]:
+    """UIDを引き継ぐ単文・引用の変更を同一視し、実際に変わった辺だけ返す。."""
+    translated = {
+        (updated_sentences.get(u, u), updated_sentences.get(v, v), relation): (
+            u,
+            v,
+            relation,
+        )
+        for u, v, relation in old
+    }
+    new_edges = set(new)
+    removed = {edge for key, edge in translated.items() if key not in new_edges}
+    return removed, new_edges - translated.keys()
+
+
 def create_updatediff[T](
     old: Iterable[T],
     new: Iterable[T],
@@ -232,10 +252,20 @@ def identify_updatediff_term(
 
 def sysnet2edges(sn: SysNet) -> set[EdgeRel]:
     """edgeをsetに変換."""
-    edges = set()
-    for s in [*sn.sentences, sn.root]:  # 単文の関係だけ見れば良い
-        e = {(u, v, attr["type"]) for u, v, attr in sn.g.out_edges(s, data=True)}
-        edges = edges.union(e)
+    metadata = set(sn.meta)
+    edges = {
+        (u, v, attr["type"])
+        for s in [*sn.sentences, sn.root]
+        for u, v, attr in sn.g.out_edges(s, data=True)
+        if u not in metadata and v not in metadata
+    }
+    # 初回保存と同様、別プロパティとして保存するメタ情報を飛ばして本文へ接続する。
+    edges.update(
+        (sn.root, end, EdgeType.BELOW)
+        for start in metadata
+        for _, end in sn.g.out_edges(start)
+        if end not in metadata
+    )
     return edges
 
 

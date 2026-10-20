@@ -3,8 +3,11 @@
 from collections.abc import Iterable
 from uuid import UUID
 
+from lark import Token
+
 from tanbun.feature.domain.types import Duplicable, to_uuid
 from tanbun.feature.entry.resource.repo.save import EdgeRel, cypher_string, rel2q
+from tanbun.feature.parsing.primitive.quoterm.domain import Quoterm
 from tanbun.feature.parsing.primitive.term import Term
 from tanbun.feature.parsing.primitive.time import WhenNode
 from tanbun.feature.parsing.sysnet import SysNet
@@ -14,6 +17,10 @@ from tanbun.feature.parsing.sysnet.sysnode import Def, KNode, Sentency
 def n2label(n: KNode) -> str:
     """nodeのラベル."""
     match n:
+        case Token() if n.type.startswith("H"):
+            return "Head"
+        case Quoterm():
+            return "Quoterm"
         case WhenNode():
             return "Interval"
         case str() | Duplicable():

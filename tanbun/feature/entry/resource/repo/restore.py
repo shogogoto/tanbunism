@@ -147,7 +147,7 @@ async def restore_undersentnet(  # noqa: PLR0914
     various = "|".join([et.name for et in EdgeType if et != EdgeType.DEF])
     q = f"""
         MATCH (s:Sentence|Quoterm {{resource_uid: $uid}})
-        OPTIONAL MATCH (s)-[r:{various}]->(e:Sentence|Interval|Quterm)
+        OPTIONAL MATCH (s)-[r:{various}]->(e:Sentence|Interval|Quoterm)
         {q_call_term_names("s")}
         RETURN s
             , COLLECT([e, r]) as ends
