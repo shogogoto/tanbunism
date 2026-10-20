@@ -68,6 +68,7 @@ class EnemyStats(BaseModel):
     quizIndexes: list[int] = Field(default_factory=list)  # noqa: N815
     hp: int
     attack: int
+    mp: int = Field(default=0, ge=0, le=100000)
     defense: int = Field(default=0, ge=0, le=100000)
     special_attack: int | None = Field(default=None, ge=0, le=100000)
     special_defense: int = Field(default=0, ge=0, le=100000)
@@ -245,6 +246,7 @@ def derive_enemies(
                     hp=hp,
                     attack=attack,
                     speed=balance.enemy_speed_stat(power, region, item["id"]),
+                    **balance.enemy_extra_stats(power, region, item["id"]),
                     relations=relation_count,
                     region=region,
                 ),
@@ -290,6 +292,11 @@ def derive_boss(
     if not indexes:
         return None
     hp, attack = balance.enemy_stats(power, 0, level - 1, variation_key=identity)
+    extra = balance.enemy_extra_stats(power, level - 1, identity)
+    extra["special_attack"] = min(
+        100000,
+        ceil(extra["special_attack"] * balance.boss_attack_multiplier),
+    )
     return EnemyStats(
         id=identity,
         name=f"達成度 {level}のボス",
@@ -298,6 +305,7 @@ def derive_boss(
         hp=min(100000, ceil(hp * balance.boss_hp_multiplier)),
         attack=min(100000, ceil(attack * balance.boss_attack_multiplier)),
         speed=balance.enemy_speed_stat(power, level - 1, identity),
+        **extra,
         relations=0,
         region=level - 1,
     )

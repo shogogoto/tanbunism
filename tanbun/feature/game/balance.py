@@ -52,6 +52,30 @@ class GameBalance(BaseModel, frozen=True):
     defense_per_point: int = Field(default=1, ge=1, le=100)
     enemy_hp: int = Field(default=20, ge=1, le=10000)
     enemy_attack: int = Field(default=12, ge=1, le=1000)
+    enemy_mp: int = Field(default=10, ge=0, le=10000)
+    enemy_special_attack: int = Field(default=12, ge=0, le=1000)
+    enemy_special_defense: int = Field(default=0, ge=0, le=1000)
+    power_mp: float = Field(default=0, ge=0, le=100, allow_inf_nan=False)
+    power_special_attack: float = Field(default=0.5, ge=0, le=100, allow_inf_nan=False)
+    power_special_defense: float = Field(default=0, ge=0, le=100, allow_inf_nan=False)
+    region_mp_growth_percent: float = Field(
+        default=0,
+        ge=0,
+        le=1000,
+        allow_inf_nan=False,
+    )
+    region_special_attack_growth_percent: float = Field(
+        default=20,
+        ge=0,
+        le=1000,
+        allow_inf_nan=False,
+    )
+    region_special_defense_growth_percent: float = Field(
+        default=0,
+        ge=0,
+        le=1000,
+        allow_inf_nan=False,
+    )
     power_hp: float = Field(default=1, ge=0, le=100, allow_inf_nan=False)
     power_attack: float = Field(default=0.5, ge=0, le=100, allow_inf_nan=False)
     # Retained solely for reading old settings/clients; no longer affect gameplay.
@@ -232,6 +256,24 @@ class GameBalance(BaseModel, frozen=True):
             1 + max(0, region) * self.region_speed_growth_percent / 100
         )
         return max(1, min(100000, ceil(value * self.enemy_variation(variation_key))))
+
+    def enemy_extra_stats(
+        self,
+        power: int,
+        region: int,
+        variation_key: str = "",
+    ) -> dict[str, int]:
+        """MP・特攻・特守にも同じPower補正・領域成長・個体差を適用する."""
+        scale = log1p(max(0, power))
+        factor = self.enemy_variation(variation_key)
+        result = {}
+        for stat in ("mp", "special_attack", "special_defense"):
+            base = getattr(self, f"enemy_{stat}")
+            power_bonus = scale * getattr(self, f"power_{stat}")
+            growth = getattr(self, f"region_{stat}_growth_percent")
+            value = (base + power_bonus) * (1 + max(0, region) * growth / 100)
+            result[stat] = min(100000, max(0, ceil(value * factor)))
+        return result
 
 
 class Allocation(BaseModel):

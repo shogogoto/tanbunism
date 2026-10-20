@@ -268,3 +268,11 @@ achievement growth (`region_speed_growth_percent`) and the same stable individua
 variation as HP/attack. Both new growth coefficients default to zero. Enemy catalog
 overrides still apply to live encounters; generated practice trials retain their
 previewed speed alongside HP/attack.
+
+Enemy MP, special attack and special defense use the same Power/growth/variation
+formula, with independent `enemy_*`, `power_*` and `region_*_growth_percent`
+settings. Live enemies, bosses and generated practice trials carry these values;
+boss attack scaling also applies to special attack. CTB encounters persist current
+enemy MP in `schedule.enemy_mp`. Enemy actions spend MP even when prevented by a
+correct answer, but not on retreat; insufficient MP falls back to the free normal
+attack. Special attacks use special attack/defense instead of physical stats.

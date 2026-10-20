@@ -142,6 +142,11 @@ async def test_practice_uses_enemy_snapshot_and_draft_initial_player_values(
             source.speed,
         )
         assert len(enemy.quizIndexes) == source.quiz_count
+        assert (enemy.mp, enemy.special_attack, enemy.special_defense) == (
+            source.mp,
+            source.special_attack,
+            source.special_defense,
+        )
     second = await practice.prepare_simulated_practice(request)
     assert session.context == second.context
     marker = session.state.save.battle

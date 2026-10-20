@@ -79,6 +79,7 @@ def initialize_schedule(state, context) -> None:
             for key, speed in speeds.items()
         },
         enemy_hp={key: e.hp for key, e in enemies.items()},
+        enemy_mp={key: e.mp for key, e in enemies.items()},
     )
     begin_scheduled_action(state, context)
 
@@ -165,6 +166,32 @@ def incoming_attack(state, context, enemy, skill, roll_enemy):
     return max(0, int(base * skill.multiplier) + effect_amount(skill, attack))
 
 
+def enemy_action_skill(enemy, schedule, fallback):
+    """MP不足なら最下位の通常攻撃へ戻る。旧戦闘は初期MPから補う."""
+    skill = enemy.attack_skill or fallback
+    return (
+        skill
+        if schedule.enemy_mp.get(enemy.id, enemy.mp) >= skill.mp_cost
+        else fallback
+    )
+
+
+def spend_enemy_mp(state, context, enemy, *, retreat):
+    """行動の成否にかかわらず一回だけ消費し、撤退時は消費しない."""
+    schedule = state.save.battle.schedule
+    if schedule.actor_id == "player" or retreat:
+        return
+    skill = enemy_action_skill(
+        enemy,
+        schedule,
+        context.default_attack or normal_attack(),
+    )
+    schedule.enemy_mp[enemy.id] = max(
+        0,
+        schedule.enemy_mp.get(enemy.id, enemy.mp) - skill.mp_cost,
+    )
+
+
 def action_damage(state, context, *, correct, roll_player, roll_enemy):
     """正答は常にプレイヤーに有利。敵の行動ではスキルの成否を反転する。."""
     marker = state.save.battle
@@ -179,7 +206,7 @@ def action_damage(state, context, *, correct, roll_player, roll_enemy):
         if action
         else fallback
         if player_turn
-        else (enemy.attack_skill or fallback)
+        else enemy_action_skill(enemy, schedule, fallback)
     )
     successful = correct if player_turn else not correct
     effect = answer_effect(skill, successful)
@@ -245,6 +272,7 @@ def resolve_scheduled(
     if body.retreat:
         outgoing = {}
     working = state.model_copy(deep=True)
+    spend_enemy_mp(working, context, enemy, retreat=body.retreat)
     hp = working.save.battle.schedule.enemy_hp
     for identity, amount in outgoing.items():
         hp[identity] = max(0, hp[identity] - amount)
@@ -297,6 +325,7 @@ def resolve_scheduled(
         "incoming_damage": {target: incoming} if incoming else {},
         "outgoing_damage": outgoing,
         "enemy_hp": hp,
+        "enemy_mp": working.save.battle.schedule.enemy_mp,
         "actor_id": schedule.actor_id,
         "quiz_enemy_id": target,
         "gold_earned": updated.save.economy.gold - state.save.economy.gold,

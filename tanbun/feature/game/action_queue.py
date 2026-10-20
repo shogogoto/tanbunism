@@ -25,6 +25,7 @@ class ActionSchedule(BaseModel):
     waits: dict[str, float] = Field(default_factory=dict)
     speeds: dict[str, int] = Field(default_factory=dict)
     enemy_hp: dict[str, int] = Field(default_factory=dict)
+    enemy_mp: dict[str, int] = Field(default_factory=dict)
     actor_id: str | None = None
     quiz_enemy_id: str | None = None
     queue: list[QueueEntry] = Field(default_factory=list)
