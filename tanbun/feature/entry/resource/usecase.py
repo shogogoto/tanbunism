@@ -77,6 +77,7 @@ class _DetailChange:
     content_changed: bool
     cache_missing: bool
     structure_missing: bool
+    force: bool
     network: SysNet | None
     plan: ResourceDiffPlan | None
     structure_state: tuple[SysNet, dict[KNode, UUID]] | None
@@ -84,7 +85,12 @@ class _DetailChange:
     @property
     def needed(self) -> bool:
         """本文またはその付随データの更新が必要か."""
-        return self.content_changed or self.cache_missing or self.structure_missing
+        return (
+            self.content_changed
+            or self.cache_missing
+            or self.structure_missing
+            or self.force
+        )
 
 
 async def _prepare_detail_change(
@@ -95,19 +101,20 @@ async def _prepare_detail_change(
     *,
     identity_resolutions: dict[str, str | None] | None,
     term_identity_resolutions: dict[str, str | None] | None,
+    force: bool,
 ) -> _DetailChange:
     """本文の差分更新または構造修復を準備."""
     content_changed = existing is None or existing.txt_hash != meta.txt_hash
     cache_missing = existing is not None and existing.uid.hex not in ns.stats
     structure_missing = await _structure_missing(ns, existing, txt)
-    needed = content_changed or cache_missing or structure_missing
+    needed = content_changed or cache_missing or structure_missing or force
     network = try_parse2net(txt) if needed else None
     plan: ResourceDiffPlan | None = None
     structure_state: tuple[SysNet, dict[KNode, UUID]] | None = None
     if existing is not None and needed:
         if structure_missing:
             await repair_persisted_root(existing.uid)
-            if not content_changed and not cache_missing:
+            if not content_changed and not cache_missing and not force:
                 structure_state = await restore_sysnet(existing.uid)
         if structure_state is None and network is not None:
             plan = await prepare_resource_diff(
@@ -120,6 +127,7 @@ async def _prepare_detail_change(
         content_changed,
         cache_missing,
         structure_missing,
+        force,
         network,
         plan,
         structure_state,
@@ -157,7 +165,7 @@ async def _persist_detail_change(
         current, current_uids = change.structure_state
         await rebuild_resource_structure(resource_id, current, current_uids, network)
         return network
-    if change.content_changed or change.structure_missing:
+    if change.content_changed or change.structure_missing or change.force:
         network = network or try_parse2net(txt)
         await update_resource_diff(
             resource_id,
@@ -176,6 +184,8 @@ async def preview_resource_update(
     path: list[str] | None = None,
     identity_resolutions: dict[str, str | None] | None = None,
     term_identity_resolutions: dict[str, str | None] | None = None,
+    *,
+    force: bool = False,
 ) -> ResourceDiffPreview:
     """DBを変更せず、Resource保存で適用される差分を返す."""
     meta = ResourceMeta.from_str(txt, path)
@@ -190,6 +200,7 @@ async def preview_resource_update(
         and existing.txt_hash == meta.txt_hash
         and not cache_missing
         and not structure_missing
+        and not force
     ):
         return ResourceDiffPreview.unchanged(existing.uid)
     network = try_parse2net(txt)
@@ -221,6 +232,7 @@ async def save_resource_with_detail(
     *,
     identity_resolutions: dict[str, str | None] | None = None,
     term_identity_resolutions: dict[str, str | None] | None = None,
+    force: bool = False,
 ) -> tuple[MResource, ResourceMeta, bool]:
     """テキストからResource内のTanbunネットワークを永続化."""
     meta = ResourceMeta.from_str(txt, path, updated)
@@ -237,6 +249,7 @@ async def save_resource_with_detail(
             do_print,
             identity_resolutions=identity_resolutions,
             term_identity_resolutions=term_identity_resolutions,
+            force=force,
         )
 
 
@@ -249,6 +262,7 @@ async def _save_resource_with_detail(
     *,
     identity_resolutions: dict[str, str | None] | None,
     term_identity_resolutions: dict[str, str | None] | None,
+    force: bool,
 ) -> tuple[MResource, ResourceMeta, bool]:
     """競合確認後にResourceを永続化する."""
     existing = ns.get_resource_or_none(meta.title) or await fetch_resource_by_key(
@@ -262,6 +276,7 @@ async def _save_resource_with_detail(
         txt,
         identity_resolutions=identity_resolutions,
         term_identity_resolutions=term_identity_resolutions,
+        force=force,
     )
     same_location = existing is not None and (
         ns.roots_.get(meta.title) == existing
@@ -302,7 +317,12 @@ async def _save_resource_with_detail(
     if saved_network is not None:
         await save_resource_stats_cache(dbmeta.uid, saved_network)
 
-    changed = not resource_unchanged or change.cache_missing or change.structure_missing
+    changed = (
+        not resource_unchanged
+        or change.cache_missing
+        or change.structure_missing
+        or force
+    )
     return dbmeta, meta, changed
 
 

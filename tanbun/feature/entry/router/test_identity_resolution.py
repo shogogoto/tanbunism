@@ -132,6 +132,17 @@ async def test_identical_resource_text_has_no_diff(ac: AsyncClient) -> None:
         "terms_updated": 0,
     }
 
+    forced = await ac.post(
+        "/resource-text",
+        headers=headers,
+        json={"txt": text, "path": ["identical-hash.tb"], "force": True},
+    )
+    assert forced.is_success
+    assert forced.json() == {
+        "resource_id": created.json()["resource_id"],
+        "changed": True,
+    }
+
 
 @mark_async_test()
 async def test_clear_legacy_identity_matches_are_migrated_once(

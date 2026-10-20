@@ -117,6 +117,7 @@ async def post_text(
             body.path,
             identity_resolutions=body.resolution_map("sentence"),
             term_identity_resolutions=body.resolution_map("term"),
+            force=body.force,
         )
         await prepare_imported_resource_learning(user.id, m)
     return ResourceTextSaveResult(resource_id=m.uid.hex, changed=changed)
@@ -145,6 +146,7 @@ async def preview_text_update(
             body.path,
             body.resolution_map("sentence"),
             body.resolution_map("term"),
+            force=body.force,
         )
 
 
@@ -152,6 +154,7 @@ async def preview_text_update(
 async def post_files(
     files: list[UploadFile],
     user: ActiveUser,
+    force: bool = False,  # noqa: FBT001, FBT002
 ) -> dict[str, list[str]]:
     """ファイルからsysnetを読み取って永続化."""
     validate_file_count(len(files))
@@ -187,6 +190,7 @@ async def post_files(
                 text,
                 path=file.filename.split("/") if file.filename else None,
                 updated=datetime.now(tz=TZ),
+                force=force,
             )
             await prepare_imported_resource_learning(user.id, resource)
             resource_ids.append(resource.uid.hex)

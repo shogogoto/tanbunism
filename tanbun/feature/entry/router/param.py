@@ -28,6 +28,10 @@ class ResourceTextBody(BaseModel, frozen=True):
     txt: str
     path: list[str]
     identity_resolutions: list[IdentityResolutionBody] = Field(default_factory=list)
+    force: bool = Field(
+        default=False,
+        description="本文ハッシュによる省略をせず再解析・差分更新する",
+    )
 
     @model_validator(mode="after")
     def validate_unique_originals(self) -> Self:
