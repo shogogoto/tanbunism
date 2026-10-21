@@ -1,6 +1,9 @@
 """importで一度だけ配布し、指定リソースのダンジョンを開放する鍵."""
 
+from asyncio import sleep
+
 from fastapi import HTTPException
+from neo4j.exceptions import TransientError
 from neomodel import adb
 
 from tanbun.config.transactions import atomic
@@ -12,6 +15,8 @@ from tanbun.feature.notification.usecase import dispatch_saved_notifications
 from .inventory import DungeonKey, Product, consume_use
 from .state import GameSave, GameState, StateUpdate, compare_and_save, read_state
 from .unlocks import MAX_UNLOCKED_DUNGEONS, DungeonUnlock
+
+MAX_GRANT_ATTEMPTS = 3
 
 
 def opened_resources(save: GameSave) -> set[str]:
@@ -70,7 +75,7 @@ async def grant_dungeon_key(user_id: UUIDy, resource_id: UUIDy) -> GameState:
     resource = to_uuid(resource_id).hex
     name = await owned_resource_name(user_id, resource, require_content=False)
     identity = f"@dungeon:{resource}"
-    for _ in range(3):
+    for attempt in range(MAX_GRANT_ATTEMPTS):
         previous = await read_state(user_id)
         if identity in previous.save.economy.dungeon_keys:
             return previous
@@ -83,30 +88,55 @@ async def grant_dungeon_key(user_id: UUIDy, resource_id: UUIDy) -> GameState:
             resource not in opened_resources(previous.save),
         )
         updated.revision = previous.revision + 1
-        notifications = []
-        async with atomic():
-            rows = await compare_and_save(
+        owns_transaction = adb._active_transaction is None  # noqa: SLF001
+        try:
+            rows, notifications = await save_key_grant(
                 user_id,
-                StateUpdate(revision=previous.revision, save=updated.save),
+                previous,
                 updated,
+                identity,
             )
-            if rows and updated.save.economy.inventory[identity]:
-                notifications.append(
-                    await create_notification(
-                        user_id,
-                        NewNotification(
-                            kind=NotificationKind.DUNGEON_KEY_GRANTED,
-                            title="ダンジョン開放キーを入手しました",
-                            description=f"「{name[:400]}」の開放キーを1個入手しました。所持品から使うとダンジョンを開放できます。",
-                            href="/game/item",
-                        ),
-                    ),
-                )
+        except TransientError as cause:
+            # Only our own atomic() has completed rollback. An outer import/HTTP
+            # transaction must fail as a whole rather than reuse its failed state.
+            if (
+                cause.code != "Neo.TransientError.Transaction.DeadlockDetected"
+                or not owns_transaction
+            ):
+                raise
+            if attempt + 1 < MAX_GRANT_ATTEMPTS:
+                await sleep(0.05 * (attempt + 1))
+            continue
         if rows:
             if notifications:
                 await dispatch_saved_notifications(user_id, notifications)
             return updated
     raise HTTPException(409, "所持品が更新されました。importを再試行してください。")
+
+
+async def save_key_grant(user_id, previous, updated, identity):
+    """キーのCASと通知保存を同じトランザクションで確定・破棄する."""
+    notifications = []
+    async with atomic():
+        rows = await compare_and_save(
+            user_id,
+            StateUpdate(revision=previous.revision, save=updated.save),
+            updated,
+        )
+        if rows and updated.save.economy.inventory[identity]:
+            name = updated.save.economy.dungeon_keys[identity].name
+            notifications.append(
+                await create_notification(
+                    user_id,
+                    NewNotification(
+                        kind=NotificationKind.DUNGEON_KEY_GRANTED,
+                        title="ダンジョン開放キーを入手しました",
+                        description=f"「{name[:400]}」の開放キーを1個入手しました。所持品から使うとダンジョンを開放できます。",
+                        href="/game/item",
+                    ),
+                ),
+            )
+    return rows, notifications
 
 
 async def use_dungeon_key(user_id: UUIDy, save: GameSave, identity: str) -> None:

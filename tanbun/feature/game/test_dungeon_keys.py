@@ -7,12 +7,14 @@ from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
+from neo4j.exceptions import TransientError
 from neomodel import adb
 
 from tanbun.conftest import mark_async_test
 from tanbun.feature.notification.repo import list_notifications
 from tanbun.feature.user.testing import aauth_header, aregister
 
+from . import dungeon_keys
 from .dungeon_keys import grant_dungeon_key, key_products
 from .economy import EconomyAction, change_economy
 from .state import GameSave, StateUpdate, read_state, write_state
@@ -82,17 +84,18 @@ async def test_grants_once_uses_once_and_preserves_current_adventure():
 
 @mark_async_test()
 async def test_parallel_grants_do_not_duplicate_inventory():
-    """二つのimport処理が重なってもキーは一個."""
+    """同時importを繰り返しても、リソースごとにキー・通知が一個だけになる."""
     user = await seed_user()
-    resource = await resource_for(user.uid)
-    await asyncio.gather(
-        grant_dungeon_key(user.uid, resource),
-        grant_dungeon_key(user.uid, resource),
-    )
-    assert (await read_state(user.uid)).save.economy.inventory[
-        f"@dungeon:{resource}"
-    ] == 1
-    assert len((await list_notifications(user.uid, limit=100)).notifications) == 1
+    for _ in range(10):
+        resource = await resource_for(user.uid)
+        await asyncio.gather(
+            grant_dungeon_key(user.uid, resource),
+            grant_dungeon_key(user.uid, resource),
+        )
+        assert (await read_state(user.uid)).save.economy.inventory[
+            f"@dungeon:{resource}"
+        ] == 1
+    assert len((await list_notifications(user.uid, limit=100)).notifications) == 10
 
 
 @mark_async_test()
@@ -241,3 +244,35 @@ async def test_notification_failure_rolls_back_key_distribution(monkeypatch):
         await grant_dungeon_key(user.uid, resource)
     assert await read_state(user.uid) == previous
     assert not (await list_notifications(user.uid, limit=100)).notifications
+
+
+@mark_async_test()
+async def test_notification_deadlock_rolls_back_then_commits_once(monkeypatch):
+    """通知作成後の競合でもDB全体を破棄し、キーと通知を一回だけ確定する."""
+    user = await seed_user()
+    resource = await resource_for(user.uid)
+    previous = await read_state(user.uid)
+    original = dungeon_keys.create_notification
+    attempts = 0
+
+    async def create_then_deadlock(*args, **kwargs):
+        nonlocal attempts
+        notification = await original(*args, **kwargs)
+        attempts += 1
+        if attempts == 1:
+            raise TransientError._hydrate_neo4j(  # noqa: SLF001
+                code="Neo.TransientError.Transaction.DeadlockDetected",
+                message="deadlock after notification creation",
+            )
+        return notification
+
+    dispatch = AsyncMock()
+    monkeypatch.setattr(dungeon_keys, "create_notification", create_then_deadlock)
+    monkeypatch.setattr(dungeon_keys, "dispatch_saved_notifications", dispatch)
+    granted = await grant_dungeon_key(user.uid, resource)
+    assert attempts == 2
+    assert granted.revision == previous.revision + 1
+    assert granted.save.economy.inventory[f"@dungeon:{resource}"] == 1
+    assert await read_state(user.uid) == granted
+    assert len((await list_notifications(user.uid, limit=100)).notifications) == 1
+    dispatch.assert_awaited_once()
