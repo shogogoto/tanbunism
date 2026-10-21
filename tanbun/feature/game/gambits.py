@@ -14,7 +14,7 @@ from .catalog import (
 )
 from .effects import add_effect, effect_amount
 from .inventory import consume_use
-from .skill_outcomes import answer_effect, skill_targets
+from .skill_outcomes import answer_effect, skill_effects, skill_targets
 
 if TYPE_CHECKING:
     from .state import GameSave
@@ -173,9 +173,11 @@ def can_execute(save: "GameSave", skill: SkillDefinition, *, uses_item: bool) ->
     run = save.run
     if not run or run.mp < (0 if uses_item else skill.mp_cost):
         return False
-    if skill.effect == "heal_hp" and run.hp >= run.maxHp:
-        return False
-    return not (skill.effect == "heal_mp" and run.mp >= run.maxMp)
+    return any(
+        (effect.effect != "heal_hp" or run.hp < run.maxHp)
+        and (effect.effect != "heal_mp" or run.mp < run.maxMp)
+        for effect in skill_effects(skill)
+    )
 
 
 def apply_action(
@@ -200,18 +202,33 @@ def apply_action(
         if run.mp < skill.mp_cost:
             return None
         run.mp -= skill.mp_cost
-    effect = answer_effect(skill, successful)
-    if effect and effect.effect == "heal_hp":
-        run.hp = min(run.maxHp, run.hp + effect_amount(effect, run.maxHp))
-    if effect and effect.effect == "heal_mp":
-        run.mp = min(run.maxMp, run.mp + effect_amount(effect, run.maxMp))
-    apply_status_effects(marker, skill, successful=successful, results=results or {})
+    applied = False
+    for component in skill_effects(skill):
+        effect = answer_effect(component, successful)
+        applied = applied or effect is not None
+        if effect and effect.effect == "heal_hp":
+            run.hp = min(run.maxHp, run.hp + effect_amount(effect, run.maxHp))
+        if effect and effect.effect == "heal_mp":
+            run.mp = min(run.maxMp, run.mp + effect_amount(effect, run.maxMp))
+        apply_status_effects(
+            marker,
+            component,
+            successful=successful,
+            results=results or {},
+        )
     label = (
         "発動"
         if successful
         else "軽減"
-        if effect
-        else ("反撃" if skill.on_wrong.type == "counter" else "不発")
+        if applied
+        else (
+            "反撃"
+            if any(
+                getattr(s, "on_wrong", None) and s.on_wrong.type == "counter"
+                for s in skill_effects(skill)
+            )
+            else "不発"
+        )
     )
     return f"{action.name} · {label}"
 

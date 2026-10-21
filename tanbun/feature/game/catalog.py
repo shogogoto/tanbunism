@@ -282,7 +282,10 @@ class SkillBase(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     icon: IconId = "sparkles"
     enabled: bool = True
+    mp_cost: int = Field(default=0, ge=0, le=10000)
     template_id: DefinitionId | None = None
+    template_ids: list[DefinitionId] = Field(default_factory=list, max_length=20)
+    effects: list["EffectDefinition"] = Field(default_factory=list, max_length=20)
     element: Literal[
         "none",
         "fire",
@@ -359,7 +362,6 @@ class EffectBase(BaseModel):
     """表示情報とは独立した効果の設定."""
 
     model_config = ConfigDict(extra="forbid")
-    mp_cost: int = Field(default=0, ge=0, le=10000)
 
 
 class VariableAmountEffect(EffectBase):
@@ -452,6 +454,17 @@ class UtilityEffect(EffectBase):
     amount: int = Field(default=0, ge=0, le=10000)
 
 
+EffectDefinition = Annotated[
+    AttackEffect
+    | RecoveryEffect
+    | BuffEffect
+    | DebuffEffect
+    | AilmentEffect
+    | UtilityEffect,
+    Field(discriminator="effect"),
+]
+
+
 class AttackSkill(SkillBase, AttackEffect):
     """名前・演出を持つ攻撃スキル."""
 
@@ -517,7 +530,7 @@ SkillTemplate = Annotated[
     | UtilityTemplate,
     Field(discriminator="effect"),
 ]
-SKILL_IDENTITY_FIELDS = set(SkillBase.model_fields)
+SKILL_IDENTITY_FIELDS = (set(SkillBase.model_fields) - {"effects"}) | {"mp_cost"}
 
 
 def default_skill_templates() -> list[SkillTemplate]:
@@ -533,7 +546,6 @@ def default_skill_templates() -> list[SkillTemplate]:
             name="初級単体魔法",
             damage_type="special",
             multiplier=1.5,
-            mp_cost=3,
         ),
         RecoveryTemplate(
             id="basic_heal",
@@ -541,7 +553,6 @@ def default_skill_templates() -> list[SkillTemplate]:
             effect="heal_hp",
             amount=20,
             amount_mode="percent",
-            mp_cost=3,
             on_wrong=ReducedResult(amount=10),
         ),
     ]
@@ -557,11 +568,30 @@ def default_normal_attack() -> AttackSkill:
     )
 
 
+def read_effect_templates(raw_templates):
+    """旧定義のMPを読み取った後、消費を持たないテンプレートへ移行する."""
+    legacy_costs = {}
+    if isinstance(raw_templates, list):
+        raw_templates = [
+            t.model_dump() if isinstance(t, BaseModel) else t for t in raw_templates
+        ]
+        legacy_costs = {
+            t.get("id"): t.get("mp_cost", 0)
+            for t in raw_templates
+            if isinstance(t, dict)
+        }
+        raw_templates = [
+            {k: v for k, v in t.items() if k != "mp_cost"} if isinstance(t, dict) else t
+            for t in raw_templates
+        ]
+    return TypeAdapter(list[SkillTemplate]).validate_python(raw_templates), legacy_costs
+
+
 def resolve_skill_templates(value):
     """参照した共通値を一意に解決し、個別の数値上書きを許さない."""
     if not isinstance(value, dict):
         return value
-    templates = TypeAdapter(list[SkillTemplate]).validate_python(
+    templates, legacy_costs = read_effect_templates(
         value.get("skill_templates", default_skill_templates()),
     )
     by_id = {template.id: template for template in templates}
@@ -579,14 +609,36 @@ def resolve_skill_templates(value):
         skill = (
             original.model_dump() if isinstance(original, BaseModel) else dict(original)
         )
-        if reference := skill.get("template_id"):
-            if reference not in by_id:
-                msg = f"効果テンプレートが見つかりません: {reference}"
+        references = skill.get("template_ids") or (
+            [skill["template_id"]] if skill.get("template_id") else []
+        )
+        if references:
+            if len(references) != len(set(references)):
+                msg = "同じ効果テンプレートを重複して指定できません。"
                 raise ValueError(msg)
-            skill = {
-                **by_id[reference].model_dump(exclude={"id", "name"}),
-                **{key: v for key, v in skill.items() if key in SKILL_IDENTITY_FIELDS},
+            if missing := [
+                reference for reference in references if reference not in by_id
+            ]:
+                msg = f"効果テンプレートが見つかりません: {missing[0]}"
+                raise ValueError(msg)
+            values = [
+                by_id[reference].model_dump(exclude={"id", "name"})
+                for reference in references
+            ]
+            identity = {
+                key: v for key, v in skill.items() if key in SKILL_IDENTITY_FIELDS
             }
+            # Singular references retain their legacy template-owned MP semantics.
+            if skill.get("template_ids"):
+                identity["template_id"] = None
+                skill = {
+                    **values[0],
+                    **identity,
+                    "effects": values,
+                }
+            else:
+                identity.setdefault("mp_cost", legacy_costs.get(references[0], 0))
+                skill = {**values[0], **identity}
         skills.append(skill)
     return {**value, "skill_templates": templates, "skills": skills}
 
@@ -756,6 +808,17 @@ def migrate_wrong_effects(skills, policies) -> None:
             }
 
 
+def validate_effect_combinations(skills) -> None:
+    """戦闘の複合効果に、装備や歩数という戦闘外の操作を混ぜない."""
+    for skill in skills:
+        if len(skill.effects) > 1 and any(
+            effect.effect in {"equip_attack", "recover_moves"}
+            for effect in skill.effects
+        ):
+            msg = "装備・歩数回復は他の効果と組み合わせられません。"
+            raise ValueError(msg)
+
+
 class GameCatalog(BaseModel):
     """IDと参照をまとめて検査し、一括保存する定義。."""
 
@@ -860,7 +923,7 @@ class GameCatalog(BaseModel):
         document = self.model_dump(mode="json")
         document["skills"] = [
             {key: value for key, value in skill.items() if key in SKILL_IDENTITY_FIELDS}
-            if skill.get("template_id")
+            if skill.get("template_id") or skill.get("template_ids")
             else skill
             for skill in document["skills"]
         ]
@@ -886,6 +949,7 @@ class GameCatalog(BaseModel):
                 msg = "定義IDが重複しています。"
                 raise ValueError(msg)
         skills = {s.id: s for s in self.skills}
+        validate_effect_combinations(self.skills)
         normal = skills.get("normal_attack")
         expected_normal = {
             "effect": "attack",
@@ -896,9 +960,9 @@ class GameCatalog(BaseModel):
             "on_wrong": {"type": "counter"},
             "enabled": True,
         }
-        if (
-            normal
-            and normal.model_dump(include=set(expected_normal)) != expected_normal
+        if normal and (
+            normal.model_dump(include=set(expected_normal)) != expected_normal
+            or len(normal.effects) > 1
         ):
             msg = "戦うは有効な物理攻撃・反撃・敵1体・消費MP0として定義してください。"
             raise ValueError(msg)
@@ -922,13 +986,25 @@ class GameCatalog(BaseModel):
         for enemy in self.enemies:
             if enemy.on_hit_skill_id and (
                 enemy.on_hit_skill_id not in skills
-                or skills[enemy.on_hit_skill_id].effect not in {"debuff", "ailment"}
+                or any(
+                    effect.effect not in {"debuff", "ailment"}
+                    for effect in (
+                        skills[enemy.on_hit_skill_id].effects
+                        or [skills[enemy.on_hit_skill_id]]
+                    )
+                )
             ):
                 msg = "命中時のスキルにはdebuffまたは状態異常を選んでください。"
                 raise ValueError(msg)
             if enemy.attack_skill_id and (
                 enemy.attack_skill_id not in skills
-                or skills[enemy.attack_skill_id].effect != "attack"
+                or not any(
+                    effect.effect == "attack"
+                    for effect in (
+                        skills[enemy.attack_skill_id].effects
+                        or [skills[enemy.attack_skill_id]]
+                    )
+                )
             ):
                 msg = "敵の攻撃には攻撃スキルを選んでください。"
                 raise ValueError(msg)

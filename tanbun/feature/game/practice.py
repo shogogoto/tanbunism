@@ -37,6 +37,7 @@ from .gambit_slots import gambit_capacity
 from .gambits import choose_action
 from .inventory import Economy, equipped_stats
 from .roster import assign_enemy_quizzes, enemy_identity
+from .skill_outcomes import has_counter
 from .skills import specialty_pools
 from .specialties import strengthened
 from .state import BattleMarker, GameSave, GameState, Run, read_state
@@ -652,7 +653,7 @@ def practice_action(body: PracticeAction) -> dict:
                 ids,
                 marker.schedule.enemy_hp if marker.schedule else request.enemy_hp,
                 counter_damage=prepare_counter_damage(state, session.context)
-                if ids and skill.on_wrong.type == "counter"
+                if ids and has_counter(skill)
                 else 0,
             )
             if not ids:

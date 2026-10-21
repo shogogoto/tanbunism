@@ -33,6 +33,7 @@ from .effects import (
 )
 from .gambits import apply_action, prepare_action
 from .inventory import equipped_stats, wear_weapon
+from .skill_outcomes import skill_effects
 from .state import BattleMarker, GameState, StateUpdate, compare_and_save, read_state
 
 MOVES_PER_EVENT = 5
@@ -165,13 +166,17 @@ def style_enemies(
         seed = sum((i + 1) * ord(c) for i, c in enumerate(identity))
         template = templates[seed % len(templates)]
         skill = skills.get(template.attack_skill_id) or normal_attack(catalog)
+        attack_effect = next(
+            (effect for effect in skill_effects(skill) if effect.effect == "attack"),
+            None,
+        )
         attack = (
             min(
                 100000,
-                int(enemy.attack * skill.multiplier)
-                + effect_amount(skill, enemy.attack),
+                int(enemy.attack * attack_effect.multiplier)
+                + effect_amount(attack_effect, enemy.attack),
             )
-            if skill and not preserve_stats
+            if attack_effect and not preserve_stats
             else enemy.attack
         )
         result.append(
@@ -688,7 +693,9 @@ def apply_on_hit_effects(marker: BattleMarker, skills: dict, results: dict) -> N
     """誤答・未回答で敵の攻撃が命中したときだけ付与する."""
     for enemy, skill in skills.items():
         if enemy in marker.enemies and not results.get(enemy):
-            add_effect(marker, skill, "player")
+            for effect in skill_effects(skill):
+                if effect.effect in {"debuff", "ailment"}:
+                    add_effect(marker, effect, "player")
 
 
 def status_feedback(*, broken: bool, hp: int, mp: int) -> str:

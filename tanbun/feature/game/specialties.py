@@ -91,6 +91,17 @@ def strengthened(skill, specialty: Specialty, resources: dict, power_coefficient
                 10000,
                 floor(skill.amount + power_coefficient * log1p(power)),
             ),
+            "effects": [
+                effect.model_copy(
+                    update={
+                        "amount": min(
+                            10000,
+                            floor(effect.amount + power_coefficient * log1p(power)),
+                        ),
+                    },
+                )
+                for effect in skill.effects
+            ],
         },
     )
 

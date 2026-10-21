@@ -1,5 +1,23 @@
 # Game systems
 
+## Skill compositions
+
+Skills own their name, MP cost, animation/SE and enabled state. Ordered
+`template_ids` reference one or more shared effect templates. Templates define
+targets, effect amounts, answer behavior and status duration/stacking, not MP or
+presentation. The admin edits two sortable tables without category-specific
+tables. Existing standalone effects are converted to templates in the editing
+draft without changing their values.
+
+One quiz resolves all components with the same correctness; MP or an item use is
+consumed once. Counter effects retaliate at most once. Current combat resolves
+attack, recovery and status components for either actor; specialty/end actions
+use the same component expansion. Status stacks are keyed by template identity.
+Stored catalogs and version-5 skill files retain references rather than copied
+effect values. Versions 1–4, singular template references and in-progress flattened
+skill snapshots remain readable. Equipment and movement recovery remain
+standalone effects; multi-effect items are battle-only.
+
 ## Gambit capacity and timed effects
 
 Gambit capacity is derived from the player's learning level: one initial slot,

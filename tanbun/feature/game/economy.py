@@ -58,7 +58,9 @@ def catalog_products(
                 if i.id in listings and i.enabled and skills[i.skill_id].enabled
                 else None
             ),
-            kind=kinds[skills[i.skill_id].effect],
+            kind="skill"
+            if len(skills[i.skill_id].effects) > 1
+            else kinds[skills[i.skill_id].effect],
             amount=skills[i.skill_id].amount,
             amount_mode=getattr(skills[i.skill_id], "amount_mode", "fixed"),
             icon=i.icon,

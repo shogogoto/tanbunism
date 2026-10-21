@@ -61,7 +61,7 @@ def test_template_change_updates_all_skills_without_overrides():
     document["skills"][0]["mp_cost"] = 99
     updated = GameCatalog.model_validate(document)
     assert [s.multiplier for s in updated.skills] == [2, 2]
-    assert [s.mp_cost for s in updated.skills] == [3, 3]
+    assert [s.mp_cost for s in updated.skills] == [99, 3]
     assert [(s.element, s.animation) for s in updated.skills] == [
         ("fire", "fire"),
         ("lightning", "lightning"),
@@ -75,7 +75,8 @@ def test_storage_keeps_references_without_duplicating_values():
     catalog = configured_catalog()
     document = catalog.stored_document()
     assert "multiplier" not in document["skills"][0]
-    assert "mp_cost" not in document["skills"][0]
+    assert document["skills"][0]["mp_cost"] == catalog.skills[0].mp_cost
+    assert "mp_cost" not in document["skill_templates"][0]
     assert GameCatalog.model_validate(document) == catalog
     assert "animation" not in document["skill_templates"][0]
     assert "ailment" not in document["skill_templates"][0]
@@ -111,7 +112,7 @@ def test_v4_file_carries_templates_and_updates_existing_consumers():
     """共通設定を含むJSONを、参照を保って未保存カタログへ統合する."""
     catalog = configured_catalog()
     document = catalog.stored_document()
-    document["skill_templates"][0]["mp_cost"] = 5
+    document["skill_templates"][0]["multiplier"] = 5
     file = SkillFile.model_validate({
         "format": "tanbunism.skills",
         "version": 4,
@@ -119,7 +120,8 @@ def test_v4_file_carries_templates_and_updates_existing_consumers():
         "skill_templates": document["skill_templates"],
     })
     merged = SkillFilePreview(catalog=catalog, document=file).merged_catalog()
-    assert [s.mp_cost for s in merged.skills] == [5, 5]
+    assert [s.multiplier for s in merged.skills] == [5, 5]
+    assert [s.mp_cost for s in merged.skills] == [3, 3]
     assert len(merged.skill_templates) == 1
 
 

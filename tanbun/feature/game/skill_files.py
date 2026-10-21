@@ -12,7 +12,7 @@ from .catalog import (
     resolve_skill_templates,
 )
 
-TEMPLATE_FILE_VERSION = 4
+TEMPLATE_FILE_VERSION = 5
 
 
 class SkillFile(BaseModel):
@@ -21,7 +21,7 @@ class SkillFile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     format: Literal["tanbunism.skills"]
-    version: Literal[1, 2, 3, 4]
+    version: Literal[1, 2, 3, 4, 5]
     skills: list[SkillDefinition] = Field(max_length=200)
     skill_templates: list[SkillTemplate] = Field(default_factory=list, max_length=200)
 
@@ -29,7 +29,10 @@ class SkillFile(BaseModel):
     @classmethod
     def apply_templates(cls, value):
         """交換ファイル内の共通設定で参照を解決する."""
-        if isinstance(value, dict) and value.get("version") == TEMPLATE_FILE_VERSION:
+        if isinstance(value, dict) and value.get("version") in {
+            4,
+            TEMPLATE_FILE_VERSION,
+        }:
             return resolve_skill_templates({"skill_templates": [], **value})
         return value
 

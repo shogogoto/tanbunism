@@ -1,6 +1,44 @@
 """クイズ一問に対する効果。利用経路・画面表示から独立した共通規則。."""
 
-from .catalog import AttackSkill, GameCatalog, SkillDefinition, default_normal_attack
+from hashlib import blake2b
+
+from .catalog import (
+    AttackSkill,
+    GameCatalog,
+    SkillDefinition,
+    default_normal_attack,
+    parse_skill,
+)
+
+
+def skill_effects(skill: SkillDefinition) -> list[SkillDefinition]:
+    """固定済みの効果を設定順に展開する。消費は親スキルだけが持つ."""
+    if not skill.effects:
+        return [skill]
+    identity = {
+        key: getattr(skill, key)
+        for key in ("id", "name", "icon", "enabled", "animation", "sound", "element")
+    }
+    return [
+        parse_skill({
+            **identity,
+            **effect.model_dump(),
+            "mp_cost": 0,
+            "id": skill.template_ids[index]
+            if len(skill.template_ids) == len(skill.effects)
+            else "effect_"
+            + blake2b(f"{skill.id}:{index}".encode(), digest_size=12).hexdigest(),
+        })
+        for index, effect in enumerate(skill.effects)
+    ]
+
+
+def has_counter(skill: SkillDefinition) -> bool:
+    """反撃型の効果が一つでもあれば、一度の返り討ちを予約する."""
+    return any(
+        getattr(effect, "on_wrong", None) and effect.on_wrong.type == "counter"
+        for effect in skill_effects(skill)
+    )
 
 
 def normal_attack(catalog: GameCatalog | None = None) -> AttackSkill:

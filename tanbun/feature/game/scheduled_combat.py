@@ -24,7 +24,7 @@ from .combat import (
     persist,
 )
 from .damage import enemy_damage, player_damage
-from .effects import effect_amount, modified_stat, poison_damage
+from .effects import add_effect, effect_amount, modified_stat, poison_damage
 from .gambit_slots import gambit_capacity
 from .gambits import BattleAction, choose_action
 from .inventory import equipped_stats
@@ -34,6 +34,7 @@ from .skill_outcomes import (
     defense_stat,
     enemy_attack_value,
     normal_attack,
+    skill_effects,
     skill_targets,
 )
 
@@ -192,6 +193,42 @@ def spend_enemy_mp(state, context, enemy, *, retreat):
     )
 
 
+def apply_enemy_components(state, context, enemy, *, correct, retreat):
+    """敵の複合行動も同じ正誤で回復・持続効果を処理する."""
+    marker = state.save.battle
+    schedule = marker.schedule
+    if schedule.actor_id == "player" or retreat:
+        return
+    skill = enemy_action_skill(
+        enemy,
+        schedule,
+        context.default_attack or normal_attack(),
+    )
+    # Select before spending MP so the final paid action is not lost.
+    spend_enemy_mp(state, context, enemy, retreat=retreat)
+    for component in skill_effects(skill):
+        effect = answer_effect(component, not correct)
+        if not effect:
+            continue
+        if effect.effect == "heal_hp":
+            schedule.enemy_hp[enemy.id] = min(
+                enemy.hp,
+                schedule.enemy_hp[enemy.id] + effect_amount(effect, enemy.hp),
+            )
+        elif effect.effect == "heal_mp":
+            schedule.enemy_mp[enemy.id] = min(
+                enemy.mp,
+                schedule.enemy_mp.get(enemy.id, enemy.mp)
+                + effect_amount(effect, enemy.mp),
+            )
+        elif effect.effect in {"buff", "debuff", "ailment"}:
+            add_effect(
+                marker,
+                effect,
+                enemy.id if effect.target == "self" else "player",
+            )
+
+
 def action_damage(state, context, *, correct, roll_player, roll_enemy):
     """正答は常にプレイヤーに有利。敵の行動ではスキルの成否を反転する。."""
     marker = state.save.battle
@@ -208,6 +245,51 @@ def action_damage(state, context, *, correct, roll_player, roll_enemy):
         if player_turn
         else enemy_action_skill(enemy, schedule, fallback)
     )
+    outgoing, incoming, countered = {}, 0, False
+    for component in skill_effects(skill):
+        is_counter = (
+            not (correct if player_turn else not correct)
+            and getattr(component, "on_wrong", None)
+            and component.on_wrong.type == "counter"
+        )
+        if is_counter and countered:
+            continue
+        dealt, received = component_damage(
+            state,
+            context,
+            component,
+            enemy,
+            fallback,
+            correct=correct,
+            player_turn=player_turn,
+            roll_player=roll_player,
+            roll_enemy=roll_enemy,
+        )
+        for identity, amount in dealt.items():
+            outgoing[identity] = min(
+                schedule.enemy_hp[identity],
+                outgoing.get(identity, 0) + amount,
+            )
+        incoming += received
+        countered = countered or bool(is_counter)
+    return outgoing, incoming
+
+
+def component_damage(
+    state,
+    context,
+    skill,
+    enemy,
+    fallback,
+    *,
+    correct,
+    player_turn,
+    roll_player,
+    roll_enemy,
+):
+    """一つの効果のダメージを計算する。消費や状態付与は呼び出し側で一度だけ行う."""
+    marker = state.save.battle
+    target = marker.schedule.quiz_enemy_id
     successful = correct if player_turn else not correct
     effect = answer_effect(skill, successful)
     if effect and effect.effect == "attack":
@@ -272,7 +354,13 @@ def resolve_scheduled(
     if body.retreat:
         outgoing = {}
     working = state.model_copy(deep=True)
-    spend_enemy_mp(working, context, enemy, retreat=body.retreat)
+    apply_enemy_components(
+        working,
+        context,
+        enemy,
+        correct=correct,
+        retreat=body.retreat,
+    )
     hp = working.save.battle.schedule.enemy_hp
     for identity, amount in outgoing.items():
         hp[identity] = max(0, hp[identity] - amount)

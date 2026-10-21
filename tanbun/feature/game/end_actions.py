@@ -22,7 +22,14 @@ from .effects import add_effect, effect_amount, sync_bubble
 from .gambit_slots import gambit_capacity
 from .gambits import choose_action
 from .inventory import consume_use
-from .skill_outcomes import answer_effect, attack_stat, normal_attack, skill_targets
+from .skill_outcomes import (
+    answer_effect,
+    attack_stat,
+    has_counter,
+    normal_attack,
+    skill_effects,
+    skill_targets,
+)
 from .skills import specialty_pools
 from .specialties import specialty_capacity, strengthened
 from .state import GameState, read_state
@@ -101,7 +108,7 @@ async def start_end_action(user_id, body: EndActionRequest) -> dict:
             updated,
             await combat_context(user_id, updated),
         )
-        if quizzes and skill.on_wrong.type == "counter"
+        if quizzes and has_counter(skill)
         else 0,
     )
     outgoing = finish_action(updated) if not quizzes else {}
@@ -280,9 +287,9 @@ def sync_scheduled_damage(marker, outgoing, killed) -> None:
     marker.schedule.queue = predict(marker.schedule)
 
 
-def resolved_end_effect(action):
+def resolved_end_effect(action, component=None):
     """新しい一問形式と、進行中の旧複数問形式の効果を選ぶ。."""
-    skill = parse_skill(action["skill"])
+    skill = component or parse_skill(action["skill"])
     total = len(action["quiz_ids"])
     rate = action["correct"] / total if total else 1
     if total <= 1 and "on_wrong" in action["skill"]:
@@ -294,12 +301,9 @@ def resolved_end_effect(action):
     return skill, factor, applies
 
 
-def finish_action(state: GameState) -> dict[str, int]:
-    """一問の正誤に応じた効果を一度だけ適用する。."""
+def apply_end_effect(state, action, skill, factor, applies):
+    """消費せずに一効果を適用する。撃破済み対象は次の効果から外れる."""
     marker, run = state.save.battle, state.save.run
-    action = marker.endAction
-    skill, factor, applies = resolved_end_effect(action)
-    total = len(action["quiz_ids"])
     targets = (
         ["player"] if skill.target == "self" else skill_targets(skill, marker.enemies)
     )
@@ -335,6 +339,8 @@ def finish_action(state: GameState) -> dict[str, int]:
         marker.enemies = [e for e in marker.enemies if e not in killed]
         run.kills += 0 if marker.bossLevel else len(killed)
         state.save.economy.gold += len(killed) * (marker.region + 1) * GOLD_PER_LEVEL
+        for identity, damage in outgoing.items():
+            action["enemy_hp"][identity] = max(0, action["enemy_hp"][identity] - damage)
     elif applies and skill.effect in {
         "buff",
         "debuff",
@@ -344,6 +350,24 @@ def finish_action(state: GameState) -> dict[str, int]:
             add_effect(marker, skill, target)
             marker.effects[-1].starts_turn = marker.turn
             marker.effects[-1].expires_turn = marker.turn + skill.duration_turns
+    return outgoing, targets
+
+
+def finish_action(state: GameState) -> dict[str, int]:
+    """同じ正誤で全効果を処理し、消費・演出・反撃は一回にまとめる."""
+    marker, run = state.save.battle, state.save.run
+    action = marker.endAction
+    original = parse_skill(action["skill"])
+    outgoing, targets, applies = {}, [], False
+    for component in skill_effects(original):
+        skill, factor, applied = resolved_end_effect(action, component)
+        dealt, affected = apply_end_effect(state, action, skill, factor, applied)
+        for identity, amount in dealt.items():
+            outgoing[identity] = outgoing.get(identity, 0) + amount
+        targets.extend(identity for identity in affected if identity not in targets)
+        applies = applies or applied
+    skill = original
+    total = len(action["quiz_ids"])
     state.save.battleFeedback = (
         f"{action['name']} · {action['correct']}/{total}問正解"
         if total
@@ -387,7 +411,7 @@ def finish_action(state: GameState) -> dict[str, int]:
 
 def apply_end_counter(state, action, skill):
     """失敗時の反撃を一度反映し、戦闘不能なら入口へ戻す。."""
-    if not action["quiz_ids"] or action["correct"] or skill.on_wrong.type != "counter":
+    if not action["quiz_ids"] or action["correct"] or not has_counter(skill):
         return
     damage = action.get("counter_damage", 0)
     run = state.save.run
