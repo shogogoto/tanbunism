@@ -17,7 +17,9 @@ tanbunismは「知識を単文と関係に分解して管理する」ための�
 これで知識を整理すれば、概念の位置づけや複雑さなどを一目で分かるようになる。
 
 ## Requirements
-Python 3.11+
+Python 3.12–3.14（CIで各バージョンを検証）
+
+ローカル開発とスタンドアロン版のビルドは引き続き3.13を使用します。
 ## How to use
 ### Installation
     pip install tanbunism

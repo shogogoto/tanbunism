@@ -11,26 +11,26 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
-        include:
-          # - python-version: "3.11"
-          #   wait_sec: 0 # データベースへの操作が衝突してたまにテスト失敗するのを防ぎたい
-          - python-version: "3.12"
-            wait_sec: 0
-          - python-version: "3.13"
-            wait_sec: 1
+        python-version: ["3.12", "3.13", "3.14"]
     services:
-      db-${{ matrix.python-version }}:
+      neo4j:
         image: neo4j:latest
         env:
           NEO4J_AUTH: neo4j/passwordneo
         ports:
           - 7687:7687
+        options: >-
+          --health-cmd "cypher-shell -u neo4j -p passwordneo 'RETURN 1'"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 12
 
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
+        id: setup_python
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -40,23 +40,21 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pypoetry
-          key: poetry-cache-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}
+          key: poetry-cache-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-${{ hashFiles('poetry.lock') }}
       - name: Cache Packages
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.local
           key: poetry-local-${{ runner.os }}-${{ steps.setup_python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}-${{ hashFiles('.github/workflows/*.yml') }}
       - name: Install poetry
         run: |
           python -m pip install --upgrade pip
-          pip install poetry
+          pip install poetry==2.4.1
           poetry install
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Test
-        run: |
-          sleep $((${{ matrix.wait_sec }} * 5))
-          poetry run task test
+        run: poetry run pytest -q -x --tb=short
         env:
           NEO4J_URL: bolt://neo4j:passwordneo@localhost:7687
 
