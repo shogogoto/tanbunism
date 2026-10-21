@@ -453,6 +453,7 @@ def practice_turn(body: PracticeTurn) -> dict:
             results,
             damage,
             stats,
+            base_stats=state.save.allocation.stats(session.context.balance),
             on_hit_skills={
                 e: enemy.on_hit_skill
                 for e, enemy in enemies.items()

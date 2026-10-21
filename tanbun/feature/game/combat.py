@@ -502,6 +502,7 @@ async def settle_turn(user_id: UUIDy, body: TurnRequest) -> dict:
         on_hit_skills={
             e: enemy.on_hit_skill for e, enemy in enemies.items() if enemy.on_hit_skill
         },
+        base_stats=previous.save.allocation.stats(context.balance),
     )
     award_kill_gold(updated, body, marker.region)
     receipt = {
@@ -585,6 +586,7 @@ def apply_turn_result(
     stats: dict,
     *,
     on_hit_skills: dict | None = None,
+    base_stats: dict | None = None,
 ) -> GameState:
     """相打ちの敗北優先・撤退先・歩数維持を一箇所で扱う."""
     marker, run = previous.save.battle, previous.save.run
@@ -598,13 +600,14 @@ def apply_turn_result(
         updated.save.economy,
         sum(bool(results.get(e)) for e in marker.enemies),
     )
-    for key, value in (stats | {"maxHp": next_run.maxHp}).items():
-        setattr(next_run, key, value)
-    next_run.attack = max(
-        0,
-        next_run.attack - (previous.save.economy.weapon_attack if broken else 0),
+    apply_combat_stats(
+        next_run,
+        updated.save.battle,
+        stats,
+        previous.save.economy,
+        broken=broken,
+        base_stats=base_stats,
     )
-    sync_bubble(next_run, updated.save.battle, stats["maxHp"])
     first_only = (
         marker.gambitAction
         and marker.gambitAction.skill.effect in {"attack", "debuff", "ailment"}
@@ -666,7 +669,11 @@ def apply_turn_result(
     else:
         updated.save.battle = None
         next_run.answerDeadline = None
-    sync_bubble(next_run, updated.save.battle, stats["maxHp"])
+    sync_bubble(
+        next_run,
+        updated.save.battle,
+        (base_stats if broken and base_stats is not None else stats)["maxHp"],
+    )
     summary = (
         f"正解 {sum(results.values())}/{len(marker.enemies)} · "
         f"撃破 {len(set(body.defeated))}体 · HP -{damage}"
@@ -683,6 +690,21 @@ def apply_turn_result(
         updated.save.battleFeedback += f" · {action_feedback}"
     record_boss_victory(updated, marker, body, survivors)
     return updated
+
+
+def apply_combat_stats(run, marker, stats, economy, *, broken, base_stats=None) -> None:
+    """装備破損時は全補正を外し、最大HPと残HPも同じ割合で戻す."""
+    stats = stats.copy()
+    if broken and base_stats is not None:
+        old_base_hp = max(1, round(run.maxHp / run.hpScale))
+        run.hp = max(1 if run.hp else 0, run.hp * base_stats["maxHp"] // old_base_hp)
+        stats = base_stats
+    elif broken:
+        stats |= {"attack": max(0, stats["attack"] - economy.weapon_attack)}
+    for key, value in stats.items():
+        if key != "maxHp":
+            setattr(run, key, value)
+    sync_bubble(run, marker, stats["maxHp"])
 
 
 def apply_on_hit_effects(marker: BattleMarker, skills: dict, results: dict) -> None:

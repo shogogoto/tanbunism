@@ -17,7 +17,14 @@ from tanbun.feature.recommendation.settings import settings_scope
 from .balance import get_game_balance
 from .catalog import GameCatalog, get_game_catalog
 from .dungeon_keys import use_dungeon_key
-from .inventory import Economy, Product, ProductId, consume_use, equipped_stats
+from .inventory import (
+    Economy,
+    EquipmentBuff,
+    Product,
+    ProductId,
+    consume_use,
+    equipped_stats,
+)
 from .state import GameSave, GameState, StateUpdate, compare_and_save, read_state
 
 MOVES_PER_EVENT = 5
@@ -48,6 +55,7 @@ def catalog_products(
         "buff": "skill",
         "debuff": "skill",
         "ailment": "skill",
+        "damage_mp": "skill",
     }
     return [
         Product(
@@ -58,7 +66,9 @@ def catalog_products(
                 if i.id in listings and i.enabled and skills[i.skill_id].enabled
                 else None
             ),
-            kind="skill"
+            kind="weapon"
+            if i.kind == "weapon"
+            else "skill"
             if len(skills[i.skill_id].effects) > 1
             else kinds[skills[i.skill_id].effect],
             amount=skills[i.skill_id].amount,
@@ -68,6 +78,17 @@ def catalog_products(
             skill_name=skills[i.skill_id].name,
             enabled=i.enabled and skills[i.skill_id].enabled,
             max_uses=i.max_uses,
+            equipment_buffs=[
+                EquipmentBuff(
+                    stat=effect.stat,
+                    amount=effect.amount,
+                    amount_mode=effect.amount_mode,
+                )
+                for effect in (skills[i.skill_id].effects or [skills[i.skill_id]])
+                if effect.effect == "buff"
+            ]
+            if i.kind == "weapon"
+            else [],
         )
         for i in catalog.items
         if include_disabled or (i.enabled and skills[i.skill_id].enabled)
@@ -184,9 +205,14 @@ async def change_economy(user_id: UUIDy, body: EconomyAction, action: str) -> Ga
     stats = equipped_stats(updated.save.allocation, await get_game_balance(), economy)
     for current in [updated.save.run, *(d.run for d in updated.save.dungeons.values())]:
         if current:
+            old_maximum = current.maxHp
             for key, value in stats.items():
                 setattr(current, key, value)
-            current.hp = min(current.hp, current.maxHp)
+            current.hp = min(
+                current.maxHp,
+                max(1 if current.hp else 0, current.hp * current.maxHp // old_maximum),
+            )
+            current.mp = min(current.mp, current.maxMp)
     updated.revision += 1
     async with atomic():
         rows = await compare_and_save(
@@ -226,7 +252,27 @@ async def apply_inventory_action(
         if product.kind != "weapon" or not quantity:
             raise HTTPException(422, "所持している武器を選んでください。")
         economy.weapon = None if economy.weapon == product.id else product.id
-        economy.equipment_attack = product.amount if economy.weapon else 0
+        economy.equipment_attack = (
+            (
+                min(
+                    10000,
+                    sum(
+                        b.amount
+                        for b in product.equipment_buffs
+                        if b.stat == "attack" and b.amount_mode == "fixed"
+                    ),
+                )
+                if product.equipment_buffs
+                else product.amount
+            )
+            if economy.weapon
+            else 0
+        )
+        economy.equipment_buffs = (
+            [buff.model_copy(deep=True) for buff in product.equipment_buffs]
+            if economy.weapon and product.equipment_buffs
+            else None
+        )
         economy.weapon_max_uses = product.max_uses
     else:
         use_item(save, product)

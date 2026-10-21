@@ -926,12 +926,22 @@ class GameCatalog(BaseModel):
             s.model_dump() if isinstance(s, SkillBase) else s
             for s in value.get("skills", [])
         ]
+        items = [
+            i.model_dump() if isinstance(i, ItemDefinition) else i
+            for i in value.get("items", [])
+        ]
+        equipment_only = {
+            i.get("skill_id")
+            for i in items
+            if isinstance(i, dict) and i.get("kind") == "weapon"
+        }
         if "player_skills" not in value:
             value["player_skills"] = [
                 {"skill_id": s["id"]}
                 for s in skills
                 if s.get("castable", True)
                 and s.get("id") != "normal_attack"
+                and s.get("id") not in equipment_only
                 and not s.get("requires_specialty")
                 and not s.get("quiz_required")
                 and s.get("effect")
@@ -1043,7 +1053,17 @@ class GameCatalog(BaseModel):
                 raise ValueError(msg_0)
         for item in self.items:
             skill = skills.get(item.skill_id)
-            if not skill or (item.kind == "weapon") != (skill.effect == "equip_attack"):
+            if (
+                not skill
+                or (
+                    item.kind == "weapon"
+                    and not all(
+                        effect.effect in {"buff", "equip_attack"}
+                        for effect in (skill.effects or [skill])
+                    )
+                )
+                or (item.kind != "weapon" and skill.effect == "equip_attack")
+            ):
                 msg = f"{item.name}のスキルまたは種類が不正です。"
                 raise ValueError(msg)
         self.validate_enemy_skills(skills)
@@ -1137,19 +1157,21 @@ def default_catalog() -> GameCatalog:
                 target="self",
                 amount=3,
             ),
-            UtilitySkill(
+            BuffSkill(
                 id="bronze_power",
                 name="銅の剣の装備効果",
                 icon="sword",
-                effect="equip_attack",
+                effect="buff",
+                stat="attack",
                 target="self",
                 amount=3,
             ),
-            UtilitySkill(
+            BuffSkill(
                 id="steel_power",
                 name="鋼の剣の装備効果",
                 icon="sword",
-                effect="equip_attack",
+                effect="buff",
+                stat="attack",
                 target="self",
                 amount=8,
             ),

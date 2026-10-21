@@ -292,6 +292,7 @@ def apply_skill_result(
         dict.fromkeys(marker.enemies, correct),
         incoming,
         stats,
+        base_stats=previous.save.allocation.stats(context.balance),
     )
     if updated.save.battle:
         updated.save.battle.skill = None

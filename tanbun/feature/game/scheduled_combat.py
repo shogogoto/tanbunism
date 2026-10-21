@@ -454,6 +454,7 @@ def resolve_scheduled(
         {target: correct} if target in body.answers else {},
         incoming,
         equipped_stats(state.save.allocation, context.balance, state.save.economy),
+        base_stats=state.save.allocation.stats(context.balance),
     )
     updated.save.battleFeedback = updated.save.battleFeedback.replace(
         f"/{len(marker.enemies)} ·",

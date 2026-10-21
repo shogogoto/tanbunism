@@ -9,6 +9,14 @@ from .balance import Allocation, GameBalance
 ProductId = str
 
 
+class EquipmentBuff(BaseModel):
+    """アイテムの状態バフを装備時に固定した、装備中だけの能力補正."""
+
+    stat: Literal["attack", "defense", "specialAttack", "specialDefense", "maxHp"]
+    amount: int = Field(ge=0, le=10000)
+    amount_mode: Literal["fixed", "percent"] = "fixed"
+
+
 class ChestReward(BaseModel, frozen=True):
     """開封時点の中身。設定変更後も履歴を維持する."""
 
@@ -33,6 +41,7 @@ class Economy(BaseModel):
     )
     weapon: str | None = None
     equipment_attack: int | None = Field(default=None, ge=0, le=10000)
+    equipment_buffs: list[EquipmentBuff] | None = Field(default=None, max_length=20)
     weapon_max_uses: int = Field(default=30, ge=1, le=10000)
     remaining_uses: dict[str, Annotated[int, Field(ge=1, le=10000)]] = Field(
         default_factory=dict,
@@ -69,6 +78,7 @@ class Product(BaseModel, frozen=True):
     skill_name: str | None = None
     enabled: bool = True
     max_uses: int = Field(default=1, ge=1, le=10000)
+    equipment_buffs: list[EquipmentBuff] = Field(default_factory=list, max_length=20)
 
 
 CATALOG = {
@@ -116,6 +126,7 @@ def consume_use(economy: Economy, item_id: str, max_uses: int) -> bool:
     if economy.weapon == item_id:
         economy.weapon = None
         economy.equipment_attack = 0
+        economy.equipment_buffs = None
     return True
 
 
@@ -134,7 +145,21 @@ def equipped_stats(
     balance: GameBalance,
     economy: Economy,
 ) -> dict[str, int]:
-    """育成値に装備の攻撃力だけを加算する."""
+    """元の育成値を基準として、装備に付いたバフだけを加算する."""
     stats = allocation.stats(balance)
-    stats["attack"] = min(100000, stats["attack"] + economy.weapon_attack)
+    if (
+        economy.weapon
+        and economy.inventory.get(economy.weapon, 0) > 0
+        and economy.equipment_buffs is not None
+    ):
+        base = dict(stats)
+        for buff in economy.equipment_buffs:
+            delta = (
+                base[buff.stat] * buff.amount // 100
+                if buff.amount_mode == "percent"
+                else buff.amount
+            )
+            stats[buff.stat] = min(100000, stats[buff.stat] + delta)
+    else:
+        stats["attack"] = min(100000, stats["attack"] + economy.weapon_attack)
     return stats
