@@ -18,7 +18,7 @@ from tanbun.feature.quiz.chain.usecase import expand_quiz_chain
 from .catalog import get_game_catalog, parse_skill
 from .combat import ENEMIES_TO_CLEAR, MOVES_PER_EVENT, combat_context, persist
 from .economy import GOLD_PER_LEVEL
-from .effects import add_effect, effect_amount, sync_bubble
+from .effects import add_effect, apply_resource_effect, effect_amount, sync_bubble
 from .gambit_slots import gambit_capacity
 from .gambits import choose_action
 from .inventory import consume_use
@@ -308,15 +308,10 @@ def apply_end_effect(state, action, skill, factor, applies):
         ["player"] if skill.target == "self" else skill_targets(skill, marker.enemies)
     )
     outgoing = {}
-    if skill.effect == "heal_hp":
-        run.hp = min(
-            run.maxHp,
-            run.hp + floor(effect_amount(skill, run.maxHp) * factor),
-        )
-    elif skill.effect == "heal_mp":
-        run.mp = min(
-            run.maxMp,
-            run.mp + floor(effect_amount(skill, run.maxMp) * factor),
+    if skill.effect in {"heal_hp", "heal_mp", "damage_mp"}:
+        apply_resource_effect(
+            state.save,
+            skill.model_copy(update={"amount": floor(skill.amount * factor)}),
         )
     elif skill.effect == "attack":
         outgoing = {

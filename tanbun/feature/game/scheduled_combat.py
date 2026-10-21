@@ -24,7 +24,15 @@ from .combat import (
     persist,
 )
 from .damage import enemy_damage, player_damage
-from .effects import add_effect, effect_amount, modified_stat, poison_damage
+from .effects import (
+    add_effect,
+    apply_resource_effect,
+    curse_damage,
+    effect_amount,
+    modified_stat,
+    periodic_recovery,
+    poison_damage,
+)
 from .gambit_slots import gambit_capacity
 from .gambits import BattleAction, choose_action
 from .inventory import equipped_stats
@@ -81,6 +89,8 @@ def initialize_schedule(state, context) -> None:
         },
         enemy_hp={key: e.hp for key, e in enemies.items()},
         enemy_mp={key: e.mp for key, e in enemies.items()},
+        enemy_max_hp={key: e.hp for key, e in enemies.items()},
+        enemy_max_mp={key: e.mp for key, e in enemies.items()},
     )
     begin_scheduled_action(state, context)
 
@@ -104,6 +114,9 @@ def begin_scheduled_action(state, context) -> None:
         raise HTTPException(409, "戦闘クイズが更新されています。撤退してください。")
     schedule.quiz_enemy_id = target
     enemy = enemies[target]
+    for identity, value in enemies.items():
+        schedule.enemy_max_hp.setdefault(identity, value.hp)
+        schedule.enemy_max_mp.setdefault(identity, value.mp)
     marker.quizIndices = {target: choice(enemy.quizIndexes or [enemy.quizIndex])}
     marker.gambitAction = None
     marker.endActionDone = actor != "player"
@@ -210,18 +223,10 @@ def apply_enemy_components(state, context, enemy, *, correct, retreat):
         effect = answer_effect(component, not correct)
         if not effect:
             continue
-        if effect.effect == "heal_hp":
-            schedule.enemy_hp[enemy.id] = min(
-                enemy.hp,
-                schedule.enemy_hp[enemy.id] + effect_amount(effect, enemy.hp),
-            )
-        elif effect.effect == "heal_mp":
-            schedule.enemy_mp[enemy.id] = min(
-                enemy.mp,
-                schedule.enemy_mp.get(enemy.id, enemy.mp)
-                + effect_amount(effect, enemy.mp),
-            )
-        elif effect.effect in {"buff", "debuff", "ailment"}:
+        schedule.enemy_max_hp.setdefault(enemy.id, enemy.hp)
+        schedule.enemy_max_mp.setdefault(enemy.id, enemy.mp)
+        apply_resource_effect(state.save, effect, enemy.id)
+        if effect.effect in {"buff", "debuff", "ailment"}:
             add_effect(
                 marker,
                 effect,
@@ -293,6 +298,15 @@ def component_damage(
     successful = correct if player_turn else not correct
     effect = answer_effect(skill, successful)
     if effect and effect.effect == "attack":
+        if effect.target == "self":
+            amount = self_attack_damage(
+                state,
+                context,
+                effect,
+                schedule_actor=marker.schedule.actor_id,
+                roll_enemy=roll_enemy,
+            )
+            return ({}, amount) if player_turn else ({enemy.id: amount}, 0)
         if player_turn:
             return outgoing_attack(
                 state,
@@ -321,6 +335,67 @@ def component_damage(
             roll_enemy=roll_enemy,
         ), 0
     return {}, 0
+
+
+def self_attack_damage(state, context, skill, *, schedule_actor, roll_enemy):
+    """陣営はガンビットが決める。自分への攻撃も他陣営へすり替えない."""
+    if schedule_actor == "player":
+        stats = equipped_stats(
+            state.save.allocation,
+            context.balance,
+            state.save.economy,
+        )
+        attack, defense = stats[attack_stat(skill)], stats[defense_stat(skill)]
+    else:
+        enemy = next(e for e in context.enemies if e.id == schedule_actor)
+        attack = enemy_attack_value(enemy, skill)
+        defense = (
+            enemy.special_defense if skill.damage_type == "special" else enemy.defense
+        )
+    attack = modified_stat(
+        attack,
+        state.save.battle,
+        schedule_actor,
+        attack_stat(skill),
+    )
+    defense = modified_stat(
+        defense,
+        state.save.battle,
+        schedule_actor,
+        defense_stat(skill),
+    )
+    return max(
+        0,
+        int(roll_enemy(attack, defense, context.balance) * skill.multiplier)
+        + effect_amount(skill, attack),
+    )
+
+
+def apply_enemy_periodic(state, context, marker) -> None:
+    """敵にも同じ行動単位で毒・呪い・HP/MP継続回復を反映する."""
+    schedule = state.save.battle.schedule
+    hp, mp = schedule.enemy_hp, schedule.enemy_mp
+    hp_max = {e.id: e.hp for e in context.enemies}
+    mp_max = {e.id: e.mp for e in context.enemies}
+    damage = poison_damage(marker, hp_max)
+    hp_recovery = periodic_recovery(marker, hp_max, "hp")
+    mp_recovery = periodic_recovery(marker, mp_max, "mp")
+    mp_damage = curse_damage(marker, mp_max)
+    for identity, maximum in hp_max.items():
+        if hp.get(identity, 0) > 0:
+            hp[identity] = min(
+                maximum,
+                max(1, hp[identity] - damage.get(identity, 0))
+                + hp_recovery.get(identity, 0),
+            )
+            mp[identity] = min(
+                mp_max[identity],
+                max(
+                    0,
+                    mp.get(identity, mp_max[identity]) - mp_damage.get(identity, 0),
+                )
+                + mp_recovery.get(identity, 0),
+            )
 
 
 def resolve_scheduled(
@@ -364,12 +439,7 @@ def resolve_scheduled(
     hp = working.save.battle.schedule.enemy_hp
     for identity, amount in outgoing.items():
         hp[identity] = max(0, hp[identity] - amount)
-    for identity, amount in poison_damage(
-        marker,
-        {e.id: e.hp for e in context.enemies},
-    ).items():
-        if hp.get(identity, 0) > 0:
-            hp[identity] = max(1, hp[identity] - amount)
+    apply_enemy_periodic(working, context, marker)
     defeated = [identity for identity in marker.enemies if hp[identity] <= 0]
     authoritative = body.model_copy(update={"defeated": defeated})
     if incoming > 0 and enemy.on_hit_skill:
@@ -412,8 +482,12 @@ def resolve_scheduled(
         "damage": incoming,
         "incoming_damage": {target: incoming} if incoming else {},
         "outgoing_damage": outgoing,
-        "enemy_hp": hp,
-        "enemy_mp": working.save.battle.schedule.enemy_mp,
+        "enemy_hp": updated.save.battle.schedule.enemy_hp
+        if updated.save.battle
+        else hp,
+        "enemy_mp": updated.save.battle.schedule.enemy_mp
+        if updated.save.battle
+        else working.save.battle.schedule.enemy_mp,
         "actor_id": schedule.actor_id,
         "quiz_enemy_id": target,
         "gold_earned": updated.save.economy.gold - state.save.economy.gold,

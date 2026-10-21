@@ -12,6 +12,7 @@ from pydantic import (
     Field,
     StringConstraints,
     TypeAdapter,
+    model_serializer,
     model_validator,
 )
 
@@ -131,6 +132,7 @@ class SkillEffect(StrEnum):
     ATTACK = "attack"
     HEAL_HP = "heal_hp"
     HEAL_MP = "heal_mp"
+    DAMAGE_MP = "damage_mp"
     RECOVER_MOVES = "recover_moves"
     EQUIP_ATTACK = "equip_attack"
     BUFF = "buff"
@@ -173,6 +175,12 @@ class ReducedResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: Literal["reduced"] = "reduced"
     amount: int = Field(default=0, ge=0, le=10000)
+    amount_mode: AmountMode | None = None
+
+    @model_serializer(mode="wrap")
+    def configured_fields(self, handler):
+        """拡張指定がない旧形式には未設定キーを増やさない."""
+        return {key: value for key, value in handler(self).items() if value is not None}
 
 
 class ReducedAttackResult(ReducedResult):
@@ -181,16 +189,32 @@ class ReducedAttackResult(ReducedResult):
     multiplier: float = Field(default=0.5, ge=0, le=10, allow_inf_nan=False)
 
 
+class ReducedTimedResult(ReducedResult):
+    """持続効果では誤答時の有効行動数も独立して指定する."""
+
+    duration_turns: int | None = Field(default=None, ge=0, le=20)
+
+
 class ReducedAilmentResult(BaseModel):
     """状態異常は確率ではなく、付与するかどうかだけを指定する。."""
 
     model_config = ConfigDict(extra="forbid")
     type: Literal["reduced"] = "reduced"
     apply: bool = False
+    duration_turns: int | None = Field(default=None, ge=0, le=20)
+
+    @model_serializer(mode="wrap")
+    def configured_fields(self, handler):
+        """旧付与設定へ未指定の持続項目を追加しない."""
+        return {key: value for key, value in handler(self).items() if value is not None}
 
 
 NumericWrongResult = Annotated[
-    FizzleResult | ReducedResult,
+    CounterResult | FizzleResult | ReducedResult,
+    Field(discriminator="type"),
+]
+TimedWrongResult = Annotated[
+    CounterResult | FizzleResult | ReducedTimedResult,
     Field(discriminator="type"),
 ]
 
@@ -362,6 +386,18 @@ class EffectBase(BaseModel):
     """表示情報とは独立した効果の設定."""
 
     model_config = ConfigDict(extra="forbid")
+    target: SkillTarget = SkillTarget.SELF
+    target_count: int | Literal["all"] = Field(default=1)
+    damage_type: Literal["physical", "special"] = "physical"
+
+    @model_validator(mode="after")
+    def valid_target_count(self):
+        """旧2・4体の定義も保持し、新しい全体指定を受け入れる."""
+        maximum_targets = 5
+        if self.target_count != "all" and not 1 <= self.target_count <= maximum_targets:
+            msg = "対象数は1から5またはallで指定してください。"
+            raise ValueError(msg)
+        return self
 
 
 class VariableAmountEffect(EffectBase):
@@ -375,10 +411,9 @@ class AttackEffect(VariableAmountEffect):
     """攻撃。加算ダメージと攻撃力に掛ける倍率を持つ."""
 
     effect: Literal[SkillEffect.ATTACK] = SkillEffect.ATTACK
-    target: Literal[SkillTarget.ENEMY, SkillTarget.ALL_ENEMIES] = SkillTarget.ENEMY
+    target: SkillTarget = SkillTarget.ENEMY
     multiplier: float = Field(default=1, ge=0, le=10, allow_inf_nan=False)
     damage_type: Literal["physical", "special"] = "physical"
-    target_count: int = Field(default=1, ge=1, le=5)
     on_wrong: Annotated[
         CounterResult | FizzleResult | ReducedAttackResult,
         Field(discriminator="type"),
@@ -386,10 +421,10 @@ class AttackEffect(VariableAmountEffect):
 
 
 class RecoveryEffect(VariableAmountEffect):
-    """HP・MP回復。攻撃倍率や持続効果は持たない."""
+    """HP・MP回復とMP減少。攻撃倍率や持続効果は持たない."""
 
-    effect: Literal[SkillEffect.HEAL_HP, SkillEffect.HEAL_MP]
-    target: Literal[SkillTarget.SELF] = SkillTarget.SELF
+    effect: Literal[SkillEffect.HEAL_HP, SkillEffect.HEAL_MP, SkillEffect.DAMAGE_MP]
+    target: SkillTarget = SkillTarget.SELF
     on_wrong: NumericWrongResult = Field(default_factory=FizzleResult)
 
 
@@ -404,9 +439,9 @@ class BuffEffect(TimedEffect):
     """自分の能力向上。バブルは最大HPへの割合効果."""
 
     effect: Literal[SkillEffect.BUFF] = SkillEffect.BUFF
-    target: Literal[SkillTarget.SELF] = SkillTarget.SELF
+    target: SkillTarget = SkillTarget.SELF
     stat: SkillStat = SkillStat.ATTACK
-    on_wrong: NumericWrongResult = Field(default_factory=FizzleResult)
+    on_wrong: TimedWrongResult = Field(default_factory=FizzleResult)
 
     @model_validator(mode="after")
     def valid_bubble(self):
@@ -421,27 +456,25 @@ class DebuffEffect(TimedEffect):
     """敵の能力低下。現在の敵が持つ攻撃力を対象にする."""
 
     effect: Literal[SkillEffect.DEBUFF] = SkillEffect.DEBUFF
-    target: Literal[SkillTarget.ENEMY, SkillTarget.ALL_ENEMIES] = SkillTarget.ENEMY
+    target: SkillTarget = SkillTarget.ENEMY
     stat: Literal[
         SkillStat.ATTACK,
         SkillStat.DEFENSE,
         SkillStat.SPECIAL_ATTACK,
         SkillStat.SPECIAL_DEFENSE,
     ] = SkillStat.ATTACK
-    target_count: int = Field(default=1, ge=1, le=5)
-    on_wrong: NumericWrongResult = Field(default_factory=FizzleResult)
+    on_wrong: TimedWrongResult = Field(default_factory=FizzleResult)
 
 
 class AilmentEffect(TimedEffect):
     """状態異常。能力を指定するstatとは独立する."""
 
     effect: Literal[SkillEffect.AILMENT] = SkillEffect.AILMENT
-    target: Literal[SkillTarget.ENEMY, SkillTarget.ALL_ENEMIES] = SkillTarget.ENEMY
-    amount: int = Field(default=5, ge=1, le=10000)
-    ailment: Literal["poison", "curse"] = "poison"
-    target_count: int = Field(default=1, ge=1, le=5)
+    target: SkillTarget = SkillTarget.ENEMY
+    amount: int = Field(default=5, ge=0, le=10000)
+    ailment: Literal["poison", "curse", "regen", "refresh"] = "poison"
     on_wrong: Annotated[
-        FizzleResult | ReducedAilmentResult,
+        CounterResult | FizzleResult | ReducedAilmentResult,
         Field(discriminator="type"),
     ] = Field(default_factory=FizzleResult)
 
@@ -495,6 +528,14 @@ class TemplateBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: DefinitionId
     name: str = Field(min_length=1, max_length=80)
+
+    @model_serializer(mode="wrap")
+    def without_target(self, handler):
+        """対象の陣営はガンビットの責務。旧全体指定だけ対象数へ移す."""
+        values = handler(self)
+        if values.pop("target", None) == "all_enemies":
+            values["target_count"] = "all"
+        return values
 
 
 class AttackTemplate(TemplateBase, AttackEffect):
@@ -584,7 +625,26 @@ def read_effect_templates(raw_templates):
             {k: v for k, v in t.items() if k != "mp_cost"} if isinstance(t, dict) else t
             for t in raw_templates
         ]
+        for template in raw_templates:
+            if (
+                isinstance(template, dict)
+                and template.pop("target", None) == "all_enemies"
+            ):
+                template["target_count"] = "all"
     return TypeAdapter(list[SkillTemplate]).validate_python(raw_templates), legacy_costs
+
+
+def template_effect(template) -> dict:
+    """旧ガンビット用の既定対象を補う。テンプレート本体には保存しない."""
+    values = template.model_dump(exclude={"id", "name"})
+    values["target"] = (
+        "self"
+        if values.get("ailment") in {"regen", "refresh"}
+        else "enemy"
+        if values["effect"] in {"attack", "damage_mp", "debuff", "ailment"}
+        else "self"
+    )
+    return values
 
 
 def resolve_skill_templates(value):
@@ -621,10 +681,7 @@ def resolve_skill_templates(value):
             ]:
                 msg = f"効果テンプレートが見つかりません: {missing[0]}"
                 raise ValueError(msg)
-            values = [
-                by_id[reference].model_dump(exclude={"id", "name"})
-                for reference in references
-            ]
+            values = [template_effect(by_id[reference]) for reference in references]
             identity = {
                 key: v for key, v in skill.items() if key in SKILL_IDENTITY_FIELDS
             }
@@ -651,7 +708,10 @@ SKILL_MODELS = {
     effect: model
     for model, effects in (
         (AttackSkill, (SkillEffect.ATTACK,)),
-        (RecoverySkill, (SkillEffect.HEAL_HP, SkillEffect.HEAL_MP)),
+        (
+            RecoverySkill,
+            (SkillEffect.HEAL_HP, SkillEffect.HEAL_MP, SkillEffect.DAMAGE_MP),
+        ),
         (BuffSkill, (SkillEffect.BUFF,)),
         (DebuffSkill, (SkillEffect.DEBUFF,)),
         (AilmentSkill, (SkillEffect.AILMENT,)),
@@ -875,7 +935,15 @@ class GameCatalog(BaseModel):
                 and not s.get("requires_specialty")
                 and not s.get("quiz_required")
                 and s.get("effect")
-                in {"attack", "heal_hp", "heal_mp", "buff", "debuff", "ailment"}
+                in {
+                    "attack",
+                    "heal_hp",
+                    "heal_mp",
+                    "damage_mp",
+                    "buff",
+                    "debuff",
+                    "ailment",
+                }
             ]
         if "specialty_skills" not in value:
             value["specialty_skills"] = [
@@ -999,7 +1067,7 @@ class GameCatalog(BaseModel):
             if enemy.attack_skill_id and (
                 enemy.attack_skill_id not in skills
                 or not any(
-                    effect.effect == "attack"
+                    effect.effect in {"attack", "damage_mp"}
                     for effect in (
                         skills[enemy.attack_skill_id].effects
                         or [skills[enemy.attack_skill_id]]

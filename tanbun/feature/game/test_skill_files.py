@@ -97,6 +97,8 @@ def test_v2_serializes_only_fields_belonging_to_its_effect(effect, specific):
         "template_ids",
         "effects",
         "element",
+        "target_count",
+        "damage_type",
     }
     skill = file.skills[0]
     assert type(skill).model_fields.keys() == base | specific
@@ -195,7 +197,12 @@ def test_import_updates_by_id_appends_new_and_preserves_consumers():
         {"skills": [{"id": "wrong", "name": "誤記", "effect": "attack", "amount": -1}]},
         {
             "skills": [
-                {"id": "wrong", "name": "誤記", "effect": "attack", "target": "self"},
+                {
+                    "id": "wrong",
+                    "name": "誤記",
+                    "effect": "attack",
+                    "target": "unknown",
+                },
             ],
         },
     ],

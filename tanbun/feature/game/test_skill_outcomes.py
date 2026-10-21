@@ -35,9 +35,10 @@ def test_only_relevant_wrong_answer_fields_are_serialized(effect):
     ):
         with pytest.raises(ValidationError):
             parse_skill(source | {"on_wrong": wrong})
-    if effect != "attack":
-        with pytest.raises(ValidationError):
-            parse_skill(source | {"on_wrong": {"type": "counter"}})
+    assert (
+        parse_skill(source | {"on_wrong": {"type": "counter"}}).on_wrong.type
+        == "counter"
+    )
 
 
 @pytest.mark.parametrize(("correct", "expected"), [(True, 20), (False, 10)])

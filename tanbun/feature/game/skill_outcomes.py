@@ -58,8 +58,20 @@ def answer_effect(skill: SkillDefinition, correct: bool) -> SkillDefinition | No
     if wrong is None or wrong.type != "reduced":
         return None
     if skill.effect == "ailment":
-        return skill if wrong.apply else None
+        return (
+            skill.model_copy(
+                update={"duration_turns": wrong.duration_turns or skill.duration_turns},
+            )
+            if wrong.apply and wrong.duration_turns != 0
+            else None
+        )
     patch = {"amount": wrong.amount}
+    if getattr(wrong, "duration_turns", None) is not None:
+        if wrong.duration_turns == 0:
+            return None
+        patch["duration_turns"] = wrong.duration_turns
+    if wrong.amount_mode is not None:
+        patch["amount_mode"] = wrong.amount_mode
     if skill.effect == "attack":
         patch["multiplier"] = wrong.multiplier
     return skill.model_copy(update=patch)
@@ -88,6 +100,6 @@ def skill_targets(skill, enemies: list[str]) -> list[str]:
     """単体から五体までを生存順に選び、全体指定は人数制限しない。."""
     return (
         list(enemies)
-        if skill.target == "all_enemies"
+        if skill.target == "all_enemies" or getattr(skill, "target_count", 1) == "all"
         else enemies[: getattr(skill, "target_count", 1)]
     )

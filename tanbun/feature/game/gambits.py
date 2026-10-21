@@ -9,10 +9,11 @@ from .catalog import (
     DefinitionId,
     GameCatalog,
     SkillDefinition,
+    SkillTarget,
     SpecialtySkillUse,
     StoredSkill,
 )
-from .effects import add_effect, effect_amount
+from .effects import add_effect, apply_resource_effect
 from .inventory import consume_use
 from .skill_outcomes import answer_effect, skill_effects, skill_targets
 
@@ -37,6 +38,7 @@ class GambitRule(BaseModel):
     action: Literal["skill", "item", "specialty"] = "skill"
     definition_id: DefinitionId
     trigger_id: DefinitionId | None = None
+    target: Literal["self", "enemy"] | None = None
 
 
 class BattleAction(BaseModel):
@@ -137,10 +139,19 @@ def choose_action(
             not skill
             or not skill.enabled
             or skill.effect
-            not in {"attack", "heal_hp", "heal_mp", "buff", "debuff", "ailment"}
+            not in {
+                "attack",
+                "heal_hp",
+                "heal_mp",
+                "damage_mp",
+                "buff",
+                "debuff",
+                "ailment",
+            }
         ):
             continue
-        if not can_execute(save, skill, uses_item=item is not None):
+        selected_skill = retarget_skill(skill, rule.target)
+        if not can_execute(save, selected_skill, uses_item=item is not None):
             continue
         use = next(
             (
@@ -158,7 +169,7 @@ def choose_action(
         ):
             continue
         return BattleAction(
-            skill=skill.model_copy(deep=True),
+            skill=selected_skill,
             item_id=item.id if item else None,
             name=item.name if item else skill.name,
             specialty_id=specialty.id if specialty else None,
@@ -168,14 +179,26 @@ def choose_action(
     return None
 
 
+def retarget_skill(skill, target):
+    """共通定義は変えず、行動スナップショットだけへ対象を固定する."""
+    selected = skill.model_copy(deep=True)
+    if target:
+        selected.target = SkillTarget(target)
+        for effect in selected.effects:
+            effect.target = SkillTarget(target)
+    return selected
+
+
 def can_execute(save: "GameSave", skill: SkillDefinition, *, uses_item: bool) -> bool:
     """MP・解放状況・回復先を確認する。."""
     run = save.run
     if not run or run.mp < (0 if uses_item else skill.mp_cost):
         return False
     return any(
-        (effect.effect != "heal_hp" or run.hp < run.maxHp)
-        and (effect.effect != "heal_mp" or run.mp < run.maxMp)
+        (effect.target != "self" or effect.effect != "heal_hp" or run.hp < run.maxHp)
+        and (
+            effect.target != "self" or effect.effect != "heal_mp" or run.mp < run.maxMp
+        )
         for effect in skill_effects(skill)
     )
 
@@ -206,10 +229,8 @@ def apply_action(
     for component in skill_effects(skill):
         effect = answer_effect(component, successful)
         applied = applied or effect is not None
-        if effect and effect.effect == "heal_hp":
-            run.hp = min(run.maxHp, run.hp + effect_amount(effect, run.maxHp))
-        if effect and effect.effect == "heal_mp":
-            run.mp = min(run.maxMp, run.mp + effect_amount(effect, run.maxMp))
+        if effect:
+            apply_resource_effect(save, effect)
         apply_status_effects(
             marker,
             component,
@@ -242,9 +263,13 @@ def apply_status_effects(
 ) -> None:
     """正解対象にだけ能力変化を付与する."""
     effect = answer_effect(skill, successful)
-    if effect and skill.effect == "buff":
+    if (
+        effect
+        and skill.effect in {"buff", "debuff", "ailment"}
+        and skill.target == "self"
+    ):
         add_effect(marker, effect, "player")
-    if skill.effect in {"debuff", "ailment"}:
+    if skill.effect in {"buff", "debuff", "ailment"} and skill.target != "self":
         targets = skill_targets(skill, marker.enemies)
         for target in targets:
             applied = (
@@ -298,6 +323,14 @@ def validate_rules(rules: list[GambitRule], catalog: GameCatalog) -> None:
             not skill
             or direct_locked
             or skill.effect
-            not in {"attack", "heal_hp", "heal_mp", "buff", "debuff", "ailment"}
+            not in {
+                "attack",
+                "heal_hp",
+                "heal_mp",
+                "damage_mp",
+                "buff",
+                "debuff",
+                "ailment",
+            }
         ):
             raise HTTPException(422, "戦闘に使えるスキル・アイテムを選んでください。")

@@ -31,6 +31,52 @@ def effect_amount(skill: SkillDefinition, base: int) -> int:
     )
 
 
+def apply_resource_effect(save, skill: SkillDefinition, actor: str = "player") -> None:
+    """HP・MPの増減を、ガンビットが選んだ陣営へ上限内で適用する."""
+    if skill.effect not in {"heal_hp", "heal_mp", "damage_mp"}:
+        return
+    from .skill_outcomes import skill_targets  # noqa: PLC0415 - avoid catalog cycle
+
+    marker, run = save.battle, save.run
+    targets = (
+        [actor]
+        if skill.target == "self"
+        else skill_targets(skill, marker.enemies)
+        if actor == "player"
+        else ["player"]
+    )
+    hp = skill.effect == "heal_hp"
+    sign = -1 if skill.effect == "damage_mp" else 1
+    for target in targets:
+        if target == "player":
+            key, maximum = ("hp", run.maxHp) if hp else ("mp", run.maxMp)
+            setattr(
+                run,
+                key,
+                max(
+                    0,
+                    min(
+                        maximum,
+                        getattr(run, key) + sign * effect_amount(skill, maximum),
+                    ),
+                ),
+            )
+        elif marker.schedule:
+            schedule = marker.schedule
+            if schedule.enemy_hp.get(target, 0) <= 0:
+                continue
+            values = schedule.enemy_hp if hp else schedule.enemy_mp
+            limits = schedule.enemy_max_hp if hp else schedule.enemy_max_mp
+            maximum = limits.get(target, values.get(target, 0))
+            values[target] = max(
+                0,
+                min(
+                    maximum,
+                    values.get(target, 0) + sign * effect_amount(skill, maximum),
+                ),
+            )
+
+
 def modified_stat(
     base: int,
     marker: "BattleMarker | None",
@@ -83,6 +129,55 @@ def curse_damage(marker: "BattleMarker", maximum_mp: dict[str, int]) -> dict[str
         if amount:
             result[target] = min(100000, amount)
     return result
+
+
+def periodic_recovery(
+    marker: "BattleMarker",
+    maxima: dict[str, int],
+    resource: str,
+) -> dict[str, int]:
+    """リジェネ・MP継続回復は、毒と同じ行動数・重複ルールで集計する."""
+    kind = "regen" if resource == "hp" else "refresh"
+    return {
+        target: min(
+            100000,
+            sum(
+                effect_amount(effect.skill, maximum)
+                for effect in marker.effects
+                if effect.target_id == target
+                and effect.skill.effect == "ailment"
+                and effect.skill.ailment == kind
+                and effect.starts_turn <= marker.turn < effect.expires_turn
+            ),
+        )
+        for target, maximum in maxima.items()
+    }
+
+
+def apply_player_periodic(run, marker, damage: int) -> tuple[int, int]:
+    """行動完了時のHP・MP増減。継続回復では戦闘不能から復活しない."""
+    hp_damage = poison_damage(marker, {"player": run.maxHp}).get("player", 0)
+    mp_damage = curse_damage(marker, {"player": run.maxMp}).get("player", 0)
+    run.hp = max(
+        0,
+        min(run.hp, run.maxHp) - damage - hp_damage,
+    )
+    run.mp = max(
+        0,
+        min(run.mp, run.maxMp) - mp_damage,
+    )
+    if run.hp:
+        run.hp = min(
+            run.maxHp,
+            run.hp
+            + periodic_recovery(marker, {"player": run.maxHp}, "hp").get("player", 0),
+        )
+        run.mp = min(
+            run.maxMp,
+            run.mp
+            + periodic_recovery(marker, {"player": run.maxMp}, "mp").get("player", 0),
+        )
+    return hp_damage, mp_damage
 
 
 def add_effect(marker: "BattleMarker", skill: SkillDefinition, target: str) -> None:

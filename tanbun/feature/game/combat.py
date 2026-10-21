@@ -25,6 +25,7 @@ from .damage import enemy_damage
 from .economy import GOLD_PER_LEVEL
 from .effects import (
     add_effect,
+    apply_player_periodic,
     curse_damage,
     effect_amount,
     modified_stat,
@@ -593,10 +594,6 @@ def apply_turn_result(
     updated = previous.model_copy(deep=True)
     next_run = updated.save.run
     apply_on_hit_effects(updated.save.battle, on_hit_skills or {}, results)
-    periodic_hp, periodic_mp = (
-        poison_damage(marker, {"player": run.maxHp}).get("player", 0),
-        curse_damage(marker, {"player": run.maxMp}).get("player", 0),
-    )
     broken = wear_weapon(
         updated.save.economy,
         sum(bool(results.get(e)) for e in marker.enemies),
@@ -621,8 +618,7 @@ def apply_turn_result(
         retreat=body.retreat,
         results=results,
     )
-    next_run.hp = max(0, min(next_run.hp, next_run.maxHp) - damage - periodic_hp)
-    next_run.mp = max(0, min(next_run.mp, next_run.maxMp) - periodic_mp)
+    periodic_hp, periodic_mp = apply_player_periodic(next_run, marker, damage)
     next_run.kills += 0 if marker.bossLevel else len(set(body.defeated))
     next_run.quizCursor += len(body.answers)
     survivors = [e for e in marker.enemies if e not in body.defeated]
