@@ -219,13 +219,34 @@ def test_duplicate_ids_and_broken_item_references_are_rejected():
     skill = catalog.skills[0].model_dump()
     with pytest.raises(ValidationError, match="重複"):
         SkillFile.model_validate(document([skill, skill]))
-    weapon = next(s for s in catalog.skills if s.effect == "equip_attack")
+    item = next(item for item in catalog.items if item.kind == "weapon")
+    weapon = next(skill for skill in catalog.skills if skill.id == item.skill_id)
     preview = SkillFilePreview(
         catalog=catalog,
-        document=document([weapon.model_dump() | {"effect": "heal_hp"}]),
+        document=document([
+            {"id": weapon.id, "name": weapon.name, "effect": "heal_hp"},
+        ]),
     )
     with pytest.raises(ValidationError, match="スキルまたは種類"):
         preview.merged_catalog()
+
+
+def test_shared_equipment_buff_can_be_imported_without_changing_item_references():
+    """装備用の共通バフを更新しても、アイテムの参照や種類は維持する."""
+    catalog = default_catalog()
+    item = next(item for item in catalog.items if item.kind == "weapon")
+    skill = next(skill for skill in catalog.skills if skill.id == item.skill_id)
+    assert skill.effect == "buff"
+    changed = skill.model_dump() | {"amount": skill.amount + 1}
+    merged = SkillFilePreview(
+        catalog=catalog,
+        document=document([changed]),
+    ).merged_catalog()
+    imported = next(skill for skill in merged.skills if skill.id == item.skill_id)
+    assert imported.effect == "buff"
+    assert imported.amount == changed["amount"]
+    assert merged.items == catalog.items
+    assert next(skill for skill in catalog.skills if skill.id == item.skill_id) == skill
 
 
 @mark_async_test()
