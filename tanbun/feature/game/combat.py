@@ -84,6 +84,7 @@ class EnemyStats(BaseModel):
     on_hit_skill: StoredSkill | None = None
     attack_skill: StoredSkill | None = None
     weaknesses: list[str] = Field(default_factory=list)
+    resistances: list[str] = Field(default_factory=list)
 
 
 class CombatContext(BaseModel):
@@ -191,6 +192,11 @@ def style_enemies(
             enemy.model_copy(
                 update={
                     "on_hit_skill": skills.get(template.on_hit_skill_id),
+                    "resistances": [
+                        key
+                        for key in template.resistances
+                        if any(e.id == key and e.enabled for e in catalog.elements)
+                    ],
                     "weaknesses": [
                         key
                         for key in template.weaknesses

@@ -14,6 +14,7 @@ class GameBalance(BaseModel, frozen=True):
 
     base_hp: int = Field(default=35, ge=1, le=10000)
     weakness_multiplier: float = Field(default=1.5, ge=1, le=10, allow_inf_nan=False)
+    resistance_multiplier: float = Field(default=0.5, ge=0.1, le=1, allow_inf_nan=False)
     gambit_levels_per_slot: int = Field(default=5, ge=2, le=100)
     specialty_levels_per_slot: int = Field(default=20, ge=2, le=100)
     chest_gold: int = Field(default=30, ge=0, le=100000)

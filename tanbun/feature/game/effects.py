@@ -22,6 +22,8 @@ def elemental_damage(
     *,
     weaknesses=(),
     weakness_multiplier=1.5,
+    resistances=(),
+    resistance_multiplier=0.5,
     economy=None,
     enabled_elements=None,
 ) -> int:
@@ -40,13 +42,23 @@ def elemental_damage(
                 outgoing += buff.amount
             if target == "player" and buff.stat == "damageTaken":
                 incoming -= buff.amount
-    weak = weakness_multiplier if element in weaknesses else 1
+    affinity = (
+        weakness_multiplier
+        if element in weaknesses
+        else resistance_multiplier
+        if element in resistances
+        else 1
+    )
     return max(
         0,
         min(
             100000,
             floor(
-                amount * weak * max(0, 100 + outgoing) * max(0, 100 + incoming) / 10000,
+                amount
+                * affinity
+                * max(0, 100 + outgoing)
+                * max(0, 100 + incoming)
+                / 10000,
             ),
         ),
     )
@@ -117,6 +129,11 @@ def apply_resource_effect(
         if context
         else affinities.get("weaknesses", {})
     )
+    resistances = (
+        {enemy.id: enemy.resistances for enemy in context.enemies}
+        if context
+        else affinities.get("resistances", {})
+    )
 
     def amount_for(target, maximum):
         amount = effect_amount(skill, maximum)
@@ -128,6 +145,10 @@ def apply_resource_effect(
                 actor,
                 target,
                 weaknesses=weaknesses.get(target, []),
+                resistances=resistances.get(target, []),
+                resistance_multiplier=context.balance.resistance_multiplier
+                if context
+                else affinities.get("resistance_multiplier", 0.5),
                 weakness_multiplier=context.balance.weakness_multiplier
                 if context
                 else affinities.get("weakness_multiplier", 1.5),

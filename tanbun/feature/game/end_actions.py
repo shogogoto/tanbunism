@@ -208,10 +208,16 @@ def begin_action(
         "index": 0,
         "correct": 0,
         "counter_damage": counter_damage,
-        "weaknesses": {enemy.id: enemy.weaknesses for enemy in context.enemies}
+        "weaknesses": {enemy.id: enemy.weaknesses.copy() for enemy in context.enemies}
         if context
         else {},
         "weakness_multiplier": context.balance.weakness_multiplier if context else 1.5,
+        "resistances": {enemy.id: enemy.resistances.copy() for enemy in context.enemies}
+        if context
+        else {},
+        "resistance_multiplier": context.balance.resistance_multiplier
+        if context
+        else 0.5,
         "enabled_elements": context.enabled_elements if context else None,
         "quiz_seconds": selected.specialty_use.quiz_seconds
         if selected.specialty_use
@@ -345,6 +351,8 @@ def apply_end_effect(state, action, skill, factor, applies):
                     "player",
                     e,
                     weaknesses=action.get("weaknesses", {}).get(e, []),
+                    resistances=action.get("resistances", {}).get(e, []),
+                    resistance_multiplier=action.get("resistance_multiplier", 0.5),
                     weakness_multiplier=action.get("weakness_multiplier", 1.5),
                     economy=state.save.economy,
                     enabled_elements=action.get("enabled_elements"),

@@ -829,6 +829,15 @@ class EnemyDefinition(BaseModel):
     attack_skill_id: DefinitionId | None = None
     on_hit_skill_id: DefinitionId | None = None
     weaknesses: list[DefinitionId] = Field(default_factory=list, max_length=100)
+    resistances: list[DefinitionId] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def distinct_affinities(self):
+        """一つの属性は弱点・中立・耐性のいずれか一つだけを持つ."""
+        if set(self.weaknesses) & set(self.resistances):
+            msg = "同じ属性を弱点と耐性の両方には設定できません。"
+            raise ValueError(msg)
+        return self
 
 
 class ElementDefinition(BaseModel):
@@ -1083,6 +1092,7 @@ class GameCatalog(BaseModel):
         # 以前保存できた毒属性は互換用としてのみ保持する。
         referenced = {skill.element for skill in self.skills} - {"none", "poison"}
         referenced |= {value for enemy in self.enemies for value in enemy.weaknesses}
+        referenced |= {value for enemy in self.enemies for value in enemy.resistances}
         for effect in [
             *self.skills,
             *self.skill_templates,

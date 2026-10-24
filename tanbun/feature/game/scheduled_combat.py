@@ -163,6 +163,8 @@ def outgoing_attack(state, context, skill, targets, *, roll_player, roll_enemy):
                 "player",
                 enemy.id,
                 weaknesses=enemy.weaknesses,
+                resistances=enemy.resistances,
+                resistance_multiplier=context.balance.resistance_multiplier,
                 weakness_multiplier=context.balance.weakness_multiplier,
                 economy=state.save.economy,
                 enabled_elements=context.enabled_elements,
@@ -392,6 +394,7 @@ def self_attack_damage(state, context, skill, *, schedule_actor, roll_enemy):
         + effect_amount(skill, attack),
     )
     weaknesses = [] if schedule_actor == "player" else enemy.weaknesses
+    resistances = [] if schedule_actor == "player" else enemy.resistances
     return elemental_damage(
         amount,
         skill,
@@ -399,6 +402,8 @@ def self_attack_damage(state, context, skill, *, schedule_actor, roll_enemy):
         schedule_actor,
         schedule_actor,
         weaknesses=weaknesses,
+        resistances=resistances,
+        resistance_multiplier=context.balance.resistance_multiplier,
         weakness_multiplier=context.balance.weakness_multiplier,
         economy=state.save.economy,
         enabled_elements=context.enabled_elements,
