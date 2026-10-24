@@ -11,7 +11,7 @@ from tanbun.feature.user.testing import aauth_header, aregister
 
 from . import combat
 from .balance import GameBalance
-from .catalog import AilmentSkill, default_catalog
+from .catalog import AilmentSkill, TriggerDefinition, default_catalog
 from .combat import EnemyStats, TurnRequest, apply_turn_result, style_enemies
 from .effects import BattleEffect
 from .gambits import GambitRule, choose_action, validate_rules
@@ -96,6 +96,66 @@ def test_percentage_trigger_includes_exact_boundary(condition):
     assert choose_action(state.save, default_catalog()) is not None
     run.hp = run.mp = 31
     assert choose_action(state.save, default_catalog()) is None
+
+
+@pytest.mark.parametrize("condition", ["hp_above", "mp_above"])
+def test_percentage_above_includes_exact_boundary(condition):
+    """以上条件は境界を含み、その直下では不成立になる."""
+    state = battle_state()
+    run = state.save.run
+    run.maxHp = run.maxMp = 100
+    run.hp = run.mp = 30
+    state.save.gambits = [
+        GambitRule(condition=condition, threshold=30, definition_id="fire"),
+    ]
+    assert choose_action(state.save, default_catalog()) is not None
+    run.hp = run.mp = 29
+    assert choose_action(state.save, default_catalog()) is None
+
+
+@pytest.mark.parametrize(
+    "kind",
+    ["buff", "debuff", "poison", "curse", "regen", "refresh"],
+)
+@pytest.mark.parametrize("present", [True, False])
+def test_state_trigger_uses_active_player_effects(kind, present):
+    """バフと継続状態を一つの有無判定として扱い、敵・期限切れは除外する."""
+    state = battle_state()
+    catalog = default_catalog()
+    catalog.triggers = [
+        TriggerDefinition(
+            id="status",
+            name="状態",
+            condition="state",
+            state_kind=kind,
+            state_present=present,
+        ),
+    ]
+    state.save.gambits = [GambitRule(trigger_id="status", definition_id="fire")]
+    skill = {
+        "id": "effect",
+        "name": "状態",
+        "icon": "sparkles",
+        "mp_cost": 0,
+        "effect": kind if kind in {"buff", "debuff"} else "ailment",
+        "target": "self",
+        "amount": 1,
+        **({"stat": "attack"} if kind in {"buff", "debuff"} else {"ailment": kind}),
+    }
+    effect = BattleEffect(
+        skill=skill,
+        target_id="player",
+        starts_turn=0,
+        expires_turn=2,
+    )
+    assert (choose_action(state.save, catalog) is not None) == (not present)
+    state.save.battle.effects = [effect]
+    assert (choose_action(state.save, catalog) is not None) == present
+    effect.target_id = "a"
+    assert (choose_action(state.save, catalog) is not None) == (not present)
+    effect.target_id = "player"
+    state.save.battle.turn = 2
+    assert (choose_action(state.save, catalog) is not None) == (not present)
 
 
 @pytest.mark.parametrize("correct", [True, False])

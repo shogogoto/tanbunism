@@ -12,6 +12,7 @@ from .catalog import (
     SkillTarget,
     SpecialtySkillUse,
     StoredSkill,
+    TriggerCondition,
 )
 from .effects import add_effect, apply_resource_effect
 from .inventory import consume_use
@@ -21,20 +22,10 @@ if TYPE_CHECKING:
     from .state import GameSave
 
 
-class GambitRule(BaseModel):
+class GambitRule(TriggerCondition):
     """条件・対象行動・優先順位を表す一行。順序はリストで保持する。."""
 
     enabled: bool = True
-    condition: Literal[
-        "always",
-        "hp_below",
-        "mp_below",
-        "enemy_count",
-        "buff_present",
-        "buff_absent",
-        "poisoned",
-    ] = "always"
-    threshold: int = Field(default=30, ge=1, le=100)
     action: Literal["skill", "item", "specialty"] = "skill"
     definition_id: DefinitionId
     trigger_id: DefinitionId | None = None
@@ -76,6 +67,29 @@ def choose_action(
             or (
                 rule.condition == "mp_below"
                 and run.mp * 100 <= run.maxMp * rule.threshold
+            )
+            or (
+                rule.condition == "hp_above"
+                and run.hp * 100 >= run.maxHp * rule.threshold
+            )
+            or (
+                rule.condition == "mp_above"
+                and run.mp * 100 >= run.maxMp * rule.threshold
+            )
+            or (
+                rule.condition == "state"
+                and any(
+                    e.target_id == "player"
+                    and e.starts_turn <= marker.turn < e.expires_turn
+                    and (
+                        e.skill.effect == rule.state_kind
+                        if rule.state_kind in {"buff", "debuff"}
+                        else e.skill.effect == "ailment"
+                        and e.skill.ailment == rule.state_kind
+                    )
+                    for e in marker.effects
+                )
+                == rule.state_present
             )
             or (
                 rule.condition == "enemy_count"
@@ -300,7 +314,17 @@ def effective_rule(rule: GambitRule, catalog: GameCatalog) -> GambitRule | None:
         (t for t in catalog.triggers if t.id == rule.trigger_id and t.enabled),
         None,
     )
-    return rule.model_copy(update={"condition": trigger.condition}) if trigger else None
+    return (
+        rule.model_copy(
+            update={
+                "condition": trigger.condition,
+                "state_kind": trigger.state_kind,
+                "state_present": trigger.state_present,
+            },
+        )
+        if trigger
+        else None
+    )
 
 
 def validate_rules(rules: list[GambitRule], catalog: GameCatalog) -> None:

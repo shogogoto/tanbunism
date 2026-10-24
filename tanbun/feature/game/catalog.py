@@ -867,21 +867,33 @@ def default_elements() -> list[ElementDefinition]:
     ]
 
 
-class TriggerDefinition(BaseModel):
+class TriggerCondition(BaseModel):
+    """管理定義とプレイヤー設定で共有する条件パラメータ."""
+
+    condition: Literal[
+        "always",
+        "hp_below",
+        "hp_above",
+        "mp_below",
+        "mp_above",
+        "enemy_count",
+        "state",
+        "buff_present",
+        "buff_absent",
+        "poisoned",
+    ] = "always"
+    threshold: int = Field(default=30, ge=1, le=100)
+    state_kind: Literal["buff", "debuff", "poison", "curse", "regen", "refresh"] = (
+        "buff"
+    )
+    state_present: bool = True
+
+
+class TriggerDefinition(TriggerCondition):
     """管理者が公開する条件テンプレート。任意コードは実行しない."""
 
     id: DefinitionId
     name: str = Field(min_length=1, max_length=80)
-    condition: Literal[
-        "always",
-        "hp_below",
-        "mp_below",
-        "enemy_count",
-        "buff_present",
-        "buff_absent",
-        "poisoned",
-    ]
-    threshold: int = Field(default=30, ge=1, le=100)
     enabled: bool = True
 
 
