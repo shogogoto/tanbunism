@@ -437,6 +437,28 @@ def apply_enemy_periodic(state, context, marker) -> None:
             )
 
 
+def scheduled_feedback(updated, context, body, *, correct, outgoing, incoming) -> str:
+    """Show one verdict and meaningful events, preserving status/unlock notices."""
+    # Drop the three legacy round totals while retaining subsequent events.
+    extras = updated.save.battleFeedback.split(" · ", 3)[3:]
+    if body.retreat and extras:
+        extras = [extras[0].removeprefix("撤退").removeprefix(" · ")]
+    messages = ["撤退" if body.retreat else "正解" if correct else "不正解"]
+    names = {e.id: e.name for e in context.enemies}
+    messages.extend(
+        f"{names.get(identity, '敵')}に{amount}ダメージ"
+        for identity, amount in outgoing.items()
+        if amount > 0
+    )
+    if incoming > 0:
+        messages.append(f"{incoming}ダメージを受けた")
+    messages.extend(
+        f"{names.get(identity, '敵')}を倒した" for identity in body.defeated
+    )
+    messages.extend(extra for extra in extras if extra)
+    return " · ".join(messages)
+
+
 def resolve_scheduled(
     state,
     body,
@@ -496,10 +518,13 @@ def resolve_scheduled(
         base_stats=state.save.allocation.stats(context.balance),
         context=context,
     )
-    updated.save.battleFeedback = updated.save.battleFeedback.replace(
-        f"/{len(marker.enemies)} ·",
-        "/1 ·",
-        1,
+    updated.save.battleFeedback = scheduled_feedback(
+        updated,
+        context,
+        authoritative,
+        correct=correct,
+        outgoing=outgoing,
+        incoming=incoming,
     )
     award_kill_gold(updated, authoritative, marker.region)
     if updated.save.battle:

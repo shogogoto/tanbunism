@@ -14,6 +14,7 @@ from .scheduled_combat import (
     begin_scheduled_action,
     initialize_schedule,
     resolve_scheduled,
+    scheduled_feedback,
 )
 from .state import BattleMarker
 from .test_practice import source_state
@@ -71,6 +72,7 @@ def test_correct_answers_benefit_player_for_either_actor(actor):
     assert reply["outgoing_damage"] == {target: 12}
     assert reply["state"].save.battle.schedule.enemy_hp[target] == 88
     assert reply["damage"] == 0
+    assert reply["state"].save.battleFeedback == f"正解 · {target}に12ダメージ"
     assert state.model_dump_json() == before
 
 
@@ -84,6 +86,46 @@ def test_wrong_and_unanswered_risky_attacks_damage_player(actor):
     assert reply["damage"] == 7
     assert reply["state"].save.run.hp == 13
     assert not reply["outgoing_damage"]
+    assert reply["state"].save.battleFeedback == "不正解 · 7ダメージを受けた"
+
+
+@pytest.mark.parametrize("retreat", [True, False])
+def test_feedback_keeps_events_but_omits_zero_totals(retreat):
+    """破損や報酬は残し、ゼロ集計や撤退の重複は出さない."""
+    state, context = encounter()
+    state.save.battleFeedback = (
+        "正解 1/1 · 撃破 0体 · HP -0 · "
+        + ("撤退 · " if retreat else "")
+        + "武器が壊れた · +10 G"
+    )
+    body, _ = answer(state, retreat=retreat)
+    message = scheduled_feedback(
+        state,
+        context,
+        body,
+        correct=True,
+        outgoing={},
+        incoming=0,
+    )
+    assert message == ("撤退" if retreat else "正解") + " · 武器が壊れた · +10 G"
+
+
+def test_feedback_names_defeated_enemy():
+    """撃破数の集計ではなく倒した相手を伝える."""
+    state, context = encounter()
+    state.save.battleFeedback = "正解 1/1 · 撃破 1体 · HP -0"
+    body, _ = answer(state, defeated=["e"])
+    assert (
+        scheduled_feedback(
+            state,
+            context,
+            body,
+            correct=True,
+            outgoing={"e": 12},
+            incoming=0,
+        )
+        == "正解 · eに12ダメージ · eを倒した"
+    )
 
 
 def test_client_cannot_claim_kills_or_answer_other_quizzes():
