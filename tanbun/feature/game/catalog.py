@@ -225,6 +225,7 @@ class SkillStat(StrEnum):
     ATTACK = "attack"
     DEFENSE = "defense"
     MAX_HP = "maxHp"
+    MAX_MP = "maxMp"
     SPECIAL_ATTACK = "specialAttack"
     SPECIAL_DEFENSE = "specialDefense"
     DAMAGE_DEALT = "damageDealt"
@@ -450,39 +451,34 @@ class TimedEffect(VariableAmountEffect):
         return values
 
 
-class BuffEffect(TimedEffect):
-    """自分の能力向上。バブルは最大HPへの割合効果."""
+class StatEffect(TimedEffect):
+    """能力の上昇・低下に共通する設定."""
 
-    effect: Literal[SkillEffect.BUFF] = SkillEffect.BUFF
-    target: SkillTarget = SkillTarget.SELF
     stat: SkillStat = SkillStat.ATTACK
     affected_element: DefinitionId | None = None
     on_wrong: TimedWrongResult = Field(default_factory=FizzleResult)
 
     @model_validator(mode="after")
-    def valid_bubble(self):
-        """最大HPを固定値で変更しない."""
-        if self.stat == "maxHp" and self.amount_mode != "percent":
-            msg = "最大HPの変更は割合buffで指定してください。"
+    def valid_resource_scale(self):
+        """HP/MPは最大値と残量を同じ比率で変更する."""
+        if self.stat in {"maxHp", "maxMp"} and self.amount_mode != "percent":
+            msg = "HP/MPの能力変更は割合で指定してください。"
             raise ValueError(msg)
         return self
 
 
-class DebuffEffect(TimedEffect):
-    """敵の能力低下。現在の敵が持つ攻撃力を対象にする."""
+class BuffEffect(StatEffect):
+    """能力の向上."""
+
+    effect: Literal[SkillEffect.BUFF] = SkillEffect.BUFF
+    target: SkillTarget = SkillTarget.SELF
+
+
+class DebuffEffect(StatEffect):
+    """能力の低下。対象ステータスはbuffと共通."""
 
     effect: Literal[SkillEffect.DEBUFF] = SkillEffect.DEBUFF
     target: SkillTarget = SkillTarget.ENEMY
-    stat: Literal[
-        SkillStat.ATTACK,
-        SkillStat.DEFENSE,
-        SkillStat.SPECIAL_ATTACK,
-        SkillStat.SPECIAL_DEFENSE,
-        SkillStat.DAMAGE_DEALT,
-        SkillStat.DAMAGE_TAKEN,
-    ] = SkillStat.ATTACK
-    affected_element: DefinitionId | None = None
-    on_wrong: TimedWrongResult = Field(default_factory=FizzleResult)
 
 
 class AilmentEffect(TimedEffect):
@@ -644,8 +640,6 @@ def variant_values(base, template, fields):
         raise ValueError(msg)
     fields = [key for key in fields if key in model.model_fields]
     values = {key: value for key, value in values.items() if key in model.model_fields}
-    if values.get("effect") == "debuff" and values.get("stat") == "maxHp":
-        values["stat"] = "attack"
     if str(values.get("stat")) not in {"damageDealt", "damageTaken"}:
         values.pop("affected_element", None)
         fields = [key for key in fields if key != "affected_element"]

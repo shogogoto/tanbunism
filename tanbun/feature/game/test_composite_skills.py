@@ -133,7 +133,7 @@ def test_specialty_and_item_paths_share_all_effects_and_consume_only_once(item):
     state, _ = encounter()
     skill = composite_catalog().skills[0]
     state.save.run.hp = 15
-    state.save.run.mp = 10
+    state.save.run.mp = state.save.run.maxMp = 10
     state.save.economy.inventory["potion"] = 2
     marker = state.save.battle
     begin_action(
@@ -177,6 +177,7 @@ def test_enemy_composition_recovers_self_and_harms_player():
     schedule = state.save.battle.schedule
     schedule.actor_id = schedule.quiz_enemy_id = "e"
     schedule.enemy_mp["e"] = 10
+    schedule.enemy_max_mp["e"] = 10
     schedule.enemy_hp["e"] = 50
     body, results = answer(state, correct=False)
     reply = resolve_scheduled(state, body, results, context, roll_enemy=lambda *_: 4)

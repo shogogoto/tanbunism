@@ -84,6 +84,7 @@ def test_enemy_spends_mp_once_even_when_attack_is_prevented(correct):
     schedule.actor_id = enemy.id
     schedule.quiz_enemy_id = enemy.id
     schedule.enemy_mp = {enemy.id: 5}
+    schedule.enemy_max_mp[enemy.id] = 5
     body, results = answer(state, correct=correct)
     reply = resolve_scheduled(
         state,

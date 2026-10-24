@@ -414,8 +414,8 @@ def apply_enemy_periodic(state, context, marker) -> None:
     """敵にも同じ行動単位で毒・呪い・HP/MP継続回復を反映する."""
     schedule = state.save.battle.schedule
     hp, mp = schedule.enemy_hp, schedule.enemy_mp
-    hp_max = {e.id: e.hp for e in context.enemies}
-    mp_max = {e.id: e.mp for e in context.enemies}
+    hp_max = {e.id: schedule.enemy_max_hp.get(e.id, e.hp) for e in context.enemies}
+    mp_max = {e.id: schedule.enemy_max_mp.get(e.id, e.mp) for e in context.enemies}
     damage = poison_damage(marker, hp_max)
     hp_recovery = periodic_recovery(marker, hp_max, "hp")
     mp_recovery = periodic_recovery(marker, mp_max, "mp")

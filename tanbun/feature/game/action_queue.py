@@ -2,11 +2,12 @@
 
 from hashlib import blake2b
 from math import isclose, sqrt
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
 SpeedFormula = Literal["linear", "sqrt"]
+ResourceScale = Annotated[float, Field(ge=0.00001, le=100000, allow_inf_nan=False)]
 
 
 class QueueEntry(BaseModel):
@@ -28,6 +29,8 @@ class ActionSchedule(BaseModel):
     enemy_mp: dict[str, int] = Field(default_factory=dict)
     enemy_max_hp: dict[str, int] = Field(default_factory=dict)
     enemy_max_mp: dict[str, int] = Field(default_factory=dict)
+    enemy_hp_scale: dict[str, ResourceScale] = Field(default_factory=dict)
+    enemy_mp_scale: dict[str, ResourceScale] = Field(default_factory=dict)
     actor_id: str | None = None
     quiz_enemy_id: str | None = None
     queue: list[QueueEntry] = Field(default_factory=list)

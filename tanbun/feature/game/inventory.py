@@ -18,6 +18,7 @@ class EquipmentBuff(BaseModel):
         "specialAttack",
         "specialDefense",
         "maxHp",
+        "maxMp",
         "damageDealt",
         "damageTaken",
     ]

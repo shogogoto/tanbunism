@@ -401,9 +401,9 @@ async def start_combat(user_id: UUIDy, body: EncounterRequest) -> GameState:
     )
     next_run = updated.save.run
     for key, value in stats.items():
-        if key != "maxHp":
+        if key not in {"maxHp", "maxMp"}:
             setattr(next_run, key, value)
-    sync_bubble(next_run, updated.save.battle, stats["maxHp"])
+    sync_bubble(next_run, updated.save.battle, stats["maxHp"], stats["maxMp"])
     next_run.hp = min(next_run.hp, next_run.maxHp)
     next_run.mp = stats["maxMp"]
     next_run.enemyHp = 0
@@ -694,6 +694,7 @@ def apply_turn_result(
         next_run,
         updated.save.battle,
         (base_stats if broken and base_stats is not None else stats)["maxHp"],
+        (base_stats if broken and base_stats is not None else stats)["maxMp"],
     )
     summary = (
         f"正解 {sum(results.values())}/{len(marker.enemies)} · "
@@ -719,13 +720,15 @@ def apply_combat_stats(run, marker, stats, economy, *, broken, base_stats=None) 
     if broken and base_stats is not None:
         old_base_hp = max(1, round(run.maxHp / run.hpScale))
         run.hp = max(1 if run.hp else 0, run.hp * base_stats["maxHp"] // old_base_hp)
+        old_base_mp = round(run.maxMp / run.mpScale)
+        run.mp = run.mp * base_stats["maxMp"] // old_base_mp if old_base_mp else 0
         stats = base_stats
     elif broken:
         stats |= {"attack": max(0, stats["attack"] - economy.weapon_attack)}
     for key, value in stats.items():
-        if key != "maxHp":
+        if key not in {"maxHp", "maxMp"}:
             setattr(run, key, value)
-    sync_bubble(run, marker, stats["maxHp"])
+    sync_bubble(run, marker, stats["maxHp"], stats["maxMp"])
 
 
 def apply_on_hit_effects(marker: BattleMarker, skills: dict, results: dict) -> None:

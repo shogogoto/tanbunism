@@ -196,6 +196,7 @@ def test_mp_regeneration_recovers_after_curse_reaches_zero():
     marker = state.save.battle
     state.save.run.hp, state.save.run.mp, state.save.run.maxMp = 5, 0, 20
     marker.schedule.enemy_mp["e"] = 0
+    marker.schedule.enemy_max_mp["e"] = 20
     context.enemies[0].mp = 20
     for ailment, amount in [("curse", 7), ("refresh", 5)]:
         skill = parse_skill({

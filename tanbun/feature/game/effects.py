@@ -314,30 +314,82 @@ def add_effect(marker: "BattleMarker", skill: SkillDefinition, target: str) -> N
     )
 
 
-def bubble_factor(marker: "BattleMarker | None") -> float:
-    """最大HPへの割合buffを合算し、現在HPにも同じ倍率を使う."""
+def bubble_factor(
+    marker: "BattleMarker | None",
+    stat: str = "maxHp",
+    target: str = "player",
+) -> float:
+    """HP/MPへの割合buff・debuffを共通に集計する."""
     if not marker:
         return 1.0
-    return 1 + sum(
-        e.skill.amount / 100
-        for e in marker.effects
-        if e.target_id == "player"
-        and e.skill.effect == "buff"
-        and e.skill.stat == "maxHp"
-        and e.starts_turn <= marker.turn < e.expires_turn
+    return max(
+        0,
+        1
+        + sum(
+            e.skill.amount / 100 * (1 if e.skill.effect == "buff" else -1)
+            for e in marker.effects
+            if e.target_id == target
+            and e.skill.effect in {"buff", "debuff"}
+            and e.skill.stat == stat
+            and e.starts_turn <= marker.turn < e.expires_turn
+        ),
     )
+
+
+def scaled_resource(current: int, base: int, old_scale: float, factor: float):
+    """最大値と残量を同じ比率で伸縮。0MP・戦闘不能も維持する."""
+    if base == 0:
+        return 0, 0, 1.0
+    maximum = max(1, min(100000, floor(round(base * factor, 9))))
+    scale = maximum / base
+    remaining = min(
+        maximum,
+        max(1 if current else 0, floor(round(current * scale / old_scale, 9))),
+    )
+    return remaining, maximum, scale
+
+
+def sync_enemy_resources(marker) -> None:
+    """敵も同じ最大値・残量のルールを使い、解除時に元へ戻す."""
+    if not marker or not marker.schedule:
+        return
+    schedule = marker.schedule
+    for resource, stat in (("hp", "maxHp"), ("mp", "maxMp")):
+        values = getattr(schedule, f"enemy_{resource}")
+        maxima = getattr(schedule, f"enemy_max_{resource}")
+        scales = getattr(schedule, f"enemy_{resource}_scale")
+        for target, old_maximum in maxima.items():
+            old = scales.get(target, 1)
+            current, maximum, scale = scaled_resource(
+                values.get(target, 0),
+                round(old_maximum / old),
+                old,
+                bubble_factor(marker, stat, target),
+            )
+            values[target], maxima[target], scales[target] = current, maximum, scale
 
 
 def sync_bubble(
     run,
     marker: "BattleMarker | None",
     base_max_hp: int | None = None,
+    base_max_mp: int | None = None,
 ) -> None:
-    """付与・解除・戦闘終了で最大HPと残HPを一緒に伸縮する."""
-    old = run.hpScale
-    base = base_max_hp if base_max_hp is not None else max(1, round(run.maxHp / old))
-    maximum = max(1, min(100000, floor(base * bubble_factor(marker))))
-    factor = maximum / base
-    run.hp = min(maximum, max(1 if run.hp else 0, floor(run.hp * factor / old)))
-    run.maxHp = maximum
-    run.hpScale = factor
+    """付与・解除・戦闘終了でHP/MPの最大値と残量を一緒に伸縮する."""
+    for resource, stat, supplied in (
+        ("hp", "maxHp", base_max_hp),
+        ("mp", "maxMp", base_max_mp),
+    ):
+        scale_key = f"{resource}Scale"
+        old = getattr(run, scale_key)
+        base = supplied if supplied is not None else round(getattr(run, stat) / old)
+        current, maximum, scale = scaled_resource(
+            getattr(run, resource),
+            base,
+            old,
+            bubble_factor(marker, stat),
+        )
+        setattr(run, resource, current)
+        setattr(run, stat, maximum)
+        setattr(run, scale_key, scale)
+    sync_enemy_resources(marker)

@@ -208,13 +208,18 @@ async def change_economy(user_id: UUIDy, body: EconomyAction, action: str) -> Ga
     for current in [updated.save.run, *(d.run for d in updated.save.dungeons.values())]:
         if current:
             old_maximum = current.maxHp
+            old_mp_maximum = current.maxMp
             for key, value in stats.items():
                 setattr(current, key, value)
             current.hp = min(
                 current.maxHp,
                 max(1 if current.hp else 0, current.hp * current.maxHp // old_maximum),
             )
-            current.mp = min(current.mp, current.maxMp)
+            current.mp = (
+                min(current.maxMp, current.mp * current.maxMp // old_mp_maximum)
+                if old_mp_maximum
+                else 0
+            )
     updated.revision += 1
     async with atomic():
         rows = await compare_and_save(

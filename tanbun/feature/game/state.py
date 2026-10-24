@@ -16,7 +16,13 @@ from tanbun.feature.domain.types import UUIDy, to_uuid
 from .access import SLOT_SECONDS, get_adventure_access
 from .action_queue import ActionSchedule
 from .balance import Allocation, GameBalance, get_game_balance
-from .effects import BattleEffect, bubble_factor, sync_bubble
+from .effects import (
+    BattleEffect,
+    bubble_factor,
+    scaled_resource,
+    sync_bubble,
+    sync_enemy_resources,
+)
 from .gambits import BattleAction, GambitRule
 from .inventory import Economy, equipped_stats
 from .settings import get_battle_settings
@@ -44,7 +50,8 @@ class Run(BaseModel):
     name: str = Field(max_length=1000)
     hp: int = Field(ge=0, le=100000)
     maxHp: int = Field(ge=1, le=100000)
-    hpScale: float = Field(default=1, ge=1, le=100000, allow_inf_nan=False)
+    hpScale: float = Field(default=1, ge=0.00001, le=100000, allow_inf_nan=False)
+    mpScale: float = Field(default=1, ge=0.00001, le=100000, allow_inf_nan=False)
     mp: int = Field(default=0, ge=0, le=100000)
     maxMp: int = Field(default=0, ge=0, le=100000)
     attack: int = Field(ge=0, le=100000)
@@ -253,18 +260,21 @@ def restore_state(raw: str | None, balance: GameBalance) -> GameState:
                 if run is save.get("run") and save.get("battle")
                 else None
             )
-            maximum = min(100000, int(stats["maxHp"] * bubble_factor(marker)))
-            scale = maximum / stats["maxHp"]
-            run["hp"] = min(
-                maximum,
-                max(
-                    1 if run["hp"] else 0,
-                    int(run["hp"] * scale / run.get("hpScale", 1)),
-                ),
-            )
-            run["maxHp"] = maximum
-            run["hpScale"] = scale
-            run["mp"] = min(run.get("mp", 0), stats["maxMp"])
+            for resource, stat in (("hp", "maxHp"), ("mp", "maxMp")):
+                current, maximum, scale = scaled_resource(
+                    run.get(resource, 0),
+                    stats[stat],
+                    run.get(f"{resource}Scale", 1),
+                    bubble_factor(marker, stat),
+                )
+                run[resource], run[stat], run[f"{resource}Scale"] = (
+                    current,
+                    maximum,
+                    scale,
+                )
+            if marker:
+                sync_enemy_resources(marker)
+                save["battle"] = marker.model_dump()
     # answerSeconds/answerDeadline describe the current turn, not a cached stat.
     return GameState.model_validate(payload)
 
@@ -456,12 +466,13 @@ async def compare_and_save(
     for run in [state.save.run, *(d.run for d in state.save.dungeons.values())]:
         if run:
             for key in DERIVED_PLAYER_FIELDS:
-                if key != "maxHp":
+                if key not in {"maxHp", "maxMp"}:
                     setattr(run, key, stats[key])
             sync_bubble(
                 run,
                 state.save.battle if run is state.save.run else None,
                 stats["maxHp"],
+                stats["maxMp"],
             )
             run.mp = min(run.mp, run.maxMp)
     stored = state.model_dump_json(
