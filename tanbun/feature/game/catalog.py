@@ -542,12 +542,18 @@ class UtilitySkill(SkillBase, UtilityEffect):
 
 
 TemplateOverride = Literal[
+    "effect",
+    "damage_type",
     "target_count",
     "amount",
     "amount_mode",
     "multiplier",
     "duration_turns",
     "on_wrong",
+    "stat",
+    "affected_element",
+    "stack_limit",
+    "ailment",
 ]
 
 
@@ -558,7 +564,7 @@ class TemplateBase(BaseModel):
     id: DefinitionId
     name: str = Field(min_length=1, max_length=80)
     base_template_id: DefinitionId | None = None
-    override_fields: list[TemplateOverride] = Field(default_factory=list, max_length=6)
+    override_fields: list[TemplateOverride] = Field(default_factory=list, max_length=12)
 
     @model_validator(mode="after")
     def overrides_need_base(self):
@@ -615,6 +621,56 @@ SkillTemplate = Annotated[
     | UtilityTemplate,
     Field(discriminator="effect"),
 ]
+TEMPLATE_MODELS = {
+    effect: model
+    for model, effects in (
+        (AttackTemplate, ("attack",)),
+        (RecoveryTemplate, ("heal_hp", "heal_mp", "damage_mp")),
+        (BuffTemplate, ("buff",)),
+        (DebuffTemplate, ("debuff",)),
+        (AilmentTemplate, ("ailment",)),
+        (UtilityTemplate, ("recover_moves", "equip_attack")),
+    )
+    for effect in effects
+}
+
+
+def variant_values(base, template, fields):
+    """種類変更時は無関係な項目を除去し、誤答効果も対応する形へ揃える。."""
+    values = {**base, **{key: template[key] for key in fields}}
+    model = TEMPLATE_MODELS.get(str(values.get("effect")))
+    if not model:
+        msg = "バリエーションの効果種別が不正です。"
+        raise ValueError(msg)
+    fields = [key for key in fields if key in model.model_fields]
+    values = {key: value for key, value in values.items() if key in model.model_fields}
+    if values.get("effect") == "debuff" and values.get("stat") == "maxHp":
+        values["stat"] = "attack"
+    if str(values.get("stat")) not in {"damageDealt", "damageTaken"}:
+        values.pop("affected_element", None)
+        fields = [key for key in fields if key != "affected_element"]
+    wrong = values.get("on_wrong")
+    if "on_wrong" not in fields and wrong and wrong.get("type") == "reduced":
+        wrong_model = {
+            "attack": ReducedAttackResult,
+            "ailment": ReducedAilmentResult,
+            "buff": ReducedTimedResult,
+            "debuff": ReducedTimedResult,
+        }.get(values["effect"], ReducedResult)
+        values["on_wrong"] = wrong_model.model_validate({
+            key: value
+            for key, value in wrong.items()
+            if key in wrong_model.model_fields
+        }).model_dump(exclude_none=True)
+    return {
+        **values,
+        "id": template.get("id"),
+        "name": template.get("name"),
+        "base_template_id": template["base_template_id"],
+        "override_fields": fields,
+    }
+
+
 SKILL_IDENTITY_FIELDS = (set(SkillBase.model_fields) - {"effects"}) | {"mp_cost"}
 
 
@@ -713,21 +769,16 @@ def resolve_template_variants(raw):
             template.get("override_fields", []),
         )
         if len(set(fields)) != len(fields) or any(
-            key not in template or key not in base for key in fields
+            key not in template for key in fields
         ):
             msg = "上書き項目が重複しているか、共通設定に適用できません。"
             raise ValueError(msg)
-        if set(template) - set(type(roots[base_id]).model_fields):
+        if set(template) - set().union(
+            *(set(model.model_fields) for model in TEMPLATE_MODELS.values()),
+        ):
             msg = "バリエーションに未定義の項目があります。"
             raise ValueError(msg)
-        resolved.append({
-            **base,
-            **{key: template[key] for key in fields},
-            "id": template.get("id"),
-            "name": template.get("name"),
-            "base_template_id": base_id,
-            "override_fields": fields,
-        })
+        resolved.append(variant_values(base, template, fields))
     return adapter.validate_python(resolved)
 
 

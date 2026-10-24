@@ -19,15 +19,20 @@ skill snapshots remain readable. Equipment and movement recovery remain
 standalone effects; multi-effect items are battle-only.
 
 Effect-template variants reference one independent `base_template_id`. Only
-`override_fields` (target count and numeric/outcome settings) override that base;
+`override_fields` (any effect setting, including kind, state details, target count
+and answer behavior) override that base;
 the API returns effective values while storage and JSON export keep only the
 identity, parent reference and explicit differences. Resolution is independent
 of display order. Missing parents, cycles, multiple inheritance levels and
 invalid override values are rejected. Battle actions still freeze their resolved
 effects, so later balance edits do not alter actions already in progress.
-The admin can generate 1/3/5/all-target variants, mark overrides and reset them,
-or detach a variant while retaining its current values. Existing templates are
-not automatically grouped.
+The admin lists only common settings. A family panel selects one variant at a
+time for editing, supports adding/copying variants and generates named tiers
+(beginner/intermediate/advanced) or 1/3/5/all-target variants. Tiers start with the
+common values; no balance multipliers are invented. Overrides can be reset, or
+variants detached while retaining current values. Existing templates are not
+automatically grouped. Reordering a common row moves its whole family without
+changing IDs or skill references. Changing effect kind removes inactive fields.
 
 ## Gambit capacity and timed effects
 

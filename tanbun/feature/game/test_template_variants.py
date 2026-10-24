@@ -147,3 +147,81 @@ def test_child_before_parent_and_reset_to_common_value():
     payload["skill_templates"][0]["override_fields"] = ["target_count"]
     catalog = GameCatalog.model_validate(payload)
     assert catalog.skill_templates[0].multiplier == pytest.approx(1.2)
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"damage_type": "physical", "on_wrong": {"type": "counter"}},
+        {
+            "effect": "heal_mp",
+            "amount": 25,
+            "amount_mode": "percent",
+            "on_wrong": {"type": "reduced", "amount": 10},
+        },
+        {
+            "effect": "buff",
+            "stat": "defense",
+            "amount": 20,
+            "amount_mode": "percent",
+            "duration_turns": 5,
+            "stack_limit": 2,
+        },
+        {
+            "effect": "debuff",
+            "stat": "damageTaken",
+            "affected_element": "fire",
+            "amount_mode": "percent",
+            "amount": 10,
+            "duration_turns": 4,
+        },
+        {
+            "effect": "ailment",
+            "ailment": "curse",
+            "amount": 2,
+            "duration_turns": 4,
+            "on_wrong": {"type": "reduced", "apply": True, "duration_turns": 2},
+        },
+        {"effect": "recover_moves", "amount": 5},
+    ],
+)
+def test_variants_override_any_effect_field_and_normalize_kinds(patch):
+    """分類・詳細・状態・誤答動作も差分指定でき、保存に不要な項目を残さない."""
+    payload = document()
+    payload["skills"] = []
+    payload["skill_templates"][1].update(patch)
+    payload["skill_templates"][1]["override_fields"] = ["target_count", *patch]
+    catalog = GameCatalog.model_validate(payload)
+    actual = catalog.skill_templates[1].model_dump()
+    assert all(actual[key] == value for key, value in patch.items())
+    if patch.get("effect", "attack") != "attack":
+        assert "multiplier" not in actual
+    assert GameCatalog.model_validate(catalog.stored_document()) == catalog
+
+
+def test_kind_switch_removes_inactive_overrides_and_inherited_wrong_keys():
+    """親の分類変更時は不適合の上書きや誤答項目を除去して再解決する."""
+    payload = document()
+    payload["skill_templates"][0]["on_wrong"] = {
+        "type": "reduced",
+        "amount": 1,
+        "multiplier": 0.5,
+    }
+    child = payload["skill_templates"][1]
+    child.update(effect="heal_hp", override_fields=["effect", "target_count"])
+    catalog = GameCatalog.model_validate(payload)
+    assert catalog.skill_templates[1].on_wrong.model_dump() == {
+        "type": "reduced",
+        "amount": 1,
+    }
+    changed = catalog.model_dump()
+    child = changed["skill_templates"][1]
+    child.update(
+        stat="defense",
+        effect="buff",
+        duration_turns=5,
+        override_fields=["effect", "stat", "duration_turns", "target_count"],
+    )
+    result = GameCatalog.model_validate(changed)
+    assert result.skill_templates[1].stat == "defense"
+    assert GameCatalog.model_validate(result.stored_document()) == result
