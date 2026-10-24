@@ -887,6 +887,7 @@ class TriggerCondition(BaseModel):
         "buff"
     )
     state_present: bool = True
+    state_skill_id: DefinitionId | None = None
 
 
 class TriggerDefinition(TriggerCondition):
@@ -1132,6 +1133,7 @@ class GameCatalog(BaseModel):
                 raise ValueError(msg)
         skills = {s.id: s for s in self.skills}
         validate_effect_combinations(self.skills)
+        self.validate_trigger_skills(skills)
         normal = skills.get("normal_attack")
         expected_normal = {
             "effect": "attack",
@@ -1172,6 +1174,18 @@ class GameCatalog(BaseModel):
                 raise ValueError(msg)
         self.validate_enemy_skills(skills)
         return self
+
+    def validate_trigger_skills(self, skills: dict) -> None:
+        """状態の条件に指定したスキルが、継続状態を付与することを確認する。."""
+        for trigger in self.triggers:
+            if trigger.condition == "state" and trigger.state_skill_id:
+                skill = skills.get(trigger.state_skill_id)
+                if not skill or not any(
+                    effect.effect in {"buff", "debuff", "ailment"}
+                    for effect in (skill.effects or [skill])
+                ):
+                    msg = f"{trigger.name}の状態判定には状態系スキルを選んでください。"
+                    raise ValueError(msg)
 
     def validate_enemy_skills(self, skills: dict) -> None:
         """敵の攻撃と命中時効果の参照を種類まで検証する."""

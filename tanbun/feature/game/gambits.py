@@ -43,6 +43,45 @@ class BattleAction(BaseModel):
     item_max_uses: int = Field(default=1, ge=1, le=10000)
 
 
+def state_effect_ids(rule: GambitRule, skills: dict) -> set[str] | None:
+    """未指定は旧条件、空集合は利用不可。複数効果は共有状態IDへ展開する。."""
+    if rule.condition != "state" or not rule.state_skill_id:
+        return None
+    skill = skills.get(rule.state_skill_id)
+    if not skill or not skill.enabled:
+        return set()
+    return {
+        effect.id
+        for effect in skill_effects(skill)
+        if effect.effect in {"buff", "debuff", "ailment"}
+    }
+
+
+def state_matches(rule: GambitRule, marker, skills: dict) -> bool:
+    """スキルの状態IDで照合し、旧条件のみ種類判定を維持する。."""
+    ids = state_effect_ids(rule, skills)
+    if ids == set():
+        return False
+    return (
+        any(
+            e.target_id == "player"
+            and e.starts_turn <= marker.turn < e.expires_turn
+            and (
+                e.skill.id in ids
+                if ids is not None
+                else (
+                    e.skill.effect == rule.state_kind
+                    if rule.state_kind in {"buff", "debuff"}
+                    else e.skill.effect == "ailment"
+                    and e.skill.ailment == rule.state_kind
+                )
+            )
+            for e in marker.effects
+        )
+        == rule.state_present
+    )
+
+
 def choose_action(
     save: "GameSave",
     catalog: GameCatalog,
@@ -76,21 +115,7 @@ def choose_action(
                 rule.condition == "mp_above"
                 and run.mp * 100 >= run.maxMp * rule.threshold
             )
-            or (
-                rule.condition == "state"
-                and any(
-                    e.target_id == "player"
-                    and e.starts_turn <= marker.turn < e.expires_turn
-                    and (
-                        e.skill.effect == rule.state_kind
-                        if rule.state_kind in {"buff", "debuff"}
-                        else e.skill.effect == "ailment"
-                        and e.skill.ailment == rule.state_kind
-                    )
-                    for e in marker.effects
-                )
-                == rule.state_present
-            )
+            or (rule.condition == "state" and state_matches(rule, marker, skills))
             or (
                 rule.condition == "enemy_count"
                 and len(marker.enemies) >= rule.threshold
@@ -320,6 +345,7 @@ def effective_rule(rule: GambitRule, catalog: GameCatalog) -> GambitRule | None:
                 "condition": trigger.condition,
                 "state_kind": trigger.state_kind,
                 "state_present": trigger.state_present,
+                "state_skill_id": trigger.state_skill_id,
             },
         )
         if trigger
@@ -331,6 +357,13 @@ def validate_rules(rules: list[GambitRule], catalog: GameCatalog) -> None:
     """装備や歩数回復を戦闘行動に指定できないよう検査する。."""
     skills, items = {s.id: s for s in catalog.skills}, {i.id: i for i in catalog.items}
     for rule in rules:
+        if rule.condition == "state" and rule.state_skill_id:
+            state_skill = skills.get(rule.state_skill_id)
+            if not state_skill or not any(
+                effect.effect in {"buff", "debuff", "ailment"}
+                for effect in (state_skill.effects or [state_skill])
+            ):
+                raise HTTPException(422, "状態判定には状態系スキルを選んでください。")
         if rule.action == "specialty":
             continue  # Owned/equipped references are checked at execution time.
         item = items.get(rule.definition_id) if rule.action == "item" else None

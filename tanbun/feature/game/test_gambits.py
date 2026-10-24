@@ -4,6 +4,7 @@
 import pytest
 from fastapi import HTTPException
 from neomodel import adb
+from pydantic import ValidationError
 
 from tanbun.conftest import async_fixture, mark_async_test
 from tanbun.feature.quiz.fixture import fx_u
@@ -11,10 +12,17 @@ from tanbun.feature.user.testing import aauth_header, aregister
 
 from . import combat
 from .balance import GameBalance
-from .catalog import AilmentSkill, TriggerDefinition, default_catalog
+from .catalog import (
+    AilmentSkill,
+    GameCatalog,
+    TriggerDefinition,
+    default_catalog,
+    parse_skill,
+)
 from .combat import EnemyStats, TurnRequest, apply_turn_result, style_enemies
 from .effects import BattleEffect
 from .gambits import GambitRule, choose_action, validate_rules
+from .skill_outcomes import skill_effects
 from .specialty_types import Specialty
 from .state import (
     BattleMarker,
@@ -156,6 +164,82 @@ def test_state_trigger_uses_active_player_effects(kind, present):
     effect.target_id = "player"
     state.save.battle.turn = 2
     assert (choose_action(state.save, catalog) is not None) == (not present)
+
+
+@pytest.mark.parametrize("composite", [True, False])
+@pytest.mark.parametrize("present", [True, False])
+def test_state_skill_reference_matches_effect_identity(composite, present):
+    """同じbuffでも別スキルとは区別し、複数効果は展開後のIDで照合する."""
+    state = battle_state()
+    catalog = default_catalog()
+    payload = {
+        "id": "protect",
+        "name": "守備向上",
+        "icon": "shield",
+        "effect": "buff",
+        "stat": "defense",
+        "target": "self",
+        "amount": 5,
+        "mp_cost": 0,
+    }
+    if composite:
+        payload["effects"] = [
+            {"effect": "buff", "stat": "defense", "target": "self", "amount": 5},
+        ]
+    selected = parse_skill(payload)
+    other = parse_skill({**payload, "id": "other"})
+    catalog.skills.extend([selected, other])
+    catalog.triggers = [
+        TriggerDefinition(
+            id="status",
+            name="状態",
+            condition="state",
+            state_skill_id=selected.id,
+            state_present=present,
+        ),
+    ]
+    state.save.gambits = [GambitRule(trigger_id="status", definition_id="fire")]
+    state.save.battle.effects = [
+        BattleEffect(
+            skill=skill_effects(other)[0],
+            target_id="player",
+            starts_turn=0,
+            expires_turn=2,
+        ),
+    ]
+    assert (choose_action(state.save, catalog) is not None) == (not present)
+    state.save.battle.effects[0].skill = skill_effects(selected)[0]
+    assert (choose_action(state.save, catalog) is not None) == present
+    selected.enabled = False
+    assert choose_action(state.save, catalog) is None
+
+
+@pytest.mark.parametrize("skill_id", ["missing", "fire"])
+def test_state_skill_references_are_validated(skill_id):
+    """参照切れ・非状態スキルは管理定義と直接設定の両方で拒否する."""
+    catalog = default_catalog()
+    payload = catalog.model_dump()
+    payload["triggers"] = [
+        {
+            "id": "status",
+            "name": "状態",
+            "condition": "state",
+            "state_skill_id": skill_id,
+        },
+    ]
+    with pytest.raises(ValidationError, match="状態系スキル"):
+        GameCatalog.model_validate(payload)
+    with pytest.raises(HTTPException):
+        validate_rules(
+            [
+                GambitRule(
+                    condition="state",
+                    state_skill_id=skill_id,
+                    definition_id="fire",
+                ),
+            ],
+            catalog,
+        )
 
 
 @pytest.mark.parametrize("correct", [True, False])
