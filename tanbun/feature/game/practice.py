@@ -316,6 +316,10 @@ async def prepare_simulated_practice(body: SimulatedPracticeRequest) -> Practice
     )
     catalog = await get_game_catalog()
     context.enemies = style_enemies(context.enemies, catalog, preserve_stats=True)
+    context.enabled_elements = [
+        element.id for element in catalog.elements if element.enabled
+    ]
+    context.elements = catalog.elements
     prepared = _begin_practice(
         state,
         context,
@@ -454,6 +458,7 @@ def practice_turn(body: PracticeTurn) -> dict:
             damage,
             stats,
             base_stats=state.save.allocation.stats(session.context.balance),
+            context=session.context,
             on_hit_skills={
                 e: enemy.on_hit_skill
                 for e, enemy in enemies.items()
@@ -656,6 +661,7 @@ def practice_action(body: PracticeAction) -> dict:
                 counter_damage=prepare_counter_damage(state, session.context)
                 if ids and has_counter(skill)
                 else 0,
+                context=session.context,
             )
             if not ids:
                 outgoing = finish_action(state)

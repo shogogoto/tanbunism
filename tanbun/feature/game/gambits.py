@@ -209,6 +209,7 @@ def apply_action(
     successful: bool,
     retreat: bool = False,
     results: dict[str, bool] | None = None,
+    context=None,
 ) -> str | None:
     """消費は発動時一回。通常クイズが正解なら、敵の反撃前に回復する。."""
     run, marker = save.run, save.battle
@@ -230,7 +231,7 @@ def apply_action(
         effect = answer_effect(component, successful)
         applied = applied or effect is not None
         if effect:
-            apply_resource_effect(save, effect)
+            apply_resource_effect(save, effect, context=context)
         apply_status_effects(
             marker,
             component,

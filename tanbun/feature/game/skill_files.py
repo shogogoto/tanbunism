@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .catalog import (
+    ElementDefinition,
     GameCatalog,
     SkillDefinition,
     SkillTemplate,
@@ -24,6 +25,7 @@ class SkillFile(BaseModel):
     version: Literal[1, 2, 3, 4, 5]
     skills: list[SkillDefinition] = Field(max_length=200)
     skill_templates: list[SkillTemplate] = Field(default_factory=list, max_length=200)
+    elements: list[ElementDefinition] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="before")
     @classmethod
@@ -69,10 +71,13 @@ class SkillFilePreview(BaseModel):
         skills.update({skill.id: skill for skill in self.document.skills})
         templates = {t.id: t for t in self.catalog.skill_templates}
         templates.update({t.id: t for t in self.document.skill_templates})
+        elements = {element.id: element for element in self.catalog.elements}
+        elements.update({element.id: element for element in self.document.elements})
         return GameCatalog.model_validate(
             self.catalog.model_dump()
             | {
                 "skills": list(skills.values()),
                 "skill_templates": list(templates.values()),
+                "elements": list(elements.values()),
             },
         )

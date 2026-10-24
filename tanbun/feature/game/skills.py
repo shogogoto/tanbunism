@@ -293,6 +293,7 @@ def apply_skill_result(
         incoming,
         stats,
         base_stats=previous.save.allocation.stats(context.balance),
+        context=context,
     )
     if updated.save.battle:
         updated.save.battle.skill = None

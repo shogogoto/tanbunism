@@ -78,11 +78,13 @@ def catalog_products(
             skill_name=skills[i.skill_id].name,
             enabled=i.enabled and skills[i.skill_id].enabled,
             max_uses=i.max_uses,
+            element_names={element.id: element.name for element in catalog.elements},
             equipment_buffs=[
                 EquipmentBuff(
                     stat=effect.stat,
                     amount=effect.amount,
                     amount_mode=effect.amount_mode,
+                    affected_element=effect.affected_element,
                 )
                 for effect in (skills[i.skill_id].effects or [skills[i.skill_id]])
                 if effect.effect == "buff"

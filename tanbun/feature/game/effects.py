@@ -13,6 +13,63 @@ if TYPE_CHECKING:
     from .state import BattleMarker
 
 
+def elemental_damage(
+    amount,
+    skill,
+    marker,
+    source,
+    target,
+    *,
+    weaknesses=(),
+    weakness_multiplier=1.5,
+    economy=None,
+    enabled_elements=None,
+) -> int:
+    """弱点と属性補正を一箇所で合成。各方向の補正は基準100%へ加算する."""
+    element = getattr(skill, "element", "none")
+    if element == "none" or (
+        enabled_elements is not None and element not in enabled_elements
+    ):
+        return max(0, min(100000, amount))
+    outgoing, incoming = element_adjustments(marker, element, source, target)
+    if economy and economy.weapon and economy.inventory.get(economy.weapon, 0) > 0:
+        for buff in economy.equipment_buffs or []:
+            if buff.affected_element != element:
+                continue
+            if source == "player" and buff.stat == "damageDealt":
+                outgoing += buff.amount
+            if target == "player" and buff.stat == "damageTaken":
+                incoming -= buff.amount
+    weak = weakness_multiplier if element in weaknesses else 1
+    return max(
+        0,
+        min(
+            100000,
+            floor(
+                amount * weak * max(0, 100 + outgoing) * max(0, 100 + incoming) / 10000,
+            ),
+        ),
+    )
+
+
+def element_adjustments(marker, element, source, target):
+    """その行動で有効な状態だけを方向別に集計する."""
+    outgoing, incoming = 0, 0
+    for effect in marker.effects if marker else []:
+        value = effect.skill
+        if (
+            value.effect not in {"buff", "debuff"}
+            or value.affected_element != element
+            or not effect.starts_turn <= marker.turn < effect.expires_turn
+        ):
+            continue
+        if value.stat == "damageDealt" and effect.target_id == source:
+            outgoing += value.amount * (1 if value.effect == "buff" else -1)
+        if value.stat == "damageTaken" and effect.target_id == target:
+            incoming += value.amount * (-1 if value.effect == "buff" else 1)
+    return outgoing, incoming
+
+
 class BattleEffect(BaseModel):
     """付与時の定義と有効期間を固定した効果一つ分."""
 
@@ -31,7 +88,14 @@ def effect_amount(skill: SkillDefinition, base: int) -> int:
     )
 
 
-def apply_resource_effect(save, skill: SkillDefinition, actor: str = "player") -> None:
+def apply_resource_effect(
+    save,
+    skill: SkillDefinition,
+    actor: str = "player",
+    *,
+    context=None,
+    affinities=None,
+) -> None:
     """HP・MPの増減を、ガンビットが選んだ陣営へ上限内で適用する."""
     if skill.effect not in {"heal_hp", "heal_mp", "damage_mp"}:
         return
@@ -47,6 +111,35 @@ def apply_resource_effect(save, skill: SkillDefinition, actor: str = "player") -
     )
     hp = skill.effect == "heal_hp"
     sign = -1 if skill.effect == "damage_mp" else 1
+    affinities = affinities or {}
+    weaknesses = (
+        {enemy.id: enemy.weaknesses for enemy in context.enemies}
+        if context
+        else affinities.get("weaknesses", {})
+    )
+
+    def amount_for(target, maximum):
+        amount = effect_amount(skill, maximum)
+        return (
+            elemental_damage(
+                amount,
+                skill,
+                marker,
+                actor,
+                target,
+                weaknesses=weaknesses.get(target, []),
+                weakness_multiplier=context.balance.weakness_multiplier
+                if context
+                else affinities.get("weakness_multiplier", 1.5),
+                enabled_elements=context.enabled_elements
+                if context
+                else affinities.get("enabled_elements"),
+                economy=save.economy,
+            )
+            if skill.effect == "damage_mp"
+            else amount
+        )
+
     for target in targets:
         if target == "player":
             key, maximum = ("hp", run.maxHp) if hp else ("mp", run.maxMp)
@@ -57,7 +150,7 @@ def apply_resource_effect(save, skill: SkillDefinition, actor: str = "player") -
                     0,
                     min(
                         maximum,
-                        getattr(run, key) + sign * effect_amount(skill, maximum),
+                        getattr(run, key) + sign * amount_for(target, maximum),
                     ),
                 ),
             )
@@ -72,7 +165,7 @@ def apply_resource_effect(save, skill: SkillDefinition, actor: str = "player") -
                 0,
                 min(
                     maximum,
-                    values.get(target, 0) + sign * effect_amount(skill, maximum),
+                    values.get(target, 0) + sign * amount_for(target, maximum),
                 ),
             )
 

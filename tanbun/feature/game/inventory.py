@@ -12,7 +12,16 @@ ProductId = str
 class EquipmentBuff(BaseModel):
     """アイテムの状態バフを装備時に固定した、装備中だけの能力補正."""
 
-    stat: Literal["attack", "defense", "specialAttack", "specialDefense", "maxHp"]
+    stat: Literal[
+        "attack",
+        "defense",
+        "specialAttack",
+        "specialDefense",
+        "maxHp",
+        "damageDealt",
+        "damageTaken",
+    ]
+    affected_element: str | None = None
     amount: int = Field(ge=0, le=10000)
     amount_mode: Literal["fixed", "percent"] = "fixed"
 
@@ -79,6 +88,7 @@ class Product(BaseModel, frozen=True):
     enabled: bool = True
     max_uses: int = Field(default=1, ge=1, le=10000)
     equipment_buffs: list[EquipmentBuff] = Field(default_factory=list, max_length=20)
+    element_names: dict[str, str] = Field(default_factory=dict)
 
 
 CATALOG = {
@@ -154,6 +164,8 @@ def equipped_stats(
     ):
         base = dict(stats)
         for buff in economy.equipment_buffs:
+            if buff.stat not in stats:
+                continue
             delta = (
                 base[buff.stat] * buff.amount // 100
                 if buff.amount_mode == "percent"

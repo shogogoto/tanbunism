@@ -18,7 +18,13 @@ from tanbun.feature.quiz.chain.usecase import expand_quiz_chain
 from .catalog import get_game_catalog, parse_skill
 from .combat import ENEMIES_TO_CLEAR, MOVES_PER_EVENT, combat_context, persist
 from .economy import GOLD_PER_LEVEL
-from .effects import add_effect, apply_resource_effect, effect_amount, sync_bubble
+from .effects import (
+    add_effect,
+    apply_resource_effect,
+    effect_amount,
+    elemental_damage,
+    sync_bubble,
+)
 from .gambit_slots import gambit_capacity
 from .gambits import choose_action
 from .inventory import consume_use
@@ -98,6 +104,7 @@ async def start_end_action(user_id, body: EndActionRequest) -> dict:
         async with atomic():
             await persist(user_id, previous, updated)
         return await action_view(user_id, updated)
+    context = await combat_context(user_id, updated)
     begin_action(
         updated.save,
         selected,
@@ -106,10 +113,11 @@ async def start_end_action(user_id, body: EndActionRequest) -> dict:
         marker.schedule.enemy_hp if marker.schedule else body.enemy_hp,
         counter_damage=prepare_counter_damage(
             updated,
-            await combat_context(user_id, updated),
+            context,
         )
         if quizzes and has_counter(skill)
         else 0,
+        context=context,
     )
     outgoing = finish_action(updated) if not quizzes else {}
     async with atomic():
@@ -185,6 +193,7 @@ def begin_action(
     enemy_hp: dict,
     *,
     counter_damage=0,
+    context=None,
 ) -> None:
     """実戦と模擬戦で一回分の消費・出題状態を共通にする."""
     if selected.item_id:
@@ -199,6 +208,11 @@ def begin_action(
         "index": 0,
         "correct": 0,
         "counter_damage": counter_damage,
+        "weaknesses": {enemy.id: enemy.weaknesses for enemy in context.enemies}
+        if context
+        else {},
+        "weakness_multiplier": context.balance.weakness_multiplier if context else 1.5,
+        "enabled_elements": context.enabled_elements if context else None,
         "quiz_seconds": selected.specialty_use.quiz_seconds
         if selected.specialty_use
         else 30,
@@ -312,17 +326,28 @@ def apply_end_effect(state, action, skill, factor, applies):
         apply_resource_effect(
             state.save,
             skill.model_copy(update={"amount": floor(skill.amount * factor)}),
+            affinities=action,
         )
     elif skill.effect == "attack":
         outgoing = {
             e: min(
                 action["enemy_hp"][e],
-                floor(
-                    (
-                        effect_amount(skill, action["enemy_hp"][e])
-                        + getattr(run, attack_stat(skill)) * skill.multiplier
-                    )
-                    * factor,
+                elemental_damage(
+                    floor(
+                        (
+                            effect_amount(skill, action["enemy_hp"][e])
+                            + getattr(run, attack_stat(skill)) * skill.multiplier
+                        )
+                        * factor,
+                    ),
+                    skill,
+                    marker,
+                    "player",
+                    e,
+                    weaknesses=action.get("weaknesses", {}).get(e, []),
+                    weakness_multiplier=action.get("weakness_multiplier", 1.5),
+                    economy=state.save.economy,
+                    enabled_elements=action.get("enabled_elements"),
                 ),
             )
             for e in targets

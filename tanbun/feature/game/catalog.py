@@ -227,6 +227,8 @@ class SkillStat(StrEnum):
     MAX_HP = "maxHp"
     SPECIAL_ATTACK = "specialAttack"
     SPECIAL_DEFENSE = "specialDefense"
+    DAMAGE_DEALT = "damageDealt"
+    DAMAGE_TAKEN = "damageTaken"
 
 
 class SkillSound(StrEnum):
@@ -310,18 +312,7 @@ class SkillBase(BaseModel):
     template_id: DefinitionId | None = None
     template_ids: list[DefinitionId] = Field(default_factory=list, max_length=20)
     effects: list["EffectDefinition"] = Field(default_factory=list, max_length=20)
-    element: Literal[
-        "none",
-        "fire",
-        "ice",
-        "lightning",
-        "water",
-        "wind",
-        "earth",
-        "light",
-        "dark",
-        "poison",
-    ] = "none"
+    element: DefinitionId = "none"
     sound: SkillSound = SkillSound.AUTO
     animation: Literal[
         "none",
@@ -434,6 +425,30 @@ class TimedEffect(VariableAmountEffect):
     duration_turns: int = Field(default=3, ge=1, le=20)
     stack_limit: int = Field(default=1, ge=1, le=10)
 
+    @model_validator(mode="after")
+    def valid_element_modifier(self):
+        """属性補正は属性と比率を必須にし、能力バフとは混ぜない."""
+        if getattr(self, "stat", None) in {"damageDealt", "damageTaken"}:
+            if (
+                not self.affected_element
+                or self.affected_element == "none"
+                or self.amount_mode != "percent"
+            ):
+                msg = "属性補正には対象属性と比率を指定してください。"
+                raise ValueError(msg)
+        elif getattr(self, "affected_element", None):
+            msg = "対象属性は属性ダメージ補正だけに指定できます。"
+            raise ValueError(msg)
+        return self
+
+    @model_serializer(mode="wrap")
+    def relevant_element_fields(self, handler):
+        """属性補正以外には不要な対象属性を出力しない."""
+        values = handler(self)
+        if values.get("stat") not in {"damageDealt", "damageTaken"}:
+            values.pop("affected_element", None)
+        return values
+
 
 class BuffEffect(TimedEffect):
     """自分の能力向上。バブルは最大HPへの割合効果."""
@@ -441,6 +456,7 @@ class BuffEffect(TimedEffect):
     effect: Literal[SkillEffect.BUFF] = SkillEffect.BUFF
     target: SkillTarget = SkillTarget.SELF
     stat: SkillStat = SkillStat.ATTACK
+    affected_element: DefinitionId | None = None
     on_wrong: TimedWrongResult = Field(default_factory=FizzleResult)
 
     @model_validator(mode="after")
@@ -462,7 +478,10 @@ class DebuffEffect(TimedEffect):
         SkillStat.DEFENSE,
         SkillStat.SPECIAL_ATTACK,
         SkillStat.SPECIAL_DEFENSE,
+        SkillStat.DAMAGE_DEALT,
+        SkillStat.DAMAGE_TAKEN,
     ] = SkillStat.ATTACK
+    affected_element: DefinitionId | None = None
     on_wrong: TimedWrongResult = Field(default_factory=FizzleResult)
 
 
@@ -533,6 +552,8 @@ class TemplateBase(BaseModel):
     def without_target(self, handler):
         """対象の陣営はガンビットの責務。旧全体指定だけ対象数へ移す."""
         values = handler(self)
+        if values.get("stat") not in {"damageDealt", "damageTaken"}:
+            values.pop("affected_element", None)
         if values.pop("target", None) == "all_enemies":
             values["target_count"] = "all"
         return values
@@ -726,6 +747,7 @@ LEGACY_SKILL_FIELDS = {
     "duration_turns",
     "stack_limit",
     "ailment",
+    "affected_element",
 }
 
 
@@ -806,6 +828,34 @@ class EnemyDefinition(BaseModel):
     speed: int | None = Field(default=None, ge=1, le=1000)
     attack_skill_id: DefinitionId | None = None
     on_hit_skill_id: DefinitionId | None = None
+    weaknesses: list[DefinitionId] = Field(default_factory=list, max_length=100)
+
+
+class ElementDefinition(BaseModel):
+    """相克表ではなく、表示と参照だけを管理する属性."""
+
+    id: DefinitionId
+    name: str = Field(min_length=1, max_length=40)
+    icon: IconId = "sparkles"
+    color: str = Field(default="#94a3b8", pattern=r"^#[0-9a-fA-F]{6}$")
+    enabled: bool = True
+
+
+def default_elements() -> list[ElementDefinition]:
+    """基本八属性。無属性と毒・呪いなどの状態は含めない."""
+    return [
+        ElementDefinition(id=key, name=name, icon=icon, color=color)
+        for key, name, icon, color in [
+            ("fire", "炎", "flame", "#ef4444"),
+            ("ice", "氷", "snowflake", "#38bdf8"),
+            ("lightning", "雷", "zap", "#facc15"),
+            ("water", "水", "droplet", "#3b82f6"),
+            ("wind", "風", "leaf", "#22c55e"),
+            ("earth", "土", "mountain", "#a16207"),
+            ("light", "光", "sun", "#fde68a"),
+            ("dark", "闇", "moon", "#a78bfa"),
+        ]
+    ]
 
 
 class TriggerDefinition(BaseModel):
@@ -883,6 +933,10 @@ class GameCatalog(BaseModel):
     """IDと参照をまとめて検査し、一括保存する定義。."""
 
     skills: list[StoredSkill] = Field(default_factory=list, max_length=200)
+    elements: list[ElementDefinition] = Field(
+        default_factory=default_elements,
+        max_length=100,
+    )
     skill_templates: list[SkillTemplate] = Field(
         default_factory=default_skill_templates,
         max_length=200,
@@ -1020,9 +1074,37 @@ class GameCatalog(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def valid_elements(self):
+        """属性削除でスキル・弱点・状態の参照を壊さない."""
+        element_ids = {element.id for element in self.elements}
+        if "none" in element_ids:
+            msg_0 = "noneは無属性の予約IDです。"
+            raise ValueError(msg_0)
+        # 以前保存できた毒属性は互換用としてのみ保持する。
+        referenced = {skill.element for skill in self.skills} - {"none", "poison"}
+        referenced |= {value for enemy in self.enemies for value in enemy.weaknesses}
+        for effect in [
+            *self.skills,
+            *self.skill_templates,
+            *(effect for skill in self.skills for effect in skill.effects),
+        ]:
+            if value := getattr(effect, "affected_element", None):
+                referenced.add(value)
+        if referenced - element_ids:
+            msg_0 = "参照先の属性が見つかりません。"
+            raise ValueError(msg_0)
+        return self
+
+    @model_validator(mode="after")
     def valid_references(self):
         """削除や種類変更でアイテム・敵を壊さない。."""
-        for definitions in (self.skills, self.items, self.enemies, self.triggers):
+        for definitions in (
+            self.skills,
+            self.items,
+            self.enemies,
+            self.triggers,
+            self.elements,
+        ):
             if len({d.id for d in definitions}) != len(definitions):
                 msg = "定義IDが重複しています。"
                 raise ValueError(msg)
@@ -1104,6 +1186,7 @@ def default_catalog() -> GameCatalog:
         skills=[
             AttackSkill(
                 id="fire",
+                element="fire",
                 animation="fire",
                 name="ファイア",
                 icon="flame",
@@ -1113,6 +1196,7 @@ def default_catalog() -> GameCatalog:
             ),
             AttackSkill(
                 id="fire_all",
+                element="fire",
                 animation="fire",
                 name="全体ファイア",
                 icon="flame",

@@ -29,6 +29,7 @@ from .effects import (
     apply_resource_effect,
     curse_damage,
     effect_amount,
+    elemental_damage,
     modified_stat,
     periodic_recovery,
     poison_damage,
@@ -153,7 +154,20 @@ def outgoing_attack(state, context, skill, targets, *, roll_player, roll_enemy):
             else roll_player(attack, context.balance)
         )
         amount = int(base * skill.multiplier) + effect_amount(skill, attack)
-        outgoing[enemy.id] = min(marker.schedule.enemy_hp[enemy.id], max(0, amount))
+        outgoing[enemy.id] = min(
+            marker.schedule.enemy_hp[enemy.id],
+            elemental_damage(
+                amount,
+                skill,
+                marker,
+                "player",
+                enemy.id,
+                weaknesses=enemy.weaknesses,
+                weakness_multiplier=context.balance.weakness_multiplier,
+                economy=state.save.economy,
+                enabled_elements=context.enabled_elements,
+            ),
+        )
     return outgoing
 
 
@@ -177,7 +191,15 @@ def incoming_attack(state, context, enemy, skill, roll_enemy):
         ),
         context.balance,
     )
-    return max(0, int(base * skill.multiplier) + effect_amount(skill, attack))
+    return elemental_damage(
+        max(0, int(base * skill.multiplier) + effect_amount(skill, attack)),
+        skill,
+        marker,
+        enemy.id,
+        "player",
+        economy=state.save.economy,
+        enabled_elements=context.enabled_elements,
+    )
 
 
 def enemy_action_skill(enemy, schedule, fallback):
@@ -225,7 +247,7 @@ def apply_enemy_components(state, context, enemy, *, correct, retreat):
             continue
         schedule.enemy_max_hp.setdefault(enemy.id, enemy.hp)
         schedule.enemy_max_mp.setdefault(enemy.id, enemy.mp)
-        apply_resource_effect(state.save, effect, enemy.id)
+        apply_resource_effect(state.save, effect, enemy.id, context=context)
         if effect.effect in {"buff", "debuff", "ailment"}:
             add_effect(
                 marker,
@@ -364,10 +386,22 @@ def self_attack_damage(state, context, skill, *, schedule_actor, roll_enemy):
         schedule_actor,
         defense_stat(skill),
     )
-    return max(
+    amount = max(
         0,
         int(roll_enemy(attack, defense, context.balance) * skill.multiplier)
         + effect_amount(skill, attack),
+    )
+    weaknesses = [] if schedule_actor == "player" else enemy.weaknesses
+    return elemental_damage(
+        amount,
+        skill,
+        state.save.battle,
+        schedule_actor,
+        schedule_actor,
+        weaknesses=weaknesses,
+        weakness_multiplier=context.balance.weakness_multiplier,
+        economy=state.save.economy,
+        enabled_elements=context.enabled_elements,
     )
 
 
@@ -455,6 +489,7 @@ def resolve_scheduled(
         incoming,
         equipped_stats(state.save.allocation, context.balance, state.save.economy),
         base_stats=state.save.allocation.stats(context.balance),
+        context=context,
     )
     updated.save.battleFeedback = updated.save.battleFeedback.replace(
         f"/{len(marker.enemies)} ·",

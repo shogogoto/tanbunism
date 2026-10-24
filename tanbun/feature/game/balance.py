@@ -13,6 +13,7 @@ class GameBalance(BaseModel, frozen=True):
     """数値は仮値。既存の敵にも読み取り時に適用する."""
 
     base_hp: int = Field(default=35, ge=1, le=10000)
+    weakness_multiplier: float = Field(default=1.5, ge=1, le=10, allow_inf_nan=False)
     gambit_levels_per_slot: int = Field(default=5, ge=2, le=100)
     specialty_levels_per_slot: int = Field(default=20, ge=2, le=100)
     chest_gold: int = Field(default=30, ge=0, le=100000)

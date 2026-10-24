@@ -101,7 +101,8 @@ def test_v2_serializes_only_fields_belonging_to_its_effect(effect, specific):
         "damage_type",
     }
     skill = file.skills[0]
-    assert type(skill).model_fields.keys() == base | specific
+    conditional = {"affected_element"} if effect in {"buff", "debuff"} else set()
+    assert type(skill).model_fields.keys() == base | specific | conditional
     assert json.loads(file.model_dump_json())["skills"][0].keys() == base | specific
 
 

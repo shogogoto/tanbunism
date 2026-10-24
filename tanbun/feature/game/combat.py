@@ -20,7 +20,7 @@ from tanbun.feature.quiz.answering.repo import create_answer_in_transaction
 from tanbun.feature.quiz.chain.usecase import expand_quiz_chain
 
 from .balance import Allocation, GameBalance, get_game_balance
-from .catalog import GameCatalog, StoredSkill, get_game_catalog
+from .catalog import ElementDefinition, GameCatalog, StoredSkill, get_game_catalog
 from .damage import enemy_damage
 from .economy import GOLD_PER_LEVEL
 from .effects import (
@@ -83,6 +83,7 @@ class EnemyStats(BaseModel):
     sound: str = "auto"
     on_hit_skill: StoredSkill | None = None
     attack_skill: StoredSkill | None = None
+    weaknesses: list[str] = Field(default_factory=list)
 
 
 class CombatContext(BaseModel):
@@ -91,6 +92,8 @@ class CombatContext(BaseModel):
     balance: GameBalance
     enemies: list[EnemyStats]
     default_attack: StoredSkill | None = None
+    enabled_elements: list[str] | None = None
+    elements: list[ElementDefinition] = Field(default_factory=list)
 
 
 async def combat_context(
@@ -125,6 +128,10 @@ async def combat_context(
     return CombatContext(
         balance=balance,
         default_attack=normal_attack(catalog),
+        enabled_elements=[
+            element.id for element in catalog.elements if element.enabled
+        ],
+        elements=catalog.elements,
         enemies=style_enemies(
             derive_enemies(
                 {**content, "battle": battle_payload},
@@ -184,6 +191,11 @@ def style_enemies(
             enemy.model_copy(
                 update={
                     "on_hit_skill": skills.get(template.on_hit_skill_id),
+                    "weaknesses": [
+                        key
+                        for key in template.weaknesses
+                        if any(e.id == key and e.enabled for e in catalog.elements)
+                    ],
                     "attack_skill": skill,
                     "icon": template.icon,
                     "name": f"達成度 {enemy.region + 1}の{template.name}"
@@ -503,6 +515,7 @@ async def settle_turn(user_id: UUIDy, body: TurnRequest) -> dict:
             e: enemy.on_hit_skill for e, enemy in enemies.items() if enemy.on_hit_skill
         },
         base_stats=previous.save.allocation.stats(context.balance),
+        context=context,
     )
     award_kill_gold(updated, body, marker.region)
     receipt = {
@@ -587,6 +600,7 @@ def apply_turn_result(
     *,
     on_hit_skills: dict | None = None,
     base_stats: dict | None = None,
+    context=None,
 ) -> GameState:
     """相打ちの敗北優先・撤退先・歩数維持を一箇所で扱う."""
     marker, run = previous.save.battle, previous.save.run
@@ -620,6 +634,7 @@ def apply_turn_result(
         else any(results.values()),
         retreat=body.retreat,
         results=results,
+        context=context,
     )
     periodic_hp, periodic_mp = apply_player_periodic(next_run, marker, damage)
     next_run.kills += 0 if marker.bossLevel else len(set(body.defeated))
