@@ -18,6 +18,17 @@ effect values. Versions 1–4, singular template references and in-progress flat
 skill snapshots remain readable. Equipment and movement recovery remain
 standalone effects; multi-effect items are battle-only.
 
+Effect-template variants reference one independent `base_template_id`. Only
+`override_fields` (target count and numeric/outcome settings) override that base;
+the API returns effective values while storage and JSON export keep only the
+identity, parent reference and explicit differences. Resolution is independent
+of display order. Missing parents, cycles, multiple inheritance levels and
+invalid override values are rejected. Battle actions still freeze their resolved
+effects, so later balance edits do not alter actions already in progress.
+The admin can generate 1/3/5/all-target variants, mark overrides and reset them,
+or detach a variant while retaining its current values. Existing templates are
+not automatically grouped.
+
 ## Gambit capacity and timed effects
 
 Gambit capacity is derived from the player's learning level: one initial slot,

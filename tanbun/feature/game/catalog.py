@@ -541,17 +541,40 @@ class UtilitySkill(SkillBase, UtilityEffect):
     """名前・演出を持つ補助スキル."""
 
 
+TemplateOverride = Literal[
+    "target_count",
+    "amount",
+    "amount_mode",
+    "multiplier",
+    "duration_turns",
+    "on_wrong",
+]
+
+
 class TemplateBase(BaseModel):
     """共通の効果設定の識別子と名前."""
 
     model_config = ConfigDict(extra="forbid")
     id: DefinitionId
     name: str = Field(min_length=1, max_length=80)
+    base_template_id: DefinitionId | None = None
+    override_fields: list[TemplateOverride] = Field(default_factory=list, max_length=6)
+
+    @model_validator(mode="after")
+    def overrides_need_base(self):
+        """独立定義には上書き指定を残さない。."""
+        if self.override_fields and not self.base_template_id:
+            msg = "上書き項目には共通設定の参照が必要です。"
+            raise ValueError(msg)
+        return self
 
     @model_serializer(mode="wrap")
     def without_target(self, handler):
         """対象の陣営はガンビットの責務。旧全体指定だけ対象数へ移す."""
         values = handler(self)
+        if not self.base_template_id:
+            values.pop("base_template_id", None)
+            values.pop("override_fields", None)
         if values.get("stat") not in {"damageDealt", "damageTaken"}:
             values.pop("affected_element", None)
         if values.pop("target", None) == "all_enemies":
@@ -640,7 +663,7 @@ def read_effect_templates(raw_templates):
         legacy_costs = {
             t.get("id"): t.get("mp_cost", 0)
             for t in raw_templates
-            if isinstance(t, dict)
+            if isinstance(t, dict) and isinstance(t.get("id"), str)
         }
         raw_templates = [
             {k: v for k, v in t.items() if k != "mp_cost"} if isinstance(t, dict) else t
@@ -652,12 +675,67 @@ def read_effect_templates(raw_templates):
                 and template.pop("target", None) == "all_enemies"
             ):
                 template["target_count"] = "all"
-    return TypeAdapter(list[SkillTemplate]).validate_python(raw_templates), legacy_costs
+    return resolve_template_variants(raw_templates), legacy_costs
+
+
+def resolve_template_variants(raw):
+    """一段の参照だけを許し、親の実効値と明示的な上書きを合成する。."""
+    adapter = TypeAdapter(list[SkillTemplate])
+    if not isinstance(raw, list) or any(not isinstance(t, dict) for t in raw):
+        return adapter.validate_python(raw)
+    if any(
+        not isinstance(t.get("id"), str)
+        or not isinstance(t.get("base_template_id", ""), (str, type(None)))
+        for t in raw
+    ):
+        msg = "テンプレートIDは文字列で指定してください。"
+        raise ValueError(msg)
+    if len({t.get("id") for t in raw}) != len(raw):
+        msg = "効果テンプレートのIDが重複しています。"
+        raise ValueError(msg)
+    roots = {
+        t.id: t
+        for t in adapter.validate_python([
+            t for t in raw if not t.get("base_template_id")
+        ])
+    }
+    resolved = []
+    for template in raw:
+        base_id = template.get("base_template_id")
+        if not base_id:
+            resolved.append(template)
+            continue
+        if base_id not in roots:
+            msg = "共通設定が見つからないか、継承が二段以上になっています。"
+            raise ValueError(msg)
+        base = roots[base_id].model_dump()
+        fields = TypeAdapter(list[TemplateOverride]).validate_python(
+            template.get("override_fields", []),
+        )
+        if len(set(fields)) != len(fields) or any(
+            key not in template or key not in base for key in fields
+        ):
+            msg = "上書き項目が重複しているか、共通設定に適用できません。"
+            raise ValueError(msg)
+        if set(template) - set(type(roots[base_id]).model_fields):
+            msg = "バリエーションに未定義の項目があります。"
+            raise ValueError(msg)
+        resolved.append({
+            **base,
+            **{key: template[key] for key in fields},
+            "id": template.get("id"),
+            "name": template.get("name"),
+            "base_template_id": base_id,
+            "override_fields": fields,
+        })
+    return adapter.validate_python(resolved)
 
 
 def template_effect(template) -> dict:
     """旧ガンビット用の既定対象を補う。テンプレート本体には保存しない."""
-    values = template.model_dump(exclude={"id", "name"})
+    values = template.model_dump(
+        exclude={"id", "name", "base_template_id", "override_fields"},
+    )
     values["target"] = (
         "self"
         if values.get("ailment") in {"regen", "refresh"}
@@ -1075,6 +1153,23 @@ class GameCatalog(BaseModel):
     def stored_document(self) -> dict:
         """参照スキルは共通値を複製せず、識別情報だけを保存する."""
         document = self.model_dump(mode="json")
+        document["skill_templates"] = [
+            {
+                key: value
+                for key, value in template.items()
+                if key
+                in {
+                    "id",
+                    "name",
+                    "base_template_id",
+                    "override_fields",
+                    *template["override_fields"],
+                }
+            }
+            if template.get("base_template_id")
+            else template
+            for template in document["skill_templates"]
+        ]
         document["skills"] = [
             {key: value for key, value in skill.items() if key in SKILL_IDENTITY_FIELDS}
             if skill.get("template_id") or skill.get("template_ids")
