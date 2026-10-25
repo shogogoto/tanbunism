@@ -12,8 +12,17 @@ from pydantic import (
     Field,
     StringConstraints,
     TypeAdapter,
+    ValidationError,
     model_serializer,
     model_validator,
+)
+
+from .template_variant_sets import (
+    VariantField,
+    VariantSelection,
+    VariantSet,
+    attached_sets,
+    selected_values,
 )
 
 DefinitionId = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
@@ -538,20 +547,7 @@ class UtilitySkill(SkillBase, UtilityEffect):
     """名前・演出を持つ補助スキル."""
 
 
-TemplateOverride = Literal[
-    "effect",
-    "damage_type",
-    "target_count",
-    "amount",
-    "amount_mode",
-    "multiplier",
-    "duration_turns",
-    "on_wrong",
-    "stat",
-    "affected_element",
-    "stack_limit",
-    "ailment",
-]
+TemplateOverride = VariantField
 
 
 MAX_TEMPLATE_ROOT_NAME = 80
@@ -570,12 +566,24 @@ class TemplateBase(BaseModel):
     override_fields: list[TemplateOverride] = Field(default_factory=list, max_length=12)
     variant_axis: str | None = Field(default=None, max_length=40, pattern=r"^[a-z_]+$")
     variant_label: str | None = Field(default=None, min_length=1, max_length=60)
+    variant_set_ids: list[DefinitionId] = Field(default_factory=list, max_length=8)
+    variant_selections: list[VariantSelection] = Field(
+        default_factory=list,
+        max_length=8,
+    )
 
     @model_validator(mode="after")
     def overrides_need_base(self):
         """独立定義には上書き指定を残さない。."""
         if self.override_fields and not self.base_template_id:
             msg = "上書き項目には共通設定の参照が必要です。"
+            raise ValueError(msg)
+        if self.variant_selections and (
+            not self.base_template_id or self.override_fields
+        ):
+            msg = (
+                "セットの組み合わせには親の参照が必要で、個別の上書きは併用できません。"
+            )
             raise ValueError(msg)
         if not self.base_template_id and len(self.name) > MAX_TEMPLATE_ROOT_NAME:
             msg = "共通設定の名前は80文字以下で指定してください。"
@@ -588,6 +596,9 @@ class TemplateBase(BaseModel):
         values = handler(self)
         for key in ("variant_axis", "variant_label"):
             if values.get(key) is None:
+                values.pop(key, None)
+        for key in ("variant_set_ids", "variant_selections"):
+            if not values.get(key):
                 values.pop(key, None)
         if not self.base_template_id:
             values.pop("base_template_id", None)
@@ -679,6 +690,11 @@ def variant_values(base, template, fields):
         "override_fields": fields,
         "variant_axis": template.get("variant_axis"),
         "variant_label": template.get("variant_label"),
+        "variant_set_ids": template.get(
+            "variant_set_ids",
+            base.get("variant_set_ids", []),
+        ),
+        "variant_selections": template.get("variant_selections", []),
     }
 
 
@@ -720,7 +736,7 @@ def default_normal_attack() -> AttackSkill:
     )
 
 
-def read_effect_templates(raw_templates):
+def read_effect_templates(raw_templates, variant_sets=None):
     """旧定義のMPを読み取った後、消費を持たないテンプレートへ移行する."""
     legacy_costs = {}
     if isinstance(raw_templates, list):
@@ -742,7 +758,7 @@ def read_effect_templates(raw_templates):
                 and template.pop("target", None) == "all_enemies"
             ):
                 template["target_count"] = "all"
-    return resolve_template_variants(raw_templates), legacy_costs
+    return resolve_template_variants(raw_templates, variant_sets), legacy_costs
 
 
 def _variant_override_fields(template, allowed):
@@ -787,7 +803,90 @@ def _template_entries(raw):
     return {t["id"]: t for t in raw}
 
 
-def resolve_template_variants(raw):
+def _valid_set_value(field, value):
+    """未使用のセットも、既存の効果フィールドの型と範囲で検査する."""
+    if isinstance(value, bool):
+        return False
+    for model in set(TEMPLATE_MODELS.values()):
+        if field not in model.model_fields:
+            continue
+        try:
+            parsed = TypeAdapter(
+                model.model_fields[field].rebuild_annotation(),
+            ).validate_python(value)
+        except ValidationError:
+            continue
+        if field != "target_count" or parsed == "all" or 1 <= parsed <= 5:  # noqa: PLR2004
+            return True
+    return False
+
+
+def _variant_set_entries(raw):
+    """共有セットも空のカタログでもIDを検査する."""
+    sets = TypeAdapter(list[VariantSet]).validate_python(raw or [])
+    if len({s.id for s in sets}) != len(sets):
+        msg = "変型セットのIDが重複しています。"
+        raise ValueError(msg)
+    for variant_set in sets:
+        if any(
+            not _valid_set_value(variant_set.field, v.value) for v in variant_set.values
+        ):
+            msg = f"{variant_set.name}の候補の型または範囲が不正です。"
+            raise ValueError(msg)
+    return {s.id: s for s in sets}
+
+
+def _validate_attached_sets(result, sets, adapter):
+    """選択前に全候補を検査し、使えない値を共有定義として保存しない."""
+    base = result.model_dump()
+    for variant_set in attached_sets(base, sets):
+        if variant_set.field not in type(result).model_fields:
+            msg = "この効果テンプレートでは変型セットの項目を使えません。"
+            raise ValueError(msg)
+        for candidate in variant_set.values:
+            values = variant_values(
+                base,
+                {
+                    "id": result.id,
+                    "name": result.name,
+                    "base_template_id": result.id,
+                    variant_set.field: candidate.value,
+                },
+                [variant_set.field],
+            )
+            adapter.validate_python([values])
+
+
+def _variant_details(template, base, path, allowed, sets):
+    """個別差分と共有セットの参照を、混在させず同じ継承経路で解決する."""
+    fields = _variant_override_fields(template, allowed)
+    root_name, labels = path
+    selections = template.get("variant_selections")
+    if selections:
+        if fields:
+            msg = "セットの組み合わせに個別の上書きは指定できません。"
+            raise ValueError(msg)
+        changes, names = selected_values(base, template, sets)
+        model = TEMPLATE_MODELS.get(str(changes.get("effect", base["effect"])))
+        if model is None or set(changes) - set(model.model_fields):
+            msg = "組み合わせた効果では、変型セットの項目を使えません。"
+            raise ValueError(msg)
+        values = variant_values(base, {**template, **changes}, list(changes))
+        values["override_fields"] = []
+        values["variant_set_ids"] = []
+        labels = [*labels, *names]
+    else:
+        labels = [*labels, _variant_label(template, base["name"])]
+        values = variant_values(base, template, fields)
+    if len(labels) > MAX_VARIANT_DEPTH:
+        msg = "変型は最大16段までです。"
+        raise ValueError(msg)
+    if template.get("variant_label") or selections:
+        values["name"] = root_name + VARIANT_OPEN + ", ".join(labels) + VARIANT_CLOSE
+    return values, (root_name, labels)
+
+
+def resolve_template_variants(raw, variant_sets=None):
     """親を先に解決し、循環を拒否して最大16段までの差分を合成する."""
     adapter = TypeAdapter(list[SkillTemplate])
     entries = _template_entries(raw)
@@ -799,6 +898,7 @@ def resolve_template_variants(raw):
     allowed = set().union(
         *(set(model.model_fields) for model in TEMPLATE_MODELS.values()),
     )
+    sets = _variant_set_entries(variant_sets)
 
     def resolve(identity):
         if identity in resolved:
@@ -820,20 +920,15 @@ def resolve_template_variants(raw):
             paths[identity] = (result.name, [])
         else:
             base = resolve(base_id).model_dump()
-            fields = _variant_override_fields(template, allowed)
-            label = _variant_label(template, base["name"])
-            root_name, labels = paths[base_id]
-            labels = [*labels, label]
-            if len(labels) > MAX_VARIANT_DEPTH:
-                msg = "変型は最大16段までです。"
-                raise ValueError(msg)
-            values = variant_values(base, template, fields)
-            if template.get("variant_label"):
-                values["name"] = (
-                    root_name + VARIANT_OPEN + ", ".join(labels) + VARIANT_CLOSE
-                )
+            values, paths[identity] = _variant_details(
+                template,
+                base,
+                paths[base_id],
+                allowed,
+                sets,
+            )
             result = adapter.validate_python([values])[0]
-            paths[identity] = (root_name, labels)
+        _validate_attached_sets(result, sets, adapter)
         resolved[identity] = result
         visiting.remove(identity)
         return result
@@ -851,6 +946,8 @@ def template_effect(template) -> dict:
             "override_fields",
             "variant_axis",
             "variant_label",
+            "variant_set_ids",
+            "variant_selections",
         },
     )
     values["target"] = (
@@ -869,6 +966,7 @@ def resolve_skill_templates(value):
         return value
     templates, legacy_costs = read_effect_templates(
         value.get("skill_templates", default_skill_templates()),
+        value.get("variant_sets", []),
     )
     by_id = {template.id: template for template in templates}
     if len(by_id) != len(templates):
@@ -1163,6 +1261,7 @@ class GameCatalog(BaseModel):
     """IDと参照をまとめて検査し、一括保存する定義。."""
 
     skills: list[StoredSkill] = Field(default_factory=list, max_length=200)
+    variant_sets: list[VariantSet] = Field(default_factory=list, max_length=100)
     elements: list[ElementDefinition] = Field(
         default_factory=default_elements,
         max_length=100,
@@ -1295,6 +1394,8 @@ class GameCatalog(BaseModel):
                     "override_fields",
                     "variant_label",
                     "variant_axis",
+                    "variant_set_ids",
+                    "variant_selections",
                     *template["override_fields"],
                 }
             }

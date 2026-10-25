@@ -191,7 +191,7 @@ def test_import_updates_by_id_appends_new_and_preserves_consumers():
 @pytest.mark.parametrize(
     "patch",
     [
-        {"version": 6},
+        {"version": 999},
         {"format": "other"},
         {"skills": [{"id": "wrong", "name": "誤記", "effect": "unknown"}]},
         {"skills": [{"id": "wrong", "name": "誤記", "effect": "attack", "mpcost": 3}]},

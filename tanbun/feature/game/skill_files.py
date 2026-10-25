@@ -12,8 +12,9 @@ from .catalog import (
     migrate_skill,
     resolve_skill_templates,
 )
+from .template_variant_sets import VariantSet
 
-TEMPLATE_FILE_VERSION = 5
+TEMPLATE_FILE_VERSION = 6
 
 
 class SkillFile(BaseModel):
@@ -22,10 +23,11 @@ class SkillFile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     format: Literal["tanbunism.skills"]
-    version: Literal[1, 2, 3, 4, 5]
+    version: Literal[1, 2, 3, 4, 5, 6]
     skills: list[SkillDefinition] = Field(max_length=200)
     skill_templates: list[SkillTemplate] = Field(default_factory=list, max_length=200)
     elements: list[ElementDefinition] = Field(default_factory=list, max_length=100)
+    variant_sets: list[VariantSet] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="before")
     @classmethod
@@ -33,6 +35,7 @@ class SkillFile(BaseModel):
         """交換ファイル内の共通設定で参照を解決する."""
         if isinstance(value, dict) and value.get("version") in {
             4,
+            5,
             TEMPLATE_FILE_VERSION,
         }:
             return resolve_skill_templates({"skill_templates": [], **value})
@@ -73,11 +76,14 @@ class SkillFilePreview(BaseModel):
         templates.update({t.id: t for t in self.document.skill_templates})
         elements = {element.id: element for element in self.catalog.elements}
         elements.update({element.id: element for element in self.document.elements})
+        sets = {s.id: s for s in self.catalog.variant_sets}
+        sets.update({s.id: s for s in self.document.variant_sets})
         return GameCatalog.model_validate(
             self.catalog.model_dump()
             | {
                 "skills": list(skills.values()),
                 "skill_templates": list(templates.values()),
                 "elements": list(elements.values()),
+                "variant_sets": list(sets.values()),
             },
         )
