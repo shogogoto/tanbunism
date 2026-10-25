@@ -79,6 +79,29 @@ def stored_without_catalog(stored):
     return {key: stored[key] for key in ("skills", "skill_templates")}
 
 
+def test_single_axis_metadata_survives_storage_and_skill_file_without_runtime_leaks():
+    """変型の変更項目とサブ名は保存し、実戦用効果へは混ぜない."""
+    raw = document()
+    raw["skill_templates"][0]["variant_axis"] = "target_count"
+    raw["skill_templates"][1]["variant_label"] = "範囲"
+    catalog = GameCatalog.model_validate(raw)
+    stored = catalog.stored_document()
+    assert stored["skill_templates"][0]["variant_axis"] == "target_count"
+    assert stored["skill_templates"][1]["variant_label"] == "範囲"
+    assert "variant_axis" not in stored["skill_templates"][1]
+    restored = GameCatalog.model_validate(stored)
+    assert restored == catalog
+    effect = skill_effects(restored.skills[0])[0].model_dump()
+    assert "variant_axis" not in effect
+    assert "variant_label" not in effect
+    file = SkillFile.model_validate({
+        "format": "tanbunism.skills",
+        "version": 5,
+        **stored_without_catalog(stored),
+    })
+    assert file.skill_templates[1].variant_label == "範囲"
+
+
 @mark_async_test()
 async def test_saved_families_are_resolved_on_read():
     """差分形式で保存した親子が読み込み後も同じ値になり、更新が伝わる."""

@@ -562,6 +562,8 @@ class TemplateBase(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     base_template_id: DefinitionId | None = None
     override_fields: list[TemplateOverride] = Field(default_factory=list, max_length=12)
+    variant_axis: str | None = Field(default=None, max_length=40, pattern=r"^[a-z_]+$")
+    variant_label: str | None = Field(default=None, min_length=1, max_length=60)
 
     @model_validator(mode="after")
     def overrides_need_base(self):
@@ -575,6 +577,9 @@ class TemplateBase(BaseModel):
     def without_target(self, handler):
         """対象の陣営はガンビットの責務。旧全体指定だけ対象数へ移す."""
         values = handler(self)
+        for key in ("variant_axis", "variant_label"):
+            if values.get(key) is None:
+                values.pop(key, None)
         if not self.base_template_id:
             values.pop("base_template_id", None)
             values.pop("override_fields", None)
@@ -663,6 +668,8 @@ def variant_values(base, template, fields):
         "name": template.get("name"),
         "base_template_id": template["base_template_id"],
         "override_fields": fields,
+        "variant_axis": template.get("variant_axis"),
+        "variant_label": template.get("variant_label"),
     }
 
 
@@ -780,7 +787,14 @@ def resolve_template_variants(raw):
 def template_effect(template) -> dict:
     """旧ガンビット用の既定対象を補う。テンプレート本体には保存しない."""
     values = template.model_dump(
-        exclude={"id", "name", "base_template_id", "override_fields"},
+        exclude={
+            "id",
+            "name",
+            "base_template_id",
+            "override_fields",
+            "variant_axis",
+            "variant_label",
+        },
     )
     values["target"] = (
         "self"
@@ -1222,6 +1236,7 @@ class GameCatalog(BaseModel):
                     "name",
                     "base_template_id",
                     "override_fields",
+                    "variant_label",
                     *template["override_fields"],
                 }
             }
