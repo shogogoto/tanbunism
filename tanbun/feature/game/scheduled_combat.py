@@ -12,7 +12,7 @@ from tanbun.feature.domain.types import to_uuid
 from tanbun.feature.notification.usecase import dispatch_saved_notifications
 from tanbun.feature.quiz.answering.repo import create_answer_in_transaction
 
-from .action_queue import ActionSchedule, interval, predict, refresh_speeds, take_next
+from .action_queue import ActionSchedule, interval, predict, take_next
 from .catalog import get_game_catalog
 from .combat import (
     TurnRequest,
@@ -33,6 +33,7 @@ from .effects import (
     modified_stat,
     periodic_recovery,
     poison_damage,
+    sync_speed_effects,
 )
 from .gambit_slots import gambit_capacity
 from .gambits import BattleAction, choose_action
@@ -84,6 +85,7 @@ def initialize_schedule(state, context) -> None:
         seed=marker.id,
         formula=context.balance.speed_formula,
         speeds=speeds,
+        base_speeds=dict(speeds),
         waits={
             key: interval(speed, context.balance.speed_formula)
             for key, speed in speeds.items()
@@ -101,13 +103,11 @@ def begin_scheduled_action(state, context) -> None:
     marker, run = state.save.battle, state.save.run
     schedule = marker.schedule
     enemies = {e.id: e for e in context.enemies if e.id in marker.enemies}
-    refresh_speeds(
-        schedule,
-        {
-            "player": run.speed,
-            **{key: e.speed for key, e in enemies.items()},
-        },
-    )
+    schedule.base_speeds = {
+        "player": run.speed,
+        **{key: e.speed for key, e in enemies.items()},
+    }
+    sync_speed_effects(marker)
     actor = take_next(schedule)
     schedule.actor_id = actor
     target = marker.enemies[0] if actor == "player" else actor
@@ -530,15 +530,7 @@ def resolve_scheduled(
     if updated.save.battle:
         next_marker = updated.save.battle
         next_marker.schedule.actor_id = None
-        refresh_speeds(
-            next_marker.schedule,
-            {
-                key: value
-                for key, value in schedule.speeds.items()
-                if key == "player" or key in next_marker.enemies
-            },
-        )
-        next_marker.schedule.queue = predict(next_marker.schedule)
+        sync_speed_effects(next_marker)
         next_marker.endActionDone = (
             schedule.actor_id != "player" or marker.gambitAction is not None
         )

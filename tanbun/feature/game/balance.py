@@ -44,6 +44,26 @@ class GameBalance(BaseModel, frozen=True):
     skill_mp_cost: int = Field(default=3, ge=1, le=10000)
     skill_term_attack: float = Field(default=4, ge=0.1, le=100, allow_inf_nan=False)
     boss_hp_multiplier: float = Field(default=3, ge=1, le=20, allow_inf_nan=False)
+    boss_mp_multiplier: float = Field(default=1, ge=0.1, le=20, allow_inf_nan=False)
+    boss_defense_multiplier: float = Field(
+        default=1,
+        ge=0.1,
+        le=20,
+        allow_inf_nan=False,
+    )
+    boss_special_attack_multiplier: float = Field(
+        default=1.25,
+        ge=0.1,
+        le=20,
+        allow_inf_nan=False,
+    )
+    boss_special_defense_multiplier: float = Field(
+        default=1,
+        ge=0.1,
+        le=20,
+        allow_inf_nan=False,
+    )
+    boss_speed_multiplier: float = Field(default=1, ge=0.1, le=20, allow_inf_nan=False)
     boss_attack_multiplier: float = Field(
         default=1.25,
         ge=1,
@@ -54,6 +74,7 @@ class GameBalance(BaseModel, frozen=True):
     defense_per_point: int = Field(default=1, ge=1, le=100)
     enemy_hp: int = Field(default=20, ge=1, le=10000)
     enemy_attack: int = Field(default=12, ge=1, le=1000)
+    enemy_defense: int = Field(default=0, ge=0, le=1000)
     enemy_mp: int = Field(default=10, ge=0, le=10000)
     enemy_special_attack: int = Field(default=12, ge=0, le=1000)
     enemy_special_defense: int = Field(default=0, ge=0, le=1000)
@@ -159,6 +180,20 @@ class GameBalance(BaseModel, frozen=True):
     min_enemies: int = Field(default=1, ge=1, le=20)
     max_encounter_enemies: int = Field(default=3, ge=1, le=20)
     max_encounter_enemies_per_region: int = Field(default=0, ge=0, le=20)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_boss_special_attack(cls, values):
+        """従来は攻撃倍率が特攻にも使われていたので、未設定時は引き継ぐ."""
+        if isinstance(values, dict) and "boss_special_attack_multiplier" not in values:
+            return {
+                **values,
+                "boss_special_attack_multiplier": values.get(
+                    "boss_attack_multiplier",
+                    1.25,
+                ),
+            }
+        return values
 
     @model_validator(mode="after")
     def valid_enemy_ranges(self) -> "GameBalance":

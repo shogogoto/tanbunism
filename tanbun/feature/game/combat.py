@@ -156,7 +156,8 @@ def style_enemies(
 
     skills = {s.id: s for s in catalog.skills if s.enabled}
     result = []
-    for enemy in enemies:
+    for source_enemy in enemies:
+        enemy = source_enemy
         boss = enemy.id.startswith("boss:")
         templates = [e for e in catalog.enemies if e.enabled and e.boss == boss]
         if not templates:
@@ -174,6 +175,31 @@ def style_enemies(
         identity = enemy.id.split("#", 1)[0]
         seed = sum((i + 1) * ord(c) for i, c in enumerate(identity))
         template = templates[seed % len(templates)]
+        if not preserve_stats:
+            values = {
+                key: getattr(enemy, key)
+                for key in type(template.multipliers).model_fields
+            }
+            values["special_attack"] = (
+                enemy.special_attack
+                if enemy.special_attack is not None
+                else enemy.attack
+            )
+            values["speed"] = (
+                template.speed if template.speed is not None else enemy.speed
+            )
+            enemy = enemy.model_copy(
+                update={
+                    key: min(
+                        100000,
+                        max(
+                            1 if key in {"hp", "speed"} else 0,
+                            ceil(value * getattr(template.multipliers, key)),
+                        ),
+                    )
+                    for key, value in values.items()
+                },
+            )
         skill = skills.get(template.attack_skill_id) or normal_attack(catalog)
         attack_effect = next(
             (effect for effect in skill_effects(skill) if effect.effect == "attack"),
@@ -209,9 +235,7 @@ def style_enemies(
                     else template.name,
                     "attack": attack,
                     "unmodified_attack": enemy.attack,
-                    "speed": template.speed
-                    if template.speed is not None and not preserve_stats
-                    else enemy.speed,
+                    "speed": enemy.speed,
                     "animation": skill.animation if skill else "none",
                     "sound": skill.sound if skill else "auto",
                 },
@@ -269,6 +293,7 @@ def derive_enemies(
                     quizIndexes=valid,
                     hp=hp,
                     attack=attack,
+                    defense=balance.enemy_defense,
                     speed=balance.enemy_speed_stat(power, region, item["id"]),
                     **balance.enemy_extra_stats(power, region, item["id"]),
                     relations=relation_count,
@@ -317,10 +342,11 @@ def derive_boss(
         return None
     hp, attack = balance.enemy_stats(power, 0, level - 1, variation_key=identity)
     extra = balance.enemy_extra_stats(power, level - 1, identity)
-    extra["special_attack"] = min(
-        100000,
-        ceil(extra["special_attack"] * balance.boss_attack_multiplier),
-    )
+    for key in ("mp", "special_attack", "special_defense"):
+        extra[key] = min(
+            100000,
+            ceil(extra[key] * getattr(balance, f"boss_{key}_multiplier")),
+        )
     return EnemyStats(
         id=identity,
         name=f"達成度 {level}のボス",
@@ -328,7 +354,20 @@ def derive_boss(
         quizIndex=marker.get("quizIndices", {}).get(identity, indexes[0]),
         hp=min(100000, ceil(hp * balance.boss_hp_multiplier)),
         attack=min(100000, ceil(attack * balance.boss_attack_multiplier)),
-        speed=balance.enemy_speed_stat(power, level - 1, identity),
+        speed=min(
+            100000,
+            max(
+                1,
+                ceil(
+                    balance.enemy_speed_stat(power, level - 1, identity)
+                    * balance.boss_speed_multiplier,
+                ),
+            ),
+        ),
+        defense=min(
+            100000,
+            ceil(balance.enemy_defense * balance.boss_defense_multiplier),
+        ),
         **extra,
         relations=0,
         region=level - 1,

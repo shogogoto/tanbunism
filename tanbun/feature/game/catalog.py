@@ -226,6 +226,7 @@ class SkillStat(StrEnum):
     DEFENSE = "defense"
     MAX_HP = "maxHp"
     MAX_MP = "maxMp"
+    SPEED = "speed"
     SPECIAL_ATTACK = "specialAttack"
     SPECIAL_DEFENSE = "specialDefense"
     DAMAGE_DEALT = "damageDealt"
@@ -940,6 +941,18 @@ class ShopListing(BaseModel):
     enabled: bool = True
 
 
+class EnemyMultipliers(BaseModel):
+    """基礎能力・ボス補正に重ねる敵ごとの個性。未設定は等倍."""
+
+    hp: float = Field(default=1, ge=0.1, le=20, allow_inf_nan=False)
+    mp: float = Field(default=1, ge=0.1, le=20, allow_inf_nan=False)
+    attack: float = Field(default=1, ge=0.1, le=20, allow_inf_nan=False)
+    defense: float = Field(default=1, ge=0.1, le=20, allow_inf_nan=False)
+    special_attack: float = Field(default=1, ge=0.1, le=20, allow_inf_nan=False)
+    special_defense: float = Field(default=1, ge=0.1, le=20, allow_inf_nan=False)
+    speed: float = Field(default=1, ge=0.1, le=20, allow_inf_nan=False)
+
+
 class EnemyDefinition(BaseModel):
     """ロスターの出題セットとは独立した敵の見た目と攻撃。."""
 
@@ -949,6 +962,7 @@ class EnemyDefinition(BaseModel):
     enabled: bool = True
     boss: bool = False
     speed: int | None = Field(default=None, ge=1, le=1000)
+    multipliers: EnemyMultipliers = Field(default_factory=EnemyMultipliers)
     attack_skill_id: DefinitionId | None = None
     on_hit_skill_id: DefinitionId | None = None
     weaknesses: list[DefinitionId] = Field(default_factory=list, max_length=100)

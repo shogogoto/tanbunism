@@ -22,6 +22,7 @@ from .effects import (
     scaled_resource,
     sync_bubble,
     sync_enemy_resources,
+    sync_speed_effects,
 )
 from .gambits import BattleAction, GambitRule
 from .inventory import Economy, equipped_stats
@@ -274,6 +275,7 @@ def restore_state(raw: str | None, balance: GameBalance) -> GameState:
                 )
             if marker:
                 sync_enemy_resources(marker)
+                sync_speed_effects(marker)
                 save["battle"] = marker.model_dump()
     # answerSeconds/answerDeadline describe the current turn, not a cached stat.
     return GameState.model_validate(payload)

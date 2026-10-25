@@ -211,6 +211,26 @@ def modified_stat(
     return max(0, min(100000, base + change))
 
 
+def sync_speed_effects(marker) -> None:
+    """速さの状態効果を進行中のゲージと行動予測へ反映。再同期で累積しない."""
+    if not marker or not marker.schedule:
+        return
+    from .action_queue import predict, refresh_speeds  # noqa: PLC0415
+
+    schedule = marker.schedule
+    if not schedule.base_speeds:
+        schedule.base_speeds = dict(schedule.speeds)
+    refresh_speeds(
+        schedule,
+        {
+            actor: max(1, modified_stat(base, marker, actor, "speed"))
+            for actor, base in schedule.base_speeds.items()
+            if actor == "player" or actor in marker.enemies
+        },
+    )
+    schedule.queue = predict(schedule)
+
+
 def poison_damage(marker: "BattleMarker", maximum_hp: dict[str, int]) -> dict[str, int]:
     """ターン末の毒ダメージ。残HPへの適用時は1を残し、撃破には正解が必要."""
     result = {}

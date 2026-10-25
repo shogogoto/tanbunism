@@ -24,6 +24,7 @@ from .effects import (
     effect_amount,
     elemental_damage,
     sync_bubble,
+    sync_speed_effects,
 )
 from .gambit_slots import gambit_capacity
 from .gambits import choose_action
@@ -434,6 +435,7 @@ def finish_action(state: GameState) -> dict[str, int]:
             )
         state.save.battle = None
     sync_bubble(run, state.save.battle)
+    sync_speed_effects(state.save.battle)
     return outgoing
 
 
