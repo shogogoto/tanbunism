@@ -247,6 +247,26 @@ class SkillSound(StrEnum):
 
     AUTO = "auto"
     NONE = "none"
+    WILLO_CAST = "willo_cast"
+    WILLO_IMPACT = "willo_impact"
+    WILLO_FIRE_CAST = "willo_fire_cast"
+    WILLO_FIRE_IMPACT = "willo_fire_impact"
+    WILLO_ICE_CAST = "willo_ice_cast"
+    WILLO_ICE_SHATTER = "willo_ice_shatter"
+    WILLO_ZAP = "willo_zap"
+    WILLO_THUNDER = "willo_thunder"
+    WILLO_WATER_CAST = "willo_water_cast"
+    WILLO_WATER_IMPACT = "willo_water_impact"
+    WILLO_WIND = "willo_wind"
+    WILLO_POISON = "willo_poison"
+    WILLO_SHADOW = "willo_shadow"
+    WILLO_HEAL = "willo_heal"
+    WILLO_BUFF = "willo_buff"
+    WILLO_DEBUFF = "willo_debuff"
+    WILLO_MANA = "willo_mana"
+    WILLO_DISPEL = "willo_dispel"
+    WILLO_ARCANE_BLAST = "willo_arcane_blast"
+    WILLO_RUNE = "willo_rune"
     IMPACT = "impact"
     SLASH = "slash"
     FIRE = "fire"
@@ -326,6 +346,15 @@ class SkillBase(BaseModel):
     element: DefinitionId = "none"
     sound: SkillSound = SkillSound.AUTO
     animation: Literal[
+        "willo_ice_shatter",
+        "willo_zap",
+        "willo_fire_impact",
+        "willo_cast",
+        "willo_heal",
+        "willo_impact",
+        "oga_star_ice",
+        "oga_star_thunder",
+        "oga_star_fire",
         "none",
         "slash",
         "impact",

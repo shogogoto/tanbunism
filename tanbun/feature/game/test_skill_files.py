@@ -19,6 +19,41 @@ def document(skills):
     return {"format": "tanbunism.skills", "version": 1, "skills": skills}
 
 
+@pytest.mark.parametrize(
+    "animation",
+    [
+        "willo_ice_shatter",
+        "willo_zap",
+        "willo_fire_impact",
+        "willo_cast",
+        "willo_heal",
+        "willo_impact",
+        "oga_star_ice",
+        "oga_star_thunder",
+        "oga_star_fire",
+    ],
+)
+def test_new_spell_materials_survive_catalog_and_skill_file(animation):
+    """映像の新IDとそのSEを保存・JSON再読込で失わない."""
+    raw = {
+        "id": "spell",
+        "name": "魔法",
+        "effect": "attack",
+        "animation": animation,
+        "sound": "willo_zap",
+    }
+    catalog = GameCatalog.model_validate({"skills": [raw]})
+    restored = GameCatalog.model_validate(catalog.stored_document())
+    assert restored.skills[0].animation == animation
+    file = SkillFile.model_validate({
+        "format": "tanbunism.skills",
+        "version": 6,
+        "skills": [raw],
+    })
+    assert file.skills[0].animation == animation
+    assert file.skills[0].sound == "willo_zap"
+
+
 def test_sound_roundtrip_defaults_and_unknown_preset_validation():
     """旧定義は自動SE、指定した音はJSONにも残り、不明な音は拒否する."""
     definition = {"id": "fire", "name": "炎", "effect": "attack"}
