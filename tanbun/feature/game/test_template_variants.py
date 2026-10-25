@@ -44,6 +44,43 @@ def document():
     }
 
 
+def test_nested_variants_keep_each_override_and_combined_names_across_json():
+    """親→子→孫の差分を合成し、参照ID・編集項目を保存して再読込する."""
+    raw = document()
+    base, area, all_ = raw["skill_templates"]
+    area.update(variant_label="範囲", variant_axis="power")
+    all_.update(
+        base_template_id="area",
+        variant_label="中級",
+        override_fields=["multiplier"],
+    )
+    raw["skill_templates"] = [all_, area, base]
+    raw["skills"][0]["template_ids"] = ["all"]
+    catalog = GameCatalog.model_validate(raw)
+    leaf = catalog.skill_templates[0]
+    assert leaf.name == "初級魔法\uff08範囲, 中級\uff09"
+    assert (leaf.target_count, leaf.multiplier) == (3, 0.8)
+    assert catalog.skills[0].target_count == 3
+    stored = catalog.stored_document()
+    assert stored["skill_templates"][1]["variant_axis"] == "power"
+    restored = GameCatalog.model_validate(stored)
+    assert restored == catalog
+    stored["skill_templates"][1]["target_count"] = 5
+    stored["skill_templates"][2]["multiplier"] = 3
+    changed = GameCatalog.model_validate(stored)
+    assert (
+        changed.skill_templates[0].target_count,
+        changed.skill_templates[0].multiplier,
+    ) == (5, 0.8)
+    file = SkillFile.model_validate({
+        "format": "tanbunism.skills",
+        "version": 5,
+        **stored_without_catalog(stored),
+    })
+    merged = SkillFilePreview(catalog=catalog, document=file).merged_catalog()
+    assert merged.skill_templates[0].name == leaf.name
+
+
 def test_base_changes_propagate_except_explicit_overrides():
     """APIの展開済みの値が古くても、上書きしていない項目は親から再解決する."""
     catalog = GameCatalog.model_validate(document())
@@ -138,7 +175,7 @@ async def test_saved_families_are_resolved_on_read():
     ],
 )
 def test_invalid_variants_are_validation_errors(case):
-    """多段・循環・参照切れ・範囲外の上書きを500ではなく検証エラーにする."""
+    """深すぎる変型・循環・参照切れ・範囲外の上書きを検証エラーにする."""
     payload = document()
     base, area, all_ = payload["skill_templates"]
     if case == "missing":
@@ -146,7 +183,15 @@ def test_invalid_variants_are_validation_errors(case):
     elif case == "cycle":
         base["base_template_id"] = "area"
     elif case == "depth":
-        all_["base_template_id"] = "area"
+        payload["skill_templates"].extend(
+            {
+                "id": f"depth_{i}",
+                "name": "段",
+                "base_template_id": "spell" if i == 0 else f"depth_{i - 1}",
+                "override_fields": [],
+            }
+            for i in range(17)
+        )
     elif case == "self":
         area["base_template_id"] = "area"
     elif case == "duplicate":

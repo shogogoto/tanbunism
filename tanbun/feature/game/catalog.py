@@ -554,12 +554,18 @@ TemplateOverride = Literal[
 ]
 
 
+MAX_TEMPLATE_ROOT_NAME = 80
+MAX_VARIANT_DEPTH = 16
+VARIANT_OPEN = "\N{FULLWIDTH LEFT PARENTHESIS}"
+VARIANT_CLOSE = "\N{FULLWIDTH RIGHT PARENTHESIS}"
+
+
 class TemplateBase(BaseModel):
     """共通の効果設定の識別子と名前."""
 
     model_config = ConfigDict(extra="forbid")
     id: DefinitionId
-    name: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=1100)
     base_template_id: DefinitionId | None = None
     override_fields: list[TemplateOverride] = Field(default_factory=list, max_length=12)
     variant_axis: str | None = Field(default=None, max_length=40, pattern=r"^[a-z_]+$")
@@ -570,6 +576,9 @@ class TemplateBase(BaseModel):
         """独立定義には上書き指定を残さない。."""
         if self.override_fields and not self.base_template_id:
             msg = "上書き項目には共通設定の参照が必要です。"
+            raise ValueError(msg)
+        if not self.base_template_id and len(self.name) > MAX_TEMPLATE_ROOT_NAME:
+            msg = "共通設定の名前は80文字以下で指定してください。"
             raise ValueError(msg)
         return self
 
@@ -736,11 +745,35 @@ def read_effect_templates(raw_templates):
     return resolve_template_variants(raw_templates), legacy_costs
 
 
-def resolve_template_variants(raw):
-    """一段の参照だけを許し、親の実効値と明示的な上書きを合成する。."""
-    adapter = TypeAdapter(list[SkillTemplate])
+def _variant_override_fields(template, allowed):
+    """各段で、保存された差分のキーと値の存在を検査する."""
+    fields = TypeAdapter(list[TemplateOverride]).validate_python(
+        template.get("override_fields", []),
+    )
+    if len(set(fields)) != len(fields) or any(key not in template for key in fields):
+        msg = "上書き項目が重複しているか、共通設定に適用できません。"
+        raise ValueError(msg)
+    if set(template) - allowed:
+        msg = "バリエーションに未定義の項目があります。"
+        raise ValueError(msg)
+    return fields
+
+
+def _variant_label(template, base_name):
+    """旧形式の表示名も、既存値を変更せず副名として扱う."""
+    name = template.get("name", "")
+    prefix = base_name + VARIANT_OPEN
+    return template.get("variant_label") or (
+        name[len(prefix) : -1]
+        if name.startswith(prefix) and name.endswith(VARIANT_CLOSE)
+        else name
+    )
+
+
+def _template_entries(raw):
+    """参照を辿る前にIDの型と一意性を検証する."""
     if not isinstance(raw, list) or any(not isinstance(t, dict) for t in raw):
-        return adapter.validate_python(raw)
+        return None
     if any(
         not isinstance(t.get("id"), str)
         or not isinstance(t.get("base_template_id", ""), (str, type(None)))
@@ -751,37 +784,61 @@ def resolve_template_variants(raw):
     if len({t.get("id") for t in raw}) != len(raw):
         msg = "効果テンプレートのIDが重複しています。"
         raise ValueError(msg)
-    roots = {
-        t.id: t
-        for t in adapter.validate_python([
-            t for t in raw if not t.get("base_template_id")
-        ])
-    }
-    resolved = []
-    for template in raw:
+    return {t["id"]: t for t in raw}
+
+
+def resolve_template_variants(raw):
+    """親を先に解決し、循環を拒否して最大16段までの差分を合成する."""
+    adapter = TypeAdapter(list[SkillTemplate])
+    entries = _template_entries(raw)
+    if entries is None:
+        return adapter.validate_python(raw)
+    resolved = {}
+    paths = {}
+    visiting = set()
+    allowed = set().union(
+        *(set(model.model_fields) for model in TEMPLATE_MODELS.values()),
+    )
+
+    def resolve(identity):
+        if identity in resolved:
+            return resolved[identity]
+        if identity in visiting:
+            msg = "変型の参照が循環しています。"
+            raise ValueError(msg)
+        if identity not in entries:
+            msg = "共通設定が見つかりません。"
+            raise ValueError(msg)
+        visiting.add(identity)
+        if len(visiting) > MAX_VARIANT_DEPTH + 1:
+            msg = "変型は最大16段までです。"
+            raise ValueError(msg)
+        template = entries[identity]
         base_id = template.get("base_template_id")
         if not base_id:
-            resolved.append(template)
-            continue
-        if base_id not in roots:
-            msg = "共通設定が見つからないか、継承が二段以上になっています。"
-            raise ValueError(msg)
-        base = roots[base_id].model_dump()
-        fields = TypeAdapter(list[TemplateOverride]).validate_python(
-            template.get("override_fields", []),
-        )
-        if len(set(fields)) != len(fields) or any(
-            key not in template for key in fields
-        ):
-            msg = "上書き項目が重複しているか、共通設定に適用できません。"
-            raise ValueError(msg)
-        if set(template) - set().union(
-            *(set(model.model_fields) for model in TEMPLATE_MODELS.values()),
-        ):
-            msg = "バリエーションに未定義の項目があります。"
-            raise ValueError(msg)
-        resolved.append(variant_values(base, template, fields))
-    return adapter.validate_python(resolved)
+            result = adapter.validate_python([template])[0]
+            paths[identity] = (result.name, [])
+        else:
+            base = resolve(base_id).model_dump()
+            fields = _variant_override_fields(template, allowed)
+            label = _variant_label(template, base["name"])
+            root_name, labels = paths[base_id]
+            labels = [*labels, label]
+            if len(labels) > MAX_VARIANT_DEPTH:
+                msg = "変型は最大16段までです。"
+                raise ValueError(msg)
+            values = variant_values(base, template, fields)
+            if template.get("variant_label"):
+                values["name"] = (
+                    root_name + VARIANT_OPEN + ", ".join(labels) + VARIANT_CLOSE
+                )
+            result = adapter.validate_python([values])[0]
+            paths[identity] = (root_name, labels)
+        resolved[identity] = result
+        visiting.remove(identity)
+        return result
+
+    return [resolve(template["id"]) for template in raw]
 
 
 def template_effect(template) -> dict:
@@ -1237,6 +1294,7 @@ class GameCatalog(BaseModel):
                     "base_template_id",
                     "override_fields",
                     "variant_label",
+                    "variant_axis",
                     *template["override_fields"],
                 }
             }
