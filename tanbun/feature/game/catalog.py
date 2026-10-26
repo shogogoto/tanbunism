@@ -1259,16 +1259,20 @@ class TriggerCondition(BaseModel):
         "mp_above",
         "enemy_count",
         "state",
-        "buff_present",
-        "buff_absent",
-        "poisoned",
     ] = "always"
     threshold: int = Field(default=30, ge=1, le=100)
-    state_kind: Literal["buff", "debuff", "poison", "curse", "regen", "refresh"] = (
-        "buff"
-    )
     state_present: bool = True
     state_skill_id: DefinitionId | None = None
+
+
+def supported_trigger(value) -> bool:
+    """保存境界では、現在の条件として実行できる定義だけを読み込む。."""
+    return (
+        isinstance(value, dict)
+        and value.get("condition", "always")
+        in TriggerCondition.model_fields["condition"].annotation.__args__
+        and (value.get("condition") != "state" or bool(value.get("state_skill_id")))
+    )
 
 
 TriggerTarget = Literal["enemy", "self", "ally"]
@@ -1303,6 +1307,9 @@ class TriggerDefinition(TriggerCondition):
     @model_validator(mode="after")
     def valid_variants(self):
         """未選択の候補も通常の条件と同じ型・範囲で検査する。."""
+        if self.condition == "state" and not self.state_skill_id:
+            msg = "状態判定には状態系スキルを選んでください。"
+            raise ValueError(msg)
         if len({v.id for v in self.variants}) != len(self.variants):
             msg = "トリガーの変型IDが重複しています。"
             raise ValueError(msg)
@@ -1314,6 +1321,9 @@ class TriggerDefinition(TriggerCondition):
                 msg = "トリガーの変型の値が不正です。"
                 raise ValueError(msg)
             TriggerCondition.model_validate({**self.model_dump(), field: value})
+            if not supported_trigger(self.variant(variant.id).model_dump()):
+                msg_0 = "状態判定には状態系スキルを選んでください。"
+                raise ValueError(msg_0)
             if field == "target" and value not in {"enemy", "self", "ally"}:
                 msg = "トリガーの対象が不正です。"
                 raise ValueError(msg)
@@ -1326,21 +1336,7 @@ class TriggerDefinition(TriggerCondition):
         candidate = next((v for v in self.variants if v.id == variant_id), None)
         if not candidate:
             return None
-        patch = {}
-        if self.variant_field in {
-            "state_skill_id",
-            "state_present",
-        } and self.condition in {
-            "buff_present",
-            "buff_absent",
-            "poisoned",
-        }:
-            patch = {
-                "condition": "state",
-                "state_kind": "poison" if self.condition == "poisoned" else "buff",
-                "state_present": self.condition != "buff_absent",
-            }
-        return self.model_copy(update={**patch, self.variant_field: candidate.value})
+        return self.model_copy(update={self.variant_field: candidate.value})
 
 
 class EnemyGambitRule(BaseModel):
@@ -1361,9 +1357,6 @@ def default_triggers() -> list[TriggerDefinition]:
             ("hp_below", "HPがn%以下"),
             ("mp_below", "MPがn%以下"),
             ("enemy_count", "敵がn体以上"),
-            ("buff_present", "buffあり"),
-            ("buff_absent", "buffなし"),
-            ("poisoned", "毒状態"),
         )
     ]
 
@@ -1861,7 +1854,23 @@ async def get_game_catalog() -> GameCatalog:
     rows, _ = await adb.cypher_query(
         "MATCH (s:AdminSettings {key:'game_catalog'}) RETURN s.config LIMIT 1",
     )
-    catalog = GameCatalog.model_validate_json(rows[0][0]) if rows else default_catalog()
+    if rows:
+        document = json.loads(rows[0][0])
+        triggers = document.get("triggers", [])
+        rejected = {row["id"] for row in triggers if not supported_trigger(row)}
+        if rejected:
+            document["triggers"] = [
+                row for row in triggers if row["id"] not in rejected
+            ]
+            for enemy in document.get("enemies", []):
+                enemy["gambits"] = [
+                    row
+                    for row in enemy.get("gambits", [])
+                    if row.get("trigger_id") not in rejected
+                ]
+        catalog = GameCatalog.model_validate(document)
+    else:
+        catalog = default_catalog()
     if not any(s.id == "normal_attack" for s in catalog.skills):
         catalog.skills.append(default_normal_attack())
     return catalog

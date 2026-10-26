@@ -78,7 +78,7 @@ def test_enemy_mp_uses_enemy_resource_and_excludes_zero_maximum():
 
 def test_status_condition_and_application_use_same_enemy():
     """状態の判定対象にだけ、新しい状態を付与する。."""
-    state, _, catalog = targeted(condition="state", state_kind="poison")
+    state, _, catalog = targeted(condition="state", state_skill_id="poison")
     poison = AilmentSkill(id="poison", name="毒", effect="ailment", ailment="poison")
     catalog.skills.append(poison)
     catalog.player_skills.append(PlayerSkillUse(skill_id="poison"))
@@ -149,12 +149,16 @@ def test_target_variant_overrides_condition_and_action_together():
     assert action.skill.target == "enemy"
 
 
-def test_legacy_state_presence_variant_checks_absence_on_selected_enemy():
-    """旧毒条件も「なし」の変型では対象の状態不在を調べる。."""
+def test_state_presence_variant_checks_absence_of_selected_skill():
+    """状態スキルを指定し、「なし」の変型で対象の状態不在を調べる。."""
     state, _, catalog = targeted(
-        condition="poisoned",
+        condition="state",
+        state_skill_id="poison",
         variant_field="state_present",
         variants=[{"id": "absent", "name": "なし", "value": False}],
+    )
+    catalog.skills.append(
+        AilmentSkill(id="poison", name="毒", effect="ailment", ailment="poison"),
     )
     assert choose_action(state.save, catalog) is None
     state.save.gambits[0].trigger_variant_id = "absent"

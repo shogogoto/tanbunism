@@ -16,6 +16,7 @@ from tanbun.feature.domain.types import UUIDy, to_uuid
 from .access import SLOT_SECONDS, get_adventure_access
 from .action_queue import ActionSchedule
 from .balance import Allocation, GameBalance, get_game_balance
+from .catalog import supported_trigger
 from .effects import (
     BattleEffect,
     bubble_factor,
@@ -248,6 +249,8 @@ def restore_state(raw: str | None, balance: GameBalance) -> GameState:
     """能力値は保存値を無視して復元。旧snapshotも同じ式で読み出す."""
     payload = json.loads(raw) if raw else {}
     save = payload.get("save", {})
+    if "gambits" in save:
+        save["gambits"] = [row for row in save["gambits"] if supported_trigger(row)]
     stats = equipped_stats(
         Allocation.model_validate(save.get("allocation", {})),
         balance,

@@ -135,7 +135,7 @@ def test_state_trigger_uses_active_player_effects(kind, present):
             id="status",
             name="状態",
             condition="state",
-            state_kind=kind,
+            state_skill_id="effect",
             state_present=present,
         ),
     ]
@@ -156,6 +156,7 @@ def test_state_trigger_uses_active_player_effects(kind, present):
         starts_turn=0,
         expires_turn=2,
     )
+    catalog.skills.append(parse_skill(skill))
     assert (choose_action(state.save, catalog) is not None) == (not present)
     state.save.battle.effects = [effect]
     assert (choose_action(state.save, catalog) is not None) == present

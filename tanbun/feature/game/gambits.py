@@ -47,10 +47,10 @@ class BattleAction(BaseModel):
     target_ids: list[str] | None = None
 
 
-def state_effect_ids(rule: GambitRule, skills: dict) -> set[str] | None:
-    """未指定は旧条件、空集合は利用不可。複数効果は共有状態IDへ展開する。."""
+def state_effect_ids(rule: GambitRule, skills: dict) -> set[str]:
+    """指定スキルの複数効果を共有状態IDへ展開する。."""
     if rule.condition != "state" or not rule.state_skill_id:
-        return None
+        return set()
     skill = skills.get(rule.state_skill_id)
     if not skill or not skill.enabled:
         return set()
@@ -62,24 +62,15 @@ def state_effect_ids(rule: GambitRule, skills: dict) -> set[str] | None:
 
 
 def state_matches(rule: GambitRule, marker, skills: dict, target="player") -> bool:
-    """スキルの状態IDで照合し、旧条件のみ種類判定を維持する。."""
+    """指定されたスキルの有効な状態IDだけを照合する。."""
     ids = state_effect_ids(rule, skills)
-    if ids == set():
+    if not ids:
         return False
     return (
         any(
             e.target_id == target
             and effect_active(e, marker.turn)
-            and (
-                e.skill.id in ids
-                if ids is not None
-                else (
-                    e.skill.effect == rule.state_kind
-                    if rule.state_kind in {"buff", "debuff"}
-                    else e.skill.effect == "ailment"
-                    and e.skill.ailment == rule.state_kind
-                )
-            )
+            and e.skill.id in ids
             for e in marker.effects
         )
         == rule.state_present
@@ -104,18 +95,7 @@ def condition_matches(rule, save, skills, target="player", actor="player") -> bo
         )
     if condition == "state":
         return state_matches(rule, marker, skills, target)
-    active = [
-        e
-        for e in marker.effects
-        if e.target_id == target and effect_active(e, marker.turn)
-    ]
-    if condition in {"buff_present", "buff_absent"}:
-        return any(e.skill.effect == "buff" for e in active) == (
-            condition == "buff_present"
-        )
-    return condition == "poisoned" and any(
-        e.skill.effect == "ailment" and e.skill.ailment == "poison" for e in active
-    )
+    return False
 
 
 def target_resource(save, target, resource):
@@ -418,7 +398,6 @@ def effective_rule(rule: GambitRule, catalog: GameCatalog) -> GambitRule | None:
         rule.model_copy(
             update={
                 "condition": trigger.condition,
-                "state_kind": trigger.state_kind,
                 "state_present": trigger.state_present,
                 "state_skill_id": trigger.state_skill_id,
                 **({"target": trigger.target} if trigger.target else {}),
@@ -438,8 +417,9 @@ def validate_rules(rules: list[GambitRule], catalog: GameCatalog) -> None:
     """装備や歩数回復を戦闘行動に指定できないよう検査する。."""
     skills, items = {s.id: s for s in catalog.skills}, {i.id: i for i in catalog.items}
     for rule in rules:
-        if rule.condition == "state" and rule.state_skill_id:
-            state_skill = skills.get(rule.state_skill_id)
+        effective = effective_rule(rule, catalog)
+        if effective and effective.condition == "state":
+            state_skill = skills.get(effective.state_skill_id)
             if not state_skill or not any(
                 effect.effect in {"buff", "debuff", "ailment"}
                 for effect in (state_skill.effects or [state_skill])
