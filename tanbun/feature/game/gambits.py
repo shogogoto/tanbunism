@@ -17,6 +17,7 @@ from .catalog import (
 )
 from .effect_chance import effect_activates
 from .effects import add_effect, apply_resource_effect, effect_active, effect_unexpired
+from .gambit_access import rule_available
 from .inventory import consume_use
 from .skill_outcomes import answer_effect, skill_effects, skill_targets
 
@@ -157,7 +158,7 @@ def choose_action(
     skills, items = {s.id: s for s in catalog.skills}, {i.id: i for i in catalog.items}
     for stored_rule in save.gambits[:slots]:
         rule = effective_rule(stored_rule, catalog)
-        if rule is None:
+        if rule is None or not rule_available(catalog, save.economy, stored_rule):
             continue
         matches, targets = rule_targets(rule, save, catalog, skills)
         if not rule.enabled or not matches:

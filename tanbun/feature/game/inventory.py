@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 from .balance import Allocation, GameBalance
 
@@ -62,6 +62,7 @@ class Economy(BaseModel):
     quiz_reward_day: str | None = None
     opened_chests: dict[str, dict[str, ChestReward]] = Field(default_factory=dict)
     dungeon_keys: dict[str, DungeonKey] = Field(default_factory=dict)
+    unlocked_triggers: list[str] = Field(default_factory=list, max_length=1000)
 
     @computed_field
     @property
@@ -81,7 +82,8 @@ class Product(BaseModel, frozen=True):
     id: ProductId
     name: str
     price: int | None
-    kind: Literal["weapon", "hp", "mp", "moves", "skill", "dungeon_unlock"]
+    kind: Literal["weapon", "hp", "mp", "moves", "skill", "dungeon_unlock", "gambit"]
+    trigger_id: str | None = None
     resource_id: str | None = None
     amount: int
     amount_mode: Literal["fixed", "percent"] = "fixed"
@@ -92,6 +94,14 @@ class Product(BaseModel, frozen=True):
     max_uses: int = Field(default=1, ge=1, le=10000)
     equipment_buffs: list[EquipmentBuff] = Field(default_factory=list, max_length=20)
     element_names: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def gambit_reference(self):
+        """ガンビット商品の購入先を空のまま登録しない。."""
+        if self.kind == "gambit" and not self.trigger_id:
+            msg = "ガンビット商品にはトリガーを指定してください。"
+            raise ValueError(msg)
+        return self
 
 
 CATALOG = {

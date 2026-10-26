@@ -1179,9 +1179,29 @@ class ItemDefinition(BaseModel):
 class ShopListing(BaseModel):
     """販売条件はアイテムの効果・見た目と分離する."""
 
+    model_config = ConfigDict(extra="forbid")
     item_id: DefinitionId
     price: int = Field(ge=0, le=1000000)
     enabled: bool = True
+
+    @property
+    def product_id(self):
+        """通常アイテムの販売対象を区別する。."""
+        return self.item_id
+
+
+class GambitShopListing(BaseModel):
+    """ガンビット商品はアイテム効果ではなくトリガーを参照する。."""
+
+    model_config = ConfigDict(extra="forbid")
+    trigger_id: DefinitionId
+    price: int = Field(ge=0, le=1000000)
+    enabled: bool = True
+
+    @property
+    def product_id(self):
+        """通常アイテムと同じIDでも販売・解放を混同しない。."""
+        return f"gambit:{self.trigger_id}"
 
 
 class EnemyMultipliers(BaseModel):
@@ -1412,7 +1432,10 @@ class GameCatalog(BaseModel):
         max_length=200,
     )
     items: list[ItemDefinition] = Field(default_factory=list, max_length=200)
-    shop: list[ShopListing] = Field(default_factory=list, max_length=200)
+    shop: list[ShopListing | GambitShopListing] = Field(
+        default_factory=list,
+        max_length=300,
+    )
     enemies: list[EnemyDefinition] = Field(default_factory=list, max_length=100)
     player_skills: list[PlayerSkillUse] = Field(default_factory=list, max_length=200)
     specialty_skills: list[SpecialtySkillUse] = Field(
@@ -1556,12 +1579,21 @@ class GameCatalog(BaseModel):
     def valid_shop(self):
         """ショップには存在するアイテムを一度ずつ登録する."""
         item_ids = {i.id for i in self.items}
-        if len({p.item_id for p in self.shop}) != len(self.shop):
+        if len({p.product_id for p in self.shop}) != len(self.shop):
             msg = "ショップのアイテムが重複しています。"
             raise ValueError(msg)
-        if any(p.item_id not in item_ids for p in self.shop):
+        if any(
+            isinstance(p, ShopListing) and p.item_id not in item_ids for p in self.shop
+        ):
             msg = "ショップのアイテムが見つかりません。"
             raise ValueError(msg)
+        trigger_ids = {t.id for t in self.triggers}
+        if any(
+            isinstance(p, GambitShopListing) and p.trigger_id not in trigger_ids
+            for p in self.shop
+        ):
+            msg_0 = "ショップのガンビットが見つかりません。"
+            raise ValueError(msg_0)
         return self
 
     @model_validator(mode="after")
@@ -1868,6 +1900,11 @@ async def get_game_catalog() -> GameCatalog:
                     for row in enemy.get("gambits", [])
                     if row.get("trigger_id") not in rejected
                 ]
+            document["shop"] = [
+                row
+                for row in document.get("shop", [])
+                if row.get("trigger_id") not in rejected
+            ]
         catalog = GameCatalog.model_validate(document)
     else:
         catalog = default_catalog()

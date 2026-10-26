@@ -42,6 +42,7 @@ from .end_actions import (
     answer_end_action,
     start_end_action,
 )
+from .gambit_access import rule_available
 from .gambit_slots import GambitCapacity, gambit_capacity
 from .gambits import GambitRule, validate_rules
 from .knowledge import KnowledgeValidation, valid_knowledge
@@ -139,7 +140,11 @@ async def save_gambits(user: ActiveUser, body: GambitUpdate) -> GameState:
         or (state.save.run and state.save.run.phase == "battle")
     ):
         raise HTTPException(409, "戦闘を終えてから最新の状態で設定してください。")
-    await validate_gambit_update(body.rules)
+    catalog = await validate_gambit_update(body.rules)
+    if any(
+        not rule_available(catalog, state.save.economy, rule) for rule in body.rules
+    ):
+        raise HTTPException(422, "購入済みのガンビットを選んでください。")
     if len(body.rules) > (await gambit_capacity(user.uid)).slots:
         raise HTTPException(422, "ガンビットの開放済み枠数を超えています。")
     updated = state.model_copy(deep=True)
@@ -149,9 +154,11 @@ async def save_gambits(user: ActiveUser, body: GambitUpdate) -> GameState:
     return updated
 
 
-async def validate_gambit_update(rules: list[GambitRule]) -> None:
+async def validate_gambit_update(rules: list[GambitRule]) -> GameCatalog:
     """カタログの実在する戦闘行動だけを保存する。."""
-    validate_rules(rules, await get_game_catalog())
+    catalog = await get_game_catalog()
+    validate_rules(rules, catalog)
+    return catalog
 
 
 @router.post("/chests/open")
