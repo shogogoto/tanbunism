@@ -10,6 +10,7 @@ from pydantic import (
     BeforeValidator,
     ConfigDict,
     Field,
+    PrivateAttr,
     StringConstraints,
     TypeAdapter,
     ValidationError,
@@ -17,6 +18,7 @@ from pydantic import (
     model_validator,
 )
 
+from .effect_chance import FULL_CHANCE
 from .template_variant_sets import (
     VariantField,
     VariantSelection,
@@ -346,8 +348,47 @@ class SkillBase(BaseModel):
     mp_cost: int = Field(default=0, ge=0, le=10000)
     template_id: DefinitionId | None = None
     template_ids: list[DefinitionId] = Field(default_factory=list, max_length=20)
+    effect_chances: dict[
+        DefinitionId,
+        Annotated[int, Field(strict=True, ge=0, le=100)],
+    ] = Field(default_factory=dict)
+    _activation_chance: int = PrivateAttr(default=100)
+    _chance_key: str = PrivateAttr(default="")
     effects: list["EffectDefinition"] = Field(default_factory=list, max_length=20)
     element: DefinitionId = "none"
+
+    @model_validator(mode="after")
+    def valid_effect_chances(self):
+        """確率はスキルが参照する効果だけに指定できる。."""
+        references = set(
+            self.template_ids or ([self.template_id] if self.template_id else []),
+        )
+        if self.effect_chances.keys() - references:
+            msg = "発動率には参照中の効果テンプレートを指定してください。"
+            raise ValueError(msg)
+        if self.id == "normal_attack" and any(
+            value != FULL_CHANCE for value in self.effect_chances.values()
+        ):
+            msg = "戦うの発動率は100%にしてください。"
+            raise ValueError(msg)
+        return self
+
+    @property
+    def activation_chance(self):
+        """解決済みの一効果だけが持つ発動率。."""
+        return self._activation_chance
+
+    @property
+    def chance_key(self):
+        """異なるスキルからの同一効果も別の抽選として区別する。."""
+        return self._chance_key or self.id
+
+    def with_activation(self, chance: int, key: str):
+        """保存定義を変えず、解決済み効果へ発動率を渡す。."""
+        selected = self.model_copy(deep=True)
+        selected._activation_chance, selected._chance_key = chance, key  # noqa: SLF001 - same class snapshot
+        return selected
+
     sound: SkillSound = SkillSound.AUTO
     animation: Literal[
         "willo_ice_shatter",
@@ -1229,12 +1270,76 @@ class TriggerCondition(BaseModel):
     state_skill_id: DefinitionId | None = None
 
 
+TriggerTarget = Literal["enemy", "self", "ally"]
+TriggerVariantField = Literal[
+    "target",
+    "condition",
+    "threshold",
+    "state_skill_id",
+    "state_present",
+]
+
+
+class TriggerVariant(BaseModel):
+    """一つの条件項目を置き換える、副名付きの候補。."""
+
+    id: DefinitionId
+    name: str = Field(min_length=1, max_length=60)
+    value: str | int | bool
+
+
 class TriggerDefinition(TriggerCondition):
     """管理者が公開する条件テンプレート。任意コードは実行しない."""
 
     id: DefinitionId
     name: str = Field(min_length=1, max_length=80)
     enabled: bool = True
+    # None preserves old definitions whose condition and action targets differed.
+    target: TriggerTarget | None = None
+    variant_field: TriggerVariantField = "threshold"
+    variants: list[TriggerVariant] = Field(default_factory=list, max_length=40)
+
+    @model_validator(mode="after")
+    def valid_variants(self):
+        """未選択の候補も通常の条件と同じ型・範囲で検査する。."""
+        if len({v.id for v in self.variants}) != len(self.variants):
+            msg = "トリガーの変型IDが重複しています。"
+            raise ValueError(msg)
+        for variant in self.variants:
+            value = variant.value
+            field = self.variant_field
+            expected = {"threshold": int, "state_present": bool}.get(field, str)
+            if type(value) is not expected:
+                msg = "トリガーの変型の値が不正です。"
+                raise ValueError(msg)
+            TriggerCondition.model_validate({**self.model_dump(), field: value})
+            if field == "target" and value not in {"enemy", "self", "ally"}:
+                msg = "トリガーの対象が不正です。"
+                raise ValueError(msg)
+        return self
+
+    def variant(self, variant_id: str | None):
+        """候補を解決し、削除された参照は使用不能として扱う。."""
+        if variant_id is None:
+            return self
+        candidate = next((v for v in self.variants if v.id == variant_id), None)
+        if not candidate:
+            return None
+        patch = {}
+        if self.variant_field in {
+            "state_skill_id",
+            "state_present",
+        } and self.condition in {
+            "buff_present",
+            "buff_absent",
+            "poisoned",
+        }:
+            patch = {
+                "condition": "state",
+                "state_kind": "poison" if self.condition == "poisoned" else "buff",
+                "state_present": self.condition != "buff_absent",
+            }
+        return self.model_copy(update={**patch, self.variant_field: candidate.value})
 
 
 def default_triggers() -> list[TriggerDefinition]:
@@ -1538,7 +1643,11 @@ class GameCatalog(BaseModel):
 
     def validate_trigger_skills(self, skills: dict) -> None:
         """状態の条件に指定したスキルが、継続状態を付与することを確認する。."""
-        for trigger in self.triggers:
+        for trigger in (
+            resolved
+            for root in self.triggers
+            for resolved in [root, *(root.variant(v.id) for v in root.variants)]
+        ):
             if trigger.condition == "state" and trigger.state_skill_id:
                 skill = skills.get(trigger.state_skill_id)
                 if not skill or not any(

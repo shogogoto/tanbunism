@@ -24,6 +24,7 @@ from .combat import (
     wear_defensive_equipment,
 )
 from .economy import GOLD_PER_LEVEL
+from .effect_chance import effect_activates
 from .effects import (
     add_effect,
     apply_resource_effect,
@@ -127,6 +128,7 @@ async def start_end_action(user_id, body: EndActionRequest) -> dict:
         counter_damage=prepare_counter_damage(
             updated,
             context,
+            selected.target_ids,
         )
         if quizzes and has_counter(skill)
         else 0,
@@ -183,12 +185,14 @@ async def select_end_candidate(user_id, save):
     return None, None, []
 
 
-def prepare_counter_damage(state, context) -> int:
+def prepare_counter_damage(state, context, target_ids=None) -> int:
     """反撃用の一体分の通常攻撃を、出題時にサーバーで固定する。."""
     from .damage import enemy_damage  # noqa: PLC0415
     from .scheduled_combat import incoming_attack  # noqa: PLC0415
 
-    enemy = next(e for e in context.enemies if e.id == state.save.battle.enemies[0])
+    marker = state.save.battle
+    targets = target_ids or marker.enemies
+    enemy = next((e for e in context.enemies if e.id in targets), context.enemies[0])
     return incoming_attack(
         state,
         context,
@@ -217,6 +221,7 @@ def begin_action(
         "id": uuid4().hex,
         "name": selected.name,
         "skill": skill.model_dump(),
+        "target_ids": selected.target_ids,
         "quiz_ids": quizzes,
         "index": 0,
         "correct": 0,
@@ -346,7 +351,14 @@ def apply_end_effect(state, action, skill, factor, applies):
     """消費せずに一効果を適用する。撃破済み対象は次の効果から外れる."""
     marker, run = state.save.battle, state.save.run
     targets = (
-        ["player"] if skill.target == "self" else skill_targets(skill, marker.enemies)
+        ["player"]
+        if skill.target == "self"
+        else skill_targets(skill, marker.enemies, action.get("target_ids"))
+    )
+    targets = (
+        [target for target in targets if effect_activates(skill, marker, target)]
+        if applies
+        else targets
     )
     outgoing = {}
     if skill.effect in {"heal_hp", "heal_mp", "damage_mp"}:
@@ -354,8 +366,33 @@ def apply_end_effect(state, action, skill, factor, applies):
             state.save,
             skill.model_copy(update={"amount": floor(skill.amount * factor)}),
             affinities=action,
+            target_ids=action.get("target_ids"),
         )
-    elif skill.effect == "attack":
+    elif skill.effect == "attack" and skill.target == "self" and targets:
+        damage = elemental_damage(
+            floor(
+                (
+                    effect_amount(skill, run.maxHp)
+                    + getattr(run, attack_stat(skill)) * skill.multiplier
+                )
+                * factor,
+            ),
+            skill,
+            marker,
+            "player",
+            "player",
+            economy=state.save.economy,
+            enabled_elements=action.get("enabled_elements"),
+        )
+        run.hp = max(0, run.hp - damage)
+        if action.get("equipment_stats"):
+            wear_defensive_equipment(
+                state.save,
+                damage,
+                action["equipment_stats"],
+                action.get("base_stats"),
+            )
+    elif skill.effect == "attack" and skill.target != "self":
         outgoing = {
             e: min(
                 action["enemy_hp"][e],
@@ -417,7 +454,7 @@ def finish_action(state: GameState) -> dict[str, int]:
         for identity, amount in dealt.items():
             outgoing[identity] = outgoing.get(identity, 0) + amount
         targets.extend(identity for identity in affected if identity not in targets)
-        applies = applies or applied
+        applies = applies or (applied and bool(affected))
     skill = original
     total = len(action["quiz_ids"])
     state.save.battleFeedback = (
@@ -457,6 +494,8 @@ def finish_action(state: GameState) -> dict[str, int]:
                 state.save.clears.get(run.resourceId, 0) + 1
             )
         state.save.battle = None
+    if run.hp == 0:
+        finish_defeat(state)
     sync_bubble(run, state.save.battle)
     sync_speed_effects(state.save.battle)
     return outgoing
@@ -486,8 +525,14 @@ def apply_end_counter(state, action, skill):
         state.save.battleFeedback += " · 防具が壊れた"
     state.save.endActionReceipt["damage"] = damage
     if run.hp == 0:
-        run.phase = "defeated"
-        dungeon = state.save.maps.get(run.resourceId)
-        if dungeon:
-            dungeon.current = "@entrance"
-        state.save.battle = None
+        finish_defeat(state)
+
+
+def finish_defeat(state):
+    """自傷でも反撃でも戦闘不能になったら入口へ戻す。."""
+    run = state.save.run
+    run.phase = "defeated"
+    dungeon = state.save.maps.get(run.resourceId)
+    if dungeon:
+        dungeon.current = "@entrance"
+    state.save.battle = None

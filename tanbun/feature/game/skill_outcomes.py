@@ -14,12 +14,17 @@ from .catalog import (
 def skill_effects(skill: SkillDefinition) -> list[SkillDefinition]:
     """固定済みの効果を設定順に展開する。消費は親スキルだけが持つ."""
     if not skill.effects:
-        return [skill]
+        return [
+            skill.with_activation(
+                skill.effect_chances.get(skill.template_id, 100),
+                skill.id,
+            ),
+        ]
     identity = {
         key: getattr(skill, key)
         for key in ("id", "name", "icon", "enabled", "animation", "sound", "element")
     }
-    return [
+    components = [
         parse_skill({
             **identity,
             **effect.model_dump(),
@@ -30,6 +35,13 @@ def skill_effects(skill: SkillDefinition) -> list[SkillDefinition]:
             + blake2b(f"{skill.id}:{index}".encode(), digest_size=12).hexdigest(),
         })
         for index, effect in enumerate(skill.effects)
+    ]
+    return [
+        component.with_activation(
+            skill.effect_chances.get(component.id, 100),
+            f"{skill.id}:{component.id}",
+        )
+        for component in components
     ]
 
 
@@ -96,8 +108,14 @@ def enemy_attack_value(enemy, skill) -> int:
     )
 
 
-def skill_targets(skill, enemies: list[str]) -> list[str]:
+def skill_targets(
+    skill,
+    enemies: list[str],
+    target_ids: list[str] | None = None,
+) -> list[str]:
     """単体から五体までを生存順に選び、全体指定は人数制限しない。."""
+    if target_ids is not None:
+        enemies = [identity for identity in target_ids if identity in enemies]
     return (
         list(enemies)
         if skill.target == "all_enemies" or getattr(skill, "target_count", 1) == "all"

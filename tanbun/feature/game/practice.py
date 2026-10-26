@@ -34,7 +34,7 @@ from .end_actions import (
     prepare_counter_damage,
 )
 from .gambit_slots import gambit_capacity
-from .gambits import choose_action
+from .gambits import choose_action, retarget_skill
 from .inventory import Economy, equipped_stats
 from .roster import assign_enemy_quizzes, enemy_identity
 from .skill_outcomes import has_counter
@@ -641,6 +641,8 @@ def practice_action(body: PracticeAction) -> dict:
         )
         if selected:
             skill = session.specialty_skills.get(selected.specialty_id, selected.skill)
+            if selected.target_ids is not None:
+                skill = retarget_skill(skill, selected.skill.target)
             ids = []
             if selected.specialty_id and selected.specialty_use.quiz_required:
                 specialty = next(
@@ -659,7 +661,11 @@ def practice_action(body: PracticeAction) -> dict:
                 skill,
                 ids,
                 marker.schedule.enemy_hp if marker.schedule else request.enemy_hp,
-                counter_damage=prepare_counter_damage(state, session.context)
+                counter_damage=prepare_counter_damage(
+                    state,
+                    session.context,
+                    selected.target_ids,
+                )
                 if ids and has_counter(skill)
                 else 0,
                 context=session.context,

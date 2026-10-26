@@ -122,17 +122,19 @@ def apply_resource_effect(
     *,
     context=None,
     affinities=None,
+    target_ids: list[str] | None = None,
 ) -> None:
     """HP・MPの増減を、ガンビットが選んだ陣営へ上限内で適用する."""
     if skill.effect not in {"heal_hp", "heal_mp", "damage_mp"}:
         return
+    from .effect_chance import effect_activates  # noqa: PLC0415
     from .skill_outcomes import skill_targets  # noqa: PLC0415 - avoid catalog cycle
 
     marker, run = save.battle, save.run
     targets = (
         [actor]
         if skill.target == "self"
-        else skill_targets(skill, marker.enemies)
+        else skill_targets(skill, marker.enemies, target_ids)
         if actor == "player"
         else ["player"]
     )
@@ -177,6 +179,8 @@ def apply_resource_effect(
         )
 
     for target in targets:
+        if not effect_activates(skill, marker, target, actor):
+            continue
         if target == "player":
             key, maximum = ("hp", run.maxHp) if hp else ("mp", run.maxMp)
             setattr(

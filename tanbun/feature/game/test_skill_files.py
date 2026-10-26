@@ -130,6 +130,7 @@ def test_v2_serializes_only_fields_belonging_to_its_effect(effect, specific):
         "amount",
         "template_id",
         "template_ids",
+        "effect_chances",
         "effects",
         "element",
         "target_count",

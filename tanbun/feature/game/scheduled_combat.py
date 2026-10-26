@@ -24,6 +24,7 @@ from .combat import (
     persist,
 )
 from .damage import enemy_damage, player_damage
+from .effect_chance import effect_activates
 from .effects import (
     add_effect,
     apply_resource_effect,
@@ -141,7 +142,7 @@ def outgoing_attack(state, context, skill, targets, *, roll_player, roll_enemy):
     )
     outgoing = {}
     for enemy in context.enemies:
-        if enemy.id not in targets:
+        if enemy.id not in targets or not effect_activates(skill, marker, enemy.id):
             continue
         defense = modified_stat(
             enemy.special_defense if skill.damage_type == "special" else enemy.defense,
@@ -251,7 +252,12 @@ def apply_enemy_components(state, context, enemy, *, correct, retreat):
         schedule.enemy_max_hp.setdefault(enemy.id, enemy.hp)
         schedule.enemy_max_mp.setdefault(enemy.id, enemy.mp)
         apply_resource_effect(state.save, effect, enemy.id, context=context)
-        if effect.effect in {"buff", "debuff", "ailment"}:
+        if effect.effect in {"buff", "debuff", "ailment"} and effect_activates(
+            effect,
+            marker,
+            enemy.id if effect.target == "self" else "player",
+            enemy.id,
+        ):
             add_effect(
                 marker,
                 effect,
@@ -267,6 +273,8 @@ def action_damage(state, context, *, correct, roll_player, roll_enemy):
     enemy = next(e for e in context.enemies if e.id == target)
     player_turn = schedule.actor_id == "player"
     action = marker.gambitAction if player_turn else None
+    if action and action.target_ids:
+        enemy = next((e for e in context.enemies if e.id in action.target_ids), enemy)
     fallback = context.default_attack or normal_attack()
     skill = (
         action.skill
@@ -331,17 +339,32 @@ def component_damage(
                 schedule_actor=marker.schedule.actor_id,
                 roll_enemy=roll_enemy,
             )
+            if not effect_activates(
+                effect,
+                marker,
+                marker.schedule.actor_id,
+                marker.schedule.actor_id,
+            ):
+                amount = 0
             return ({}, amount) if player_turn else ({enemy.id: amount}, 0)
         if player_turn:
             return outgoing_attack(
                 state,
                 context,
                 effect,
-                skill_targets(effect, marker.enemies),
+                skill_targets(
+                    effect,
+                    marker.enemies,
+                    marker.gambitAction.target_ids if marker.gambitAction else None,
+                ),
                 roll_player=roll_player,
                 roll_enemy=roll_enemy,
             ), 0
-        return {}, incoming_attack(state, context, enemy, effect, roll_enemy)
+        return {}, (
+            incoming_attack(state, context, enemy, effect, roll_enemy)
+            if effect_activates(effect, marker, "player", enemy.id)
+            else 0
+        )
     if not successful and skill.on_wrong.type == "counter":
         if player_turn:
             return {}, incoming_attack(
@@ -504,11 +527,13 @@ def resolve_scheduled(
     apply_enemy_periodic(working, context, marker)
     defeated = [identity for identity in marker.enemies if hp[identity] <= 0]
     authoritative = body.model_copy(update={"defeated": defeated})
-    if incoming > 0 and enemy.on_hit_skill:
+    targets = marker.gambitAction.target_ids if marker.gambitAction else None
+    attacker = next((e for e in context.enemies if targets and e.id in targets), enemy)
+    if incoming > 0 and attacker.on_hit_skill:
         apply_on_hit_effects(
             working.save.battle,
-            {target: enemy.on_hit_skill},
-            {target: False},
+            {attacker.id: attacker.on_hit_skill},
+            {attacker.id: False},
         )
     updated = apply_turn_result(
         working,

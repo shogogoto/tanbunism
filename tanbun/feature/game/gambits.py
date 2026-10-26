@@ -13,7 +13,9 @@ from .catalog import (
     SpecialtySkillUse,
     StoredSkill,
     TriggerCondition,
+    TriggerTarget,
 )
+from .effect_chance import effect_activates
 from .effects import add_effect, apply_resource_effect, effect_active, effect_unexpired
 from .inventory import consume_use
 from .skill_outcomes import answer_effect, skill_effects, skill_targets
@@ -29,7 +31,8 @@ class GambitRule(TriggerCondition):
     action: Literal["skill", "item", "specialty"] = "skill"
     definition_id: DefinitionId
     trigger_id: DefinitionId | None = None
-    target: Literal["self", "enemy"] | None = None
+    trigger_variant_id: DefinitionId | None = None
+    target: TriggerTarget | None = None
 
 
 class BattleAction(BaseModel):
@@ -41,6 +44,7 @@ class BattleAction(BaseModel):
     specialty_id: str | None = None
     specialty_use: SpecialtySkillUse | None = None
     item_max_uses: int = Field(default=1, ge=1, le=10000)
+    target_ids: list[str] | None = None
 
 
 def state_effect_ids(rule: GambitRule, skills: dict) -> set[str] | None:
@@ -57,14 +61,14 @@ def state_effect_ids(rule: GambitRule, skills: dict) -> set[str] | None:
     }
 
 
-def state_matches(rule: GambitRule, marker, skills: dict) -> bool:
+def state_matches(rule: GambitRule, marker, skills: dict, target="player") -> bool:
     """スキルの状態IDで照合し、旧条件のみ種類判定を維持する。."""
     ids = state_effect_ids(rule, skills)
     if ids == set():
         return False
     return (
         any(
-            e.target_id == "player"
+            e.target_id == target
             and effect_active(e, marker.turn)
             and (
                 e.skill.id in ids
@@ -82,6 +86,83 @@ def state_matches(rule: GambitRule, marker, skills: dict) -> bool:
     )
 
 
+def condition_matches(rule, save, skills, target="player") -> bool:
+    """一人ずつ条件を評価する。敵の現在値はサーバーの戦闘状態を使う。."""
+    marker = save.battle
+    condition = rule.condition
+    if condition in {"always", "enemy_count"}:
+        return condition == "always" or len(marker.enemies) >= rule.threshold
+    if condition.startswith(("hp_", "mp_")):
+        value, maximum = target_resource(save, target, condition[:2])
+        if value is None or maximum is None or maximum <= 0:
+            return False
+        return (
+            value * 100 <= maximum * rule.threshold
+            if condition.endswith("below")
+            else value * 100 >= maximum * rule.threshold
+        )
+    if condition == "state":
+        return state_matches(rule, marker, skills, target)
+    active = [
+        e
+        for e in marker.effects
+        if e.target_id == target and effect_active(e, marker.turn)
+    ]
+    if condition in {"buff_present", "buff_absent"}:
+        return any(e.skill.effect == "buff" for e in active) == (
+            condition == "buff_present"
+        )
+    return condition == "poisoned" and any(
+        e.skill.effect == "ailment" and e.skill.ailment == "poison" for e in active
+    )
+
+
+def target_resource(save, target, resource):
+    """未初期化の敵の資源を推測しない。."""
+    if target == "player":
+        return getattr(save.run, resource), getattr(
+            save.run,
+            "maxHp" if resource == "hp" else "maxMp",
+        )
+    schedule = save.battle.schedule
+    if not schedule:
+        return None, None
+    return getattr(schedule, f"enemy_{resource}").get(target), getattr(
+        schedule,
+        f"enemy_max_{resource}",
+    ).get(target)
+
+
+def rule_targets(rule, save, catalog, skills):
+    """対象未指定の旧条件だけは従来のプレイヤー判定を維持する。."""
+    trigger = next((t for t in catalog.triggers if t.id == rule.trigger_id), None)
+    if trigger and (
+        trigger.target is not None
+        or (rule.trigger_variant_id and trigger.variant_field == "target")
+    ):
+        targets = matching_targets(rule, save, skills)
+        return bool(targets), targets
+    return condition_matches(rule, save, skills), None
+
+
+def matching_targets(rule, save, skills) -> list[str]:
+    """味方には行動者本人を含める。現在の味方陣営はプレイヤー一人。."""
+    marker = save.battle
+    candidates = marker.enemies if rule.target == "enemy" else ["player"]
+    return [
+        target
+        for target in candidates
+        if (
+            (target == "player" and save.run.hp > 0)
+            or (
+                target != "player"
+                and (not marker.schedule or marker.schedule.enemy_hp.get(target, 0) > 0)
+            )
+        )
+        and condition_matches(rule, save, skills, target)
+    ]
+
+
 def choose_action(
     save: "GameSave",
     catalog: GameCatalog,
@@ -97,52 +178,7 @@ def choose_action(
         rule = effective_rule(stored_rule, catalog)
         if rule is None:
             continue
-        matches = (
-            rule.condition == "always"
-            or (
-                rule.condition == "hp_below"
-                and run.hp * 100 <= run.maxHp * rule.threshold
-            )
-            or (
-                rule.condition == "mp_below"
-                and run.mp * 100 <= run.maxMp * rule.threshold
-            )
-            or (
-                rule.condition == "hp_above"
-                and run.hp * 100 >= run.maxHp * rule.threshold
-            )
-            or (
-                rule.condition == "mp_above"
-                and run.mp * 100 >= run.maxMp * rule.threshold
-            )
-            or (rule.condition == "state" and state_matches(rule, marker, skills))
-            or (
-                rule.condition == "enemy_count"
-                and len(marker.enemies) >= rule.threshold
-            )
-            or (
-                rule.condition in {"buff_present", "buff_absent"}
-                and (
-                    any(
-                        e.target_id == "player"
-                        and e.skill.effect == "buff"
-                        and effect_active(e, marker.turn)
-                        for e in marker.effects
-                    )
-                    == (rule.condition == "buff_present")
-                )
-            )
-            or (
-                rule.condition == "poisoned"
-                and any(
-                    e.target_id == "player"
-                    and e.skill.effect == "ailment"
-                    and e.skill.ailment == "poison"
-                    and effect_active(e, marker.turn)
-                    for e in marker.effects
-                )
-            )
-        )
+        matches, targets = rule_targets(rule, save, catalog, skills)
         if not rule.enabled or not matches:
             continue
         item = items.get(rule.definition_id) if rule.action == "item" else None
@@ -190,7 +226,16 @@ def choose_action(
         ):
             continue
         selected_skill = retarget_skill(skill, rule.target)
-        if not can_execute(save, selected_skill, uses_item=item is not None):
+        targets = (
+            [target for target in targets if can_receive(save, selected_skill, target)]
+            if targets is not None
+            else None
+        )
+        if targets == [] or not can_execute(
+            save,
+            selected_skill,
+            uses_item=item is not None,
+        ):
             continue
         use = next(
             (
@@ -214,6 +259,7 @@ def choose_action(
             specialty_id=specialty.id if specialty else None,
             specialty_use=use if specialty else None,
             item_max_uses=item.max_uses if item else 1,
+            target_ids=targets,
         )
     return None
 
@@ -222,10 +268,29 @@ def retarget_skill(skill, target):
     """共通定義は変えず、行動スナップショットだけへ対象を固定する."""
     selected = skill.model_copy(deep=True)
     if target:
-        selected.target = SkillTarget(target)
+        if selected.target == "all_enemies":
+            selected.target_count = "all"
+        selected.target = SkillTarget.SELF if target == "ally" else SkillTarget(target)
         for effect in selected.effects:
-            effect.target = SkillTarget(target)
+            if effect.target == "all_enemies":
+                effect.target_count = "all"
+            effect.target = selected.target
     return selected
+
+
+def can_receive(save, skill, target) -> bool:
+    """回復のみの行動では満タンの対象を候補から外す。."""
+    for effect in skill_effects(skill):
+        if effect.effect not in {"heal_hp", "heal_mp"}:
+            return True
+        value, maximum = target_resource(
+            save,
+            target,
+            "hp" if effect.effect == "heal_hp" else "mp",
+        )
+        if value is not None and maximum is not None and value < maximum:
+            return True
+    return False
 
 
 def can_execute(save: "GameSave", skill: SkillDefinition, *, uses_item: bool) -> bool:
@@ -270,12 +335,18 @@ def apply_action(
         effect = answer_effect(component, successful)
         applied = applied or effect is not None
         if effect:
-            apply_resource_effect(save, effect, context=context)
+            apply_resource_effect(
+                save,
+                effect,
+                context=context,
+                target_ids=action.target_ids,
+            )
         apply_status_effects(
             marker,
             component,
             successful=successful,
             results=results or {},
+            target_ids=action.target_ids,
         )
     label = (
         "発動"
@@ -300,6 +371,7 @@ def apply_status_effects(
     *,
     successful: bool,
     results: dict[str, bool],
+    target_ids: list[str] | None = None,
 ) -> None:
     """正解対象にだけ能力変化を付与する."""
     effect = answer_effect(skill, successful)
@@ -307,17 +379,18 @@ def apply_status_effects(
         effect
         and skill.effect in {"buff", "debuff", "ailment"}
         and skill.target == "self"
+        and effect_activates(effect, marker, "player")
     ):
         add_effect(marker, effect, "player")
     if skill.effect in {"buff", "debuff", "ailment"} and skill.target != "self":
-        targets = skill_targets(skill, marker.enemies)
+        targets = skill_targets(skill, marker.enemies, target_ids)
         for target in targets:
             applied = (
                 effect
                 if marker.schedule
                 else answer_effect(skill, bool(results.get(target)))
             )
-            if applied:
+            if applied and effect_activates(applied, marker, target):
                 add_effect(marker, applied, target)
 
 
@@ -339,6 +412,7 @@ def effective_rule(rule: GambitRule, catalog: GameCatalog) -> GambitRule | None:
         (t for t in catalog.triggers if t.id == rule.trigger_id and t.enabled),
         None,
     )
+    trigger = trigger.variant(rule.trigger_variant_id) if trigger else None
     return (
         rule.model_copy(
             update={
@@ -346,6 +420,12 @@ def effective_rule(rule: GambitRule, catalog: GameCatalog) -> GambitRule | None:
                 "state_kind": trigger.state_kind,
                 "state_present": trigger.state_present,
                 "state_skill_id": trigger.state_skill_id,
+                **({"target": trigger.target} if trigger.target else {}),
+                **(
+                    {"threshold": trigger.threshold}
+                    if trigger.target is not None or rule.trigger_variant_id
+                    else {}
+                ),
             },
         )
         if trigger

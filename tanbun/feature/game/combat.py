@@ -23,6 +23,7 @@ from .balance import Allocation, GameBalance, get_game_balance
 from .catalog import ElementDefinition, GameCatalog, StoredSkill, get_game_catalog
 from .damage import enemy_damage
 from .economy import GOLD_PER_LEVEL
+from .effect_chance import effect_activates
 from .effects import (
     add_effect,
     apply_player_periodic,
@@ -789,7 +790,12 @@ def apply_on_hit_effects(marker: BattleMarker, skills: dict, results: dict) -> N
     for enemy, skill in skills.items():
         if enemy in marker.enemies and not results.get(enemy):
             for effect in skill_effects(skill):
-                if effect.effect in {"debuff", "ailment"}:
+                if effect.effect in {"debuff", "ailment"} and effect_activates(
+                    effect,
+                    marker,
+                    "player",
+                    enemy,
+                ):
                     add_effect(marker, effect, "player")
 
 
