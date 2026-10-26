@@ -142,15 +142,15 @@ def test_breaking_equipment_removes_every_buff_in_the_same_action():
     updated = apply_turn_result(
         state,
         TurnRequest(battle_id="battle", turn=0),
-        {"a": True},
-        0,
+        {"a": False},
+        10,
         stats,
         base_stats=base,
     )
     assert (updated.save.run.defense, updated.save.run.maxHp, updated.save.run.hp) == (
         2,
         40,
-        20,
+        15,
     )
     assert updated.save.economy.weapon is None
     assert updated.save.economy.equipment_buffs is None

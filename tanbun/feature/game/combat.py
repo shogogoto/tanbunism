@@ -33,7 +33,7 @@ from .effects import (
     sync_bubble,
 )
 from .gambits import apply_action, prepare_action
-from .inventory import equipped_stats, wear_weapon
+from .inventory import equipment_wears_on_damage, equipped_stats, wear_weapon
 from .skill_outcomes import skill_effects
 from .state import BattleMarker, GameState, StateUpdate, compare_and_save, read_state
 
@@ -646,6 +646,7 @@ def apply_turn_result(
     on_hit_skills: dict | None = None,
     base_stats: dict | None = None,
     context=None,
+    equipment_hits: int | None = None,
 ) -> GameState:
     """相打ちの敗北優先・撤退先・歩数維持を一箇所で扱う."""
     marker, run = previous.save.battle, previous.save.run
@@ -655,9 +656,12 @@ def apply_turn_result(
     updated = previous.model_copy(deep=True)
     next_run = updated.save.run
     apply_on_hit_effects(updated.save.battle, on_hit_skills or {}, results)
-    broken = wear_weapon(
+    defensive = equipment_wears_on_damage(updated.save.economy)
+    broken = not defensive and wear_weapon(
         updated.save.economy,
-        sum(bool(results.get(e)) for e in marker.enemies),
+        sum(bool(results.get(e)) for e in marker.enemies)
+        if equipment_hits is None
+        else equipment_hits,
     )
     apply_combat_stats(
         next_run,
@@ -682,6 +686,13 @@ def apply_turn_result(
         context=context,
     )
     periodic_hp, periodic_mp = apply_player_periodic(next_run, marker, damage)
+    if defensive:
+        broken = wear_defensive_equipment(
+            updated.save,
+            damage + periodic_hp,
+            stats,
+            base_stats,
+        )
     next_run.kills += 0 if marker.bossLevel else len(set(body.defeated))
     next_run.quizCursor += len(body.answers)
     survivors = [e for e in marker.enemies if e not in body.defeated]
@@ -746,6 +757,7 @@ def apply_turn_result(
         broken=broken,
         hp=periodic_hp,
         mp=periodic_mp,
+        defensive=defensive,
     )
     if action_feedback:
         updated.save.battleFeedback += f" · {action_feedback}"
@@ -767,6 +779,8 @@ def apply_combat_stats(run, marker, stats, economy, *, broken, base_stats=None) 
     for key, value in stats.items():
         if key not in {"maxHp", "maxMp"}:
             setattr(run, key, value)
+    if marker and marker.schedule:
+        marker.schedule.base_speeds["player"] = run.speed
     sync_bubble(run, marker, stats["maxHp"], stats["maxMp"])
 
 
@@ -779,12 +793,30 @@ def apply_on_hit_effects(marker: BattleMarker, skills: dict, results: dict) -> N
                     add_effect(marker, effect, "player")
 
 
-def status_feedback(*, broken: bool, hp: int, mp: int) -> str:
+def wear_defensive_equipment(save, damage, stats, base_stats=None) -> bool:
+    """最後の一回も防御・HP補正を適用してから、装備の使用回数を減らす."""
+    if damage <= 0 or not equipment_wears_on_damage(save.economy):
+        return False
+    snapshot = save.economy.model_copy(deep=True)
+    broken = wear_weapon(save.economy, 1)
+    if broken:
+        apply_combat_stats(
+            save.run,
+            save.battle,
+            stats,
+            snapshot,
+            broken=True,
+            base_stats=base_stats,
+        )
+    return broken
+
+
+def status_feedback(*, broken: bool, hp: int, mp: int, defensive: bool = False) -> str:
     """通常攻防以外の変化をまとめる."""
     return "".join(
         text
         for enabled, text in [
-            (broken, " · 武器が壊れた"),
+            (broken, " · 防具が壊れた" if defensive else " · 武器が壊れた"),
             (hp, f" · 毒 HP -{hp}"),
             (mp, f" · 呪い MP -{mp}"),
         ]

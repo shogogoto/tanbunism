@@ -201,7 +201,9 @@ class ReducedAttackResult(ReducedResult):
 class ReducedTimedResult(ReducedResult):
     """持続効果では誤答時の有効行動数も独立して指定する."""
 
-    duration_turns: int | None = Field(default=None, ge=0, le=20)
+    duration_turns: Annotated[int, Field(ge=0, le=20)] | Literal["infinite"] | None = (
+        None
+    )
 
 
 class ReducedAilmentResult(BaseModel):
@@ -210,7 +212,9 @@ class ReducedAilmentResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: Literal["reduced"] = "reduced"
     apply: bool = False
-    duration_turns: int | None = Field(default=None, ge=0, le=20)
+    duration_turns: Annotated[int, Field(ge=0, le=20)] | Literal["infinite"] | None = (
+        None
+    )
 
     @model_serializer(mode="wrap")
     def configured_fields(self, handler):
@@ -462,7 +466,7 @@ class RecoveryEffect(VariableAmountEffect):
 class TimedEffect(VariableAmountEffect):
     """戦闘中に持続する効果の期間と重複上限."""
 
-    duration_turns: int = Field(default=3, ge=1, le=20)
+    duration_turns: Annotated[int, Field(ge=1, le=20)] | Literal["infinite"] = 3
     stack_limit: int = Field(default=1, ge=1, le=10)
 
     @model_validator(mode="after")

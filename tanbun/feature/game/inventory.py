@@ -26,6 +26,7 @@ class EquipmentBuff(BaseModel):
     affected_element: str | None = None
     amount: int = Field(ge=0, le=10000)
     amount_mode: Literal["fixed", "percent"] = "fixed"
+    duration_turns: Literal["infinite"] = "infinite"
 
 
 class ChestReward(BaseModel, frozen=True):
@@ -150,6 +151,14 @@ def wear_weapon(economy: Economy, hits: int) -> bool:
         if consume_use(economy, economy.weapon, economy.weapon_max_uses):
             return True
     return False
+
+
+def equipment_wears_on_damage(economy: Economy) -> bool:
+    """攻撃補正のない装備は防具として、命中ではなく被ダメージで消耗する."""
+    return bool(economy.equipment_buffs) and not any(
+        buff.stat in {"attack", "specialAttack", "damageDealt"}
+        for buff in economy.equipment_buffs
+    )
 
 
 def equipped_stats(

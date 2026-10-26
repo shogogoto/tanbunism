@@ -25,7 +25,7 @@ from .combat import (
     style_enemies,
 )
 from .damage import damage_range
-from .effects import curse_damage, modified_stat, poison_damage
+from .effects import curse_damage, effect_unexpired, modified_stat, poison_damage
 from .end_actions import (
     EndActionAnswer,
     EndActionRequest,
@@ -536,7 +536,7 @@ def next_practice_turn(session: PracticeSession) -> GameState:
         enemy: rng.choice(enemies[enemy].quizIndexes) for enemy in marker.enemies
     }
     state.save.battleFeedback = None
-    marker.effects = [e for e in marker.effects if e.expires_turn > marker.turn]
+    marker.effects = [e for e in marker.effects if effect_unexpired(e, marker.turn)]
     marker.gambitAction = None
     state.save.run.answerDeadline = (
         int(time() * 1000)

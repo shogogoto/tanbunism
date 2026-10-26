@@ -29,6 +29,7 @@ from .effects import (
     apply_resource_effect,
     curse_damage,
     effect_amount,
+    effect_unexpired,
     elemental_damage,
     modified_stat,
     periodic_recovery,
@@ -121,7 +122,7 @@ def begin_scheduled_action(state, context) -> None:
     marker.quizIndices = {target: choice(enemy.quizIndexes or [enemy.quizIndex])}
     marker.gambitAction = None
     marker.endActionDone = actor != "player"
-    marker.effects = [e for e in marker.effects if e.expires_turn > marker.turn]
+    marker.effects = [e for e in marker.effects if effect_unexpired(e, marker.turn)]
     schedule.queue = predict(schedule)
     state.save.battleFeedback = None
     run.answerSeconds = context.balance.base_seconds
@@ -517,6 +518,7 @@ def resolve_scheduled(
         equipped_stats(state.save.allocation, context.balance, state.save.economy),
         base_stats=state.save.allocation.stats(context.balance),
         context=context,
+        equipment_hits=int(any(amount > 0 for amount in outgoing.values())),
     )
     updated.save.battleFeedback = scheduled_feedback(
         updated,

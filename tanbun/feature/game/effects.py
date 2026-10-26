@@ -72,7 +72,7 @@ def element_adjustments(marker, element, source, target):
         if (
             value.effect not in {"buff", "debuff"}
             or value.affected_element != element
-            or not effect.starts_turn <= marker.turn < effect.expires_turn
+            or not effect_active(effect, marker.turn)
         ):
             continue
         if value.stat == "damageDealt" and effect.target_id == source:
@@ -88,7 +88,22 @@ class BattleEffect(BaseModel):
     skill: StoredSkill
     target_id: str = Field(max_length=200)
     starts_turn: int = Field(ge=0)
-    expires_turn: int = Field(ge=1)
+    expires_turn: int | None = Field(default=None, ge=1)
+
+
+def effect_unexpired(effect: BattleEffect, turn: int) -> bool:
+    """無限の持続数は戦闘中に期限切れにならない."""
+    return effect.expires_turn is None or turn < effect.expires_turn
+
+
+def effect_active(effect: BattleEffect, turn: int) -> bool:
+    """開始前の効果と期限切れを、すべての集計で共通に除外する."""
+    return effect.starts_turn <= turn and effect_unexpired(effect, turn)
+
+
+def effect_expiry(turn: int, duration: int | str) -> int | None:
+    """無限を巨大な仮のターン数には置き換えない."""
+    return None if duration == "infinite" else turn + int(duration)
 
 
 def effect_amount(skill: SkillDefinition, base: int) -> int:
@@ -206,7 +221,7 @@ def modified_stat(
         if effect.target_id == target
         and effect.skill.effect in {"buff", "debuff"}
         and effect.skill.stat == stat
-        and effect.starts_turn <= marker.turn < effect.expires_turn
+        and effect_active(effect, marker.turn)
     )
     return max(0, min(100000, base + change))
 
@@ -241,7 +256,7 @@ def poison_damage(marker: "BattleMarker", maximum_hp: dict[str, int]) -> dict[st
             if e.target_id == target
             and e.skill.effect == "ailment"
             and e.skill.ailment == "poison"
-            and e.starts_turn <= marker.turn < e.expires_turn
+            and effect_active(e, marker.turn)
         )
         if damage:
             result[target] = min(100000, damage)
@@ -258,7 +273,7 @@ def curse_damage(marker: "BattleMarker", maximum_mp: dict[str, int]) -> dict[str
             if e.target_id == target
             and e.skill.effect == "ailment"
             and e.skill.ailment == "curse"
-            and e.starts_turn <= marker.turn < e.expires_turn
+            and effect_active(e, marker.turn)
         )
         if amount:
             result[target] = min(100000, amount)
@@ -281,7 +296,7 @@ def periodic_recovery(
                 if effect.target_id == target
                 and effect.skill.effect == "ailment"
                 and effect.skill.ailment == kind
-                and effect.starts_turn <= marker.turn < effect.expires_turn
+                and effect_active(effect, marker.turn)
             ),
         )
         for target, maximum in maxima.items()
@@ -316,7 +331,7 @@ def apply_player_periodic(run, marker, damage: int) -> tuple[int, int]:
 
 def add_effect(marker: "BattleMarker", skill: SkillDefinition, target: str) -> None:
     """重複不可なら期限を更新。重複可なら古い分から上限まで置き換える."""
-    marker.effects = [e for e in marker.effects if e.expires_turn > marker.turn]
+    marker.effects = [e for e in marker.effects if effect_unexpired(e, marker.turn)]
     matching = [
         e for e in marker.effects if e.skill.id == skill.id and e.target_id == target
     ]
@@ -329,7 +344,7 @@ def add_effect(marker: "BattleMarker", skill: SkillDefinition, target: str) -> N
             skill=skill.model_copy(deep=True),
             target_id=target,
             starts_turn=marker.turn + 1,
-            expires_turn=marker.turn + 1 + skill.duration_turns,
+            expires_turn=effect_expiry(marker.turn + 1, skill.duration_turns),
         ),
     )
 
@@ -351,7 +366,7 @@ def bubble_factor(
             if e.target_id == target
             and e.skill.effect in {"buff", "debuff"}
             and e.skill.stat == stat
-            and e.starts_turn <= marker.turn < e.expires_turn
+            and effect_active(e, marker.turn)
         ),
     )
 

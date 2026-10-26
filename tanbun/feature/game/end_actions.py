@@ -16,19 +16,31 @@ from tanbun.feature.quiz.answering.repo import create_answer_in_transaction
 from tanbun.feature.quiz.chain.usecase import expand_quiz_chain
 
 from .catalog import get_game_catalog, parse_skill
-from .combat import ENEMIES_TO_CLEAR, MOVES_PER_EVENT, combat_context, persist
+from .combat import (
+    ENEMIES_TO_CLEAR,
+    MOVES_PER_EVENT,
+    combat_context,
+    persist,
+    wear_defensive_equipment,
+)
 from .economy import GOLD_PER_LEVEL
 from .effects import (
     add_effect,
     apply_resource_effect,
     effect_amount,
+    effect_expiry,
     elemental_damage,
     sync_bubble,
     sync_speed_effects,
 )
 from .gambit_slots import gambit_capacity
 from .gambits import choose_action
-from .inventory import consume_use
+from .inventory import (
+    consume_use,
+    equipment_wears_on_damage,
+    equipped_stats,
+    wear_weapon,
+)
 from .skill_outcomes import (
     answer_effect,
     attack_stat,
@@ -209,6 +221,14 @@ def begin_action(
         "index": 0,
         "correct": 0,
         "counter_damage": counter_damage,
+        "equipment_stats": equipped_stats(
+            save.allocation,
+            context.balance,
+            save.economy,
+        )
+        if context
+        else None,
+        "base_stats": save.allocation.stats(context.balance) if context else None,
         "weaknesses": {enemy.id: enemy.weaknesses.copy() for enemy in context.enemies}
         if context
         else {},
@@ -378,7 +398,10 @@ def apply_end_effect(state, action, skill, factor, applies):
         for target in targets:
             add_effect(marker, skill, target)
             marker.effects[-1].starts_turn = marker.turn
-            marker.effects[-1].expires_turn = marker.turn + skill.duration_turns
+            marker.effects[-1].expires_turn = effect_expiry(
+                marker.turn,
+                skill.duration_turns,
+            )
     return outgoing, targets
 
 
@@ -446,6 +469,21 @@ def apply_end_counter(state, action, skill):
     damage = action.get("counter_damage", 0)
     run = state.save.run
     run.hp = max(0, run.hp - damage)
+    if action.get("equipment_stats"):
+        broken = wear_defensive_equipment(
+            state.save,
+            damage,
+            action["equipment_stats"],
+            action.get("base_stats"),
+        )
+    else:
+        broken = (
+            damage > 0
+            and equipment_wears_on_damage(state.save.economy)
+            and wear_weapon(state.save.economy, 1)
+        )
+    if broken:
+        state.save.battleFeedback += " · 防具が壊れた"
     state.save.endActionReceipt["damage"] = damage
     if run.hp == 0:
         run.phase = "defeated"

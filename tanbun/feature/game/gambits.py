@@ -14,7 +14,7 @@ from .catalog import (
     StoredSkill,
     TriggerCondition,
 )
-from .effects import add_effect, apply_resource_effect
+from .effects import add_effect, apply_resource_effect, effect_active, effect_unexpired
 from .inventory import consume_use
 from .skill_outcomes import answer_effect, skill_effects, skill_targets
 
@@ -65,7 +65,7 @@ def state_matches(rule: GambitRule, marker, skills: dict) -> bool:
     return (
         any(
             e.target_id == "player"
-            and e.starts_turn <= marker.turn < e.expires_turn
+            and effect_active(e, marker.turn)
             and (
                 e.skill.id in ids
                 if ids is not None
@@ -126,7 +126,7 @@ def choose_action(
                     any(
                         e.target_id == "player"
                         and e.skill.effect == "buff"
-                        and e.starts_turn <= marker.turn < e.expires_turn
+                        and effect_active(e, marker.turn)
                         for e in marker.effects
                     )
                     == (rule.condition == "buff_present")
@@ -138,7 +138,7 @@ def choose_action(
                     e.target_id == "player"
                     and e.skill.effect == "ailment"
                     and e.skill.ailment == "poison"
-                    and e.starts_turn <= marker.turn < e.expires_turn
+                    and effect_active(e, marker.turn)
                     for e in marker.effects
                 )
             )
@@ -325,7 +325,7 @@ async def prepare_action(save: "GameSave", user_id) -> None:  # noqa: RUF029
     """ガンビット未設定の既存戦闘には追加の定義読み取りを行わない。."""
     if save.battle:
         save.battle.effects = [
-            e for e in save.battle.effects if e.expires_turn > save.battle.turn
+            e for e in save.battle.effects if effect_unexpired(e, save.battle.turn)
         ]
         # Selection belongs to the end of the turn, after ordinary damage.
         save.battle.gambitAction = None
