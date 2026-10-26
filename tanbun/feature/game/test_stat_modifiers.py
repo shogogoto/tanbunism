@@ -36,6 +36,7 @@ def test_boss_uses_normal_base_stats_and_only_enemy_definition_multipliers():
         power_attack=0,
         region_hp_growth_percent=0,
         region_attack_growth_percent=0,
+        region_defense_growth_percent=0,
         region_special_attack_growth_percent=0,
     )
     boss = derive_boss(

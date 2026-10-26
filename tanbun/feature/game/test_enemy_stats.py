@@ -1,7 +1,7 @@
 """敵のMP・特殊能力の生成と、行動時のMP消費."""
 # ruff: noqa: PLR2004
 
-from math import ceil, log1p
+from math import ceil, log1p, sqrt
 from uuid import uuid4
 
 import pytest
@@ -16,9 +16,15 @@ from .test_scheduled_combat import answer, encounter
 
 
 @pytest.mark.parametrize("region", [0, 2, 4])
-def test_extra_stats_use_independent_growth_and_shared_variation(region):
+@pytest.mark.parametrize("formula", ["log", "sqrt"])
+def test_extra_stats_use_independent_growth_and_shared_variation(region, formula):
     """HPと同じ式だが各能力の係数は独立する."""
     balance = GameBalance(
+        power_formula=formula,
+        power_reference=100,
+        enemy_defense=4,
+        power_defense=0.5,
+        region_defense_growth_percent=15,
         enemy_mp=20,
         power_mp=2,
         region_mp_growth_percent=10,
@@ -30,16 +36,18 @@ def test_extra_stats_use_independent_growth_and_shared_variation(region):
         region_special_defense_growth_percent=30,
     )
     factor = balance.enemy_variation("enemy")
+    scale = log1p(100) if formula == "log" else sqrt(100 / 100)
     assert balance.enemy_extra_stats(100, region, "enemy") == {
-        "mp": ceil((20 + log1p(100) * 2) * (1 + region * 0.1) * factor),
-        "special_attack": ceil((15 + log1p(100) * 3) * (1 + region * 0.2) * factor),
-        "special_defense": ceil((5 + log1p(100)) * (1 + region * 0.3) * factor),
+        "defense": ceil((4 + scale * 0.5) * (1 + region * 0.15) * factor),
+        "mp": ceil((20 + scale * 2) * (1 + region * 0.1) * factor),
+        "special_attack": ceil((15 + scale * 3) * (1 + region * 0.2) * factor),
+        "special_defense": ceil((5 + scale) * (1 + region * 0.3) * factor),
     }
 
 
 def test_simulation_and_live_enemies_share_extra_stats():
     """試算と実戦は同一のID・Power・領域に対し同じ能力を返す."""
-    balance = GameBalance(enemy_special_defense=7, enemy_mp=25)
+    balance = GameBalance(enemy_special_defense=7, enemy_mp=25, power_defense=2)
     trial = simulate_enemy_balance(
         EnemyBalanceSimulationRequest(
             balance=balance,
@@ -61,7 +69,7 @@ def test_simulation_and_live_enemies_share_extra_stats():
         balance,
     )
     assert len(enemies) == 1
-    for key in ("mp", "special_attack", "special_defense"):
+    for key in ("defense", "mp", "special_attack", "special_defense"):
         assert getattr(enemies[0], key) == getattr(trial.enemies[0], key)
 
 
@@ -113,6 +121,7 @@ def test_zero_and_large_extra_stats_are_bounded():
         enemy_special_attack=0,
         power_special_attack=0,
     ).enemy_extra_stats(0, 0) == {
+        "defense": 0,
         "mp": 0,
         "special_attack": 0,
         "special_defense": 0,

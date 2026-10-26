@@ -2,7 +2,8 @@
 
 import json
 from hashlib import blake2b
-from math import ceil, log1p
+from math import ceil, log1p, sqrt
+from typing import Literal
 
 from neomodel import adb
 from pydantic import BaseModel, Field, model_validator
@@ -49,6 +50,15 @@ class GameBalance(BaseModel, frozen=True):
     enemy_hp: int = Field(default=20, ge=1, le=10000)
     enemy_attack: int = Field(default=12, ge=1, le=1000)
     enemy_defense: int = Field(default=0, ge=0, le=1000)
+    power_formula: Literal["log", "sqrt"] = "sqrt"
+    power_reference: float = Field(default=1, ge=0.01, le=10**9, allow_inf_nan=False)
+    power_defense: float = Field(default=0.1, ge=0, le=100, allow_inf_nan=False)
+    region_defense_growth_percent: float = Field(
+        default=20,
+        ge=0,
+        le=1000,
+        allow_inf_nan=False,
+    )
     enemy_mp: int = Field(default=10, ge=0, le=10000)
     enemy_special_attack: int = Field(default=12, ge=0, le=1000)
     enemy_special_defense: int = Field(default=0, ge=0, le=1000)
@@ -216,27 +226,34 @@ class GameBalance(BaseModel, frozen=True):
         region: int,
         variation_key: str = "",
     ) -> tuple[int, int]:
-        """Powerのlog補正に領域成長率・固定個体差を掛ける."""
-        scale = log1p(max(0, power))
-        level = max(0, region)
-        hp = (self.enemy_hp + scale * self.power_hp) * (
-            1 + level * self.region_hp_growth_percent / 100
-        )
-        attack = (self.enemy_attack + scale * self.power_attack) * (
-            1 + level * self.region_attack_growth_percent / 100
-        )
-        factor = self.enemy_variation(variation_key)
-        hp *= factor
-        attack *= factor
+        """全能力共通のPower補正・領域成長率・固定個体差で計算する."""
         return (
-            min(
-                100000,
-                ceil(hp),
-            ),
-            min(
-                100000,
-                ceil(attack),
-            ),
+            self._enemy_stat("hp", power, region, variation_key),
+            self._enemy_stat("attack", power, region, variation_key),
+        )
+
+    def enemy_power_scale(self, power: int) -> float:
+        """対数は従来式、平方根は管理画面の基準Powerで調整する."""
+        value = max(0, power)
+        if self.power_formula == "log":
+            return log1p(value)
+        return sqrt(value / self.power_reference)
+
+    def _enemy_stat(
+        self,
+        stat: str,
+        power: int,
+        region: int,
+        variation_key: str,
+    ) -> int:
+        base = getattr(self, f"enemy_{stat}")
+        bonus = self.enemy_power_scale(power) * getattr(self, f"power_{stat}")
+        growth = getattr(self, f"region_{stat}_growth_percent")
+        value = (base + bonus) * (1 + max(0, region) * growth / 100)
+        minimum = 1 if stat in {"hp", "attack", "speed"} else 0
+        return min(
+            100000,
+            max(minimum, ceil(value * self.enemy_variation(variation_key))),
         )
 
     def enemy_variation(self, variation_key: str) -> float:
@@ -249,10 +266,7 @@ class GameBalance(BaseModel, frozen=True):
 
     def enemy_speed_stat(self, power: int, region: int, variation_key: str = "") -> int:
         """Derive speed using the HP/attack growth formula, bounded above zero."""
-        value = (self.enemy_speed + log1p(max(0, power)) * self.power_speed) * (
-            1 + max(0, region) * self.region_speed_growth_percent / 100
-        )
-        return max(1, min(100000, ceil(value * self.enemy_variation(variation_key))))
+        return self._enemy_stat("speed", power, region, variation_key)
 
     def enemy_extra_stats(
         self,
@@ -260,17 +274,11 @@ class GameBalance(BaseModel, frozen=True):
         region: int,
         variation_key: str = "",
     ) -> dict[str, int]:
-        """MP・特攻・特守にも同じPower補正・領域成長・個体差を適用する."""
-        scale = log1p(max(0, power))
-        factor = self.enemy_variation(variation_key)
-        result = {}
-        for stat in ("mp", "special_attack", "special_defense"):
-            base = getattr(self, f"enemy_{stat}")
-            power_bonus = scale * getattr(self, f"power_{stat}")
-            growth = getattr(self, f"region_{stat}_growth_percent")
-            value = (base + power_bonus) * (1 + max(0, region) * growth / 100)
-            result[stat] = min(100000, max(0, ceil(value * factor)))
-        return result
+        """守・MP・特攻・特守にも同じ式を適用する."""
+        return {
+            stat: self._enemy_stat(stat, power, region, variation_key)
+            for stat in ("defense", "mp", "special_attack", "special_defense")
+        }
 
 
 class Allocation(BaseModel):

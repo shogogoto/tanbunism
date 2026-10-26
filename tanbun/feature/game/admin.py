@@ -217,7 +217,6 @@ def simulate_enemy_balance(
                 quiz_count=len(quiz_indexes),
                 hp=hp,
                 attack=attack,
-                defense=request.balance.enemy_defense,
                 **request.balance.enemy_extra_stats(
                     request.power,
                     request.achievement - 1,

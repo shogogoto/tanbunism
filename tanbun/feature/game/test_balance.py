@@ -1,7 +1,7 @@
 """敵能力の達成度帯成長率."""
 # ruff: noqa: PLR2004
 
-from math import ceil, log1p
+from math import ceil, log1p, sqrt
 
 import pytest
 from pydantic import ValidationError
@@ -10,16 +10,23 @@ from .balance import Allocation, GameBalance
 
 
 @pytest.mark.parametrize("region", [0, 2, 4])
-def test_region_growth_multiplies_power_adjusted_stats(region: int) -> None:
+@pytest.mark.parametrize("formula", ["log", "sqrt"])
+def test_region_growth_multiplies_power_adjusted_stats(
+    region: int,
+    formula: str,
+) -> None:
     """表示領域1を基準に、HP・攻撃力が別々の割合で成長する."""
     balance = GameBalance(
+        power_formula=formula,
+        power_reference=100,
         enemy_variance_percent=0,
         region_hp_growth_percent=20,
         region_attack_growth_percent=10,
     )
+    scale = log1p(100) if formula == "log" else 1
     assert balance.enemy_stats(100, 0, region) == (
-        ceil((20 + log1p(100)) * (1 + region * 0.2)),
-        ceil((12 + log1p(100) * 0.5) * (1 + region * 0.1)),
+        ceil((20 + scale) * (1 + region * 0.2)),
+        ceil((12 + scale * 0.5) * (1 + region * 0.1)),
     )
 
 
@@ -48,7 +55,7 @@ def test_enemy_speed_uses_power_growth_and_shared_variation(region: int):
         region_speed_growth_percent=15,
     )
     expected = ceil(
-        (10 + log1p(100) * 2) * (1 + region * 0.15) * balance.enemy_variation("enemy"),
+        (10 + sqrt(100) * 2) * (1 + region * 0.15) * balance.enemy_variation("enemy"),
     )
     assert balance.enemy_speed_stat(100, region, "enemy") == expected
     assert balance.enemy_speed_stat(100, region, "enemy") == expected
@@ -75,6 +82,29 @@ def test_speed_defaults_and_bounds():
         )
         == 100000
     )
+
+
+@pytest.mark.parametrize(("power", "hp"), [(100, 30), (1000, 52), (3000, 75)])
+def test_sqrt_default_distinguishes_reading_resource_power(power, hp):
+    """100〜3000のPowerでHPに分かる程度の差を出す."""
+    balance = GameBalance(enemy_variance_percent=0)
+    assert balance.enemy_stats(power, 0, 0)[0] == hp
+    normalized = balance.model_copy(update={"power_reference": 100, "power_hp": 10})
+    assert normalized.enemy_stats(power, 0, 0)[0] == hp
+
+
+@pytest.mark.parametrize("formula", ["log", "sqrt"])
+def test_power_scale_clamps_negative_and_zero_power(formula):
+    """Powerの下限は両方式とも0として扱う."""
+    balance = GameBalance(power_formula=formula)
+    assert balance.enemy_power_scale(-100) == balance.enemy_power_scale(0) == 0
+
+
+@pytest.mark.parametrize("value", [0, -1, float("inf"), float("nan")])
+def test_invalid_power_reference_is_rejected(value):
+    """基準Powerは正の有限値に限定する."""
+    with pytest.raises(ValidationError):
+        GameBalance(power_reference=value)
 
 
 def test_old_settings_receive_growth_defaults_without_reinterpreting_values() -> None:
