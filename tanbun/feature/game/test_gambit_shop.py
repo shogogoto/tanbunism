@@ -11,6 +11,7 @@ from .catalog import (
     GambitShopListing,
     GameCatalog,
     ShopListing,
+    TriggerVariant,
     default_catalog,
     update_game_catalog,
 )
@@ -69,6 +70,52 @@ def test_purchase_unlocks_once_without_inventory_or_durability():
     assert economy.gold == 25
 
 
+def test_variants_are_independently_priced_purchased_and_unlocked():
+    """基本と各変型を別商品にし、一方の購入で他方を解放しない."""
+    catalog = configured_catalog()
+    trigger = next(t for t in catalog.triggers if t.id == "hp_below")
+    trigger.variants = [TriggerVariant(id="half", name="半分", value=50)]
+    catalog.shop.append(
+        GambitShopListing(
+            trigger_id=trigger.id,
+            trigger_variant_id="half",
+            price=40,
+        ),
+    )
+    catalog = GameCatalog.model_validate(catalog.stored_document())
+    products = {p.id: p for p in catalog_products(catalog)}
+    base, variant = products["gambit:hp_below"], products["gambit:hp_below:half"]
+    assert (base.price, variant.price) == (75, 40)
+    assert variant.name == f"{trigger.name}（半分）"  # noqa: RUF001
+    economy = Economy(gold=200)
+    rule = GambitRule(
+        trigger_id=trigger.id,
+        trigger_variant_id="half",
+        definition_id="heal",
+    )
+    assert not rule_available(catalog, economy, rule)
+    buy(economy, variant)
+    assert economy.gold == 160
+    assert economy.unlocked_triggers == ["hp_below:half"]
+    assert rule_available(catalog, economy, rule)
+    assert not trigger_available(catalog, economy, trigger.id)
+    with pytest.raises(HTTPException, match="解放済み"):
+        buy(economy, variant)
+    buy(economy, base)
+    assert economy.unlocked_triggers == ["hp_below:half", "hp_below"]
+
+
+def test_unsold_variants_inherit_base_purchase_requirement():
+    """変型の販売設定がなければ従来どおり基本条件の購入権を使う."""
+    catalog = configured_catalog()
+    trigger = next(t for t in catalog.triggers if t.id == "hp_below")
+    trigger.variants = [TriggerVariant(id="half", name="半分", value=50)]
+    economy = Economy()
+    assert not trigger_available(catalog, economy, trigger.id, "half")
+    economy.unlocked_triggers.append(trigger.id)
+    assert trigger_available(catalog, economy, trigger.id, "half")
+
+
 def test_unpurchased_trigger_cannot_execute_or_be_bypassed_with_inline_condition():
     """購入前は実行不可で、直接条件を送っても迂回できない。."""
     catalog = configured_catalog()
@@ -106,6 +153,7 @@ def test_normal_items_and_trigger_products_can_share_definition_ids():
     "listing",
     [
         {"trigger_id": "missing", "price": 10},
+        {"trigger_id": "always", "trigger_variant_id": "missing", "price": 10},
         {"trigger_id": "always", "price": -1},
         {"trigger_id": "always", "item_id": "healing_potion", "price": 10},
     ],
@@ -118,15 +166,28 @@ def test_invalid_trigger_sale_settings_are_rejected(listing):
         )
 
 
+@pytest.mark.parametrize("variant_id", [None, "half"])
 @mark_async_test()
-async def test_purchase_is_revision_protected_and_survives_reload():
+async def test_purchase_is_revision_protected_and_survives_reload(variant_id):
     """同じ購入の再送で二重決済せず、解放をサーバーへ保存する。."""
     user = await seed_user()
-    await update_game_catalog(configured_catalog())
-    request = EconomyAction(revision=0, product_id="gambit:hp_below")
+    catalog = configured_catalog()
+    if variant_id:
+        trigger = next(t for t in catalog.triggers if t.id == "hp_below")
+        trigger.variants = [TriggerVariant(id="half", name="半分", value=50)]
+        catalog.shop.append(
+            GambitShopListing(
+                trigger_id=trigger.id,
+                trigger_variant_id=variant_id,
+                price=75,
+            ),
+        )
+    await update_game_catalog(catalog)
+    unlock_id = "hp_below:half" if variant_id else "hp_below"
+    request = EconomyAction(revision=0, product_id=f"gambit:{unlock_id}")
     bought = await change_economy(user.uid, request, "buy")
     assert bought.save.economy.gold == 125
-    assert bought.save.economy.unlocked_triggers == ["hp_below"]
+    assert bought.save.economy.unlocked_triggers == [unlock_id]
     with pytest.raises(HTTPException) as stale:
         await change_economy(user.uid, request, "buy")
     assert stale.value.status_code == 409
@@ -138,4 +199,4 @@ async def test_purchase_is_revision_protected_and_survives_reload():
         )
     restored = await read_state(user.uid)
     assert restored.save.economy.gold == 125
-    assert restored.save.economy.unlocked_triggers == ["hp_below"]
+    assert restored.save.economy.unlocked_triggers == [unlock_id]

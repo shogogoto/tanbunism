@@ -340,7 +340,7 @@ async def test_unanswered_retreat_is_once_and_keeps_discovery(u: LUser):
     saved = await combat.abandon_combat(u.uid)
     assert saved.save.battle is None
     assert max(0, 35 - sum(row[2] for row in damage_ranges)) <= saved.save.run.hp
-    assert saved.save.run.hp <= 35 - sum(row[0] for row in damage_ranges)
+    assert saved.save.run.hp <= max(0, 35 - sum(row[0] for row in damage_ranges))
     assert saved.save.run.moves == 1
     dungeon = saved.save.maps[saved.save.run.resourceId]
     assert dungeon.current == "@entrance"

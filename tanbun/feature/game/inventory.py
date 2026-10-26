@@ -84,6 +84,7 @@ class Product(BaseModel, frozen=True):
     price: int | None
     kind: Literal["weapon", "hp", "mp", "moves", "skill", "dungeon_unlock", "gambit"]
     trigger_id: str | None = None
+    trigger_variant_id: str | None = None
     resource_id: str | None = None
     amount: int
     amount_mode: Literal["fixed", "percent"] = "fixed"

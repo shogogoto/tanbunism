@@ -1190,18 +1190,24 @@ class ShopListing(BaseModel):
         return self.item_id
 
 
+def trigger_unlock_id(trigger_id: str, variant_id: str | None = None) -> str:
+    """基本条件と変型の購入権を衝突しないIDにする."""
+    return f"{trigger_id}:{variant_id}" if variant_id else trigger_id
+
+
 class GambitShopListing(BaseModel):
     """ガンビット商品はアイテム効果ではなくトリガーを参照する。."""
 
     model_config = ConfigDict(extra="forbid")
     trigger_id: DefinitionId
+    trigger_variant_id: DefinitionId | None = None
     price: int = Field(ge=0, le=1000000)
     enabled: bool = True
 
     @property
     def product_id(self):
         """通常アイテムと同じIDでも販売・解放を混同しない。."""
-        return f"gambit:{self.trigger_id}"
+        return f"gambit:{trigger_unlock_id(self.trigger_id, self.trigger_variant_id)}"
 
 
 class EnemyMultipliers(BaseModel):
@@ -1588,9 +1594,13 @@ class GameCatalog(BaseModel):
         ):
             msg = "ショップのアイテムが見つかりません。"
             raise ValueError(msg)
-        trigger_ids = {t.id for t in self.triggers}
+        triggers = {t.id: t for t in self.triggers}
         if any(
-            isinstance(p, GambitShopListing) and p.trigger_id not in trigger_ids
+            isinstance(p, GambitShopListing)
+            and (
+                p.trigger_id not in triggers
+                or not triggers[p.trigger_id].variant(p.trigger_variant_id)
+            )
             for p in self.shop
         ):
             msg_0 = "ショップのガンビットが見つかりません。"

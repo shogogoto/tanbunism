@@ -15,7 +15,13 @@ from tanbun.feature.recommendation.daily import load_daily
 from tanbun.feature.recommendation.settings import settings_scope
 
 from .balance import get_game_balance
-from .catalog import GambitShopListing, GameCatalog, ShopListing, get_game_catalog
+from .catalog import (
+    GambitShopListing,
+    GameCatalog,
+    ShopListing,
+    get_game_catalog,
+    trigger_unlock_id,
+)
 from .dungeon_keys import use_dungeon_key
 from .inventory import (
     Economy,
@@ -102,18 +108,17 @@ def catalog_products(
 def gambit_products(catalog, *, include_disabled=False):
     """定義済みトリガーを重複するアイテム定義なしで商品化する。."""
     listings = {
-        p.trigger_id: p for p in catalog.shop if isinstance(p, GambitShopListing)
+        p.product_id: p for p in catalog.shop if isinstance(p, GambitShopListing)
     }
     return [
         Product(
-            id=f"gambit:{trigger.id}",
-            name=trigger.name,
+            id=f"gambit:{key}",
+            name=f"{trigger.name}（{variant.name}）" if variant else trigger.name,  # noqa: RUF001
             kind="gambit",
             trigger_id=trigger.id,
-            price=listings[trigger.id].price
-            if trigger.enabled
-            and trigger.id in listings
-            and listings[trigger.id].enabled
+            trigger_variant_id=variant.id if variant else None,
+            price=listing.price
+            if trigger.enabled and listing and listing.enabled
             else None,
             amount=0,
             icon="target",
@@ -121,6 +126,9 @@ def gambit_products(catalog, *, include_disabled=False):
         )
         for trigger in catalog.triggers
         if include_disabled or trigger.enabled
+        for variant in [None, *trigger.variants]
+        for key in [trigger_unlock_id(trigger.id, variant.id if variant else None)]
+        for listing in [listings.get(f"gambit:{key}")]
     ]
 
 
@@ -336,7 +344,12 @@ def buy(economy: Economy, product: Product) -> None:
         raise HTTPException(422, "このガンビットは現在販売されていません。")
     if product.price is None:
         raise HTTPException(422, "このアイテムは復習の達成報酬です。")
-    if product.kind == "gambit" and product.trigger_id in economy.unlocked_triggers:
+    unlock_id = (
+        trigger_unlock_id(product.trigger_id, product.trigger_variant_id)
+        if product.kind == "gambit"
+        else None
+    )
+    if product.kind == "gambit" and unlock_id in economy.unlocked_triggers:
         raise HTTPException(422, "このガンビットは解放済みです。")
     if economy.gold < product.price:
         raise HTTPException(422, "ゴールドが不足しています。")
@@ -345,7 +358,7 @@ def buy(economy: Economy, product: Product) -> None:
         raise HTTPException(422, "この武器は既に持っています。")
     economy.gold -= product.price
     if product.kind == "gambit":
-        economy.unlocked_triggers.append(product.trigger_id)
+        economy.unlocked_triggers.append(unlock_id)
         return
     economy.inventory[product.id] = quantity + 1
 
