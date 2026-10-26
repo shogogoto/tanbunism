@@ -128,16 +128,10 @@ def apply_resource_effect(
     if skill.effect not in {"heal_hp", "heal_mp", "damage_mp"}:
         return
     from .effect_chance import effect_activates  # noqa: PLC0415
-    from .skill_outcomes import skill_targets  # noqa: PLC0415 - avoid catalog cycle
+    from .skill_outcomes import effect_targets  # noqa: PLC0415 - avoid catalog cycle
 
     marker, run = save.battle, save.run
-    targets = (
-        [actor]
-        if skill.target == "self"
-        else skill_targets(skill, marker.enemies, target_ids)
-        if actor == "player"
-        else ["player"]
-    )
+    targets = effect_targets(skill, marker, actor, target_ids)
     hp = skill.effect == "heal_hp"
     sign = -1 if skill.effect == "damage_mp" else 1
     affinities = affinities or {}

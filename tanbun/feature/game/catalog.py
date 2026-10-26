@@ -1208,6 +1208,7 @@ class EnemyDefinition(BaseModel):
     multipliers: EnemyMultipliers = Field(default_factory=EnemyMultipliers)
     attack_skill_id: DefinitionId | None = None
     on_hit_skill_id: DefinitionId | None = None
+    gambits: list["EnemyGambitRule"] = Field(default_factory=list, max_length=20)
     weaknesses: list[DefinitionId] = Field(default_factory=list, max_length=100)
     resistances: list[DefinitionId] = Field(default_factory=list, max_length=100)
 
@@ -1340,6 +1341,15 @@ class TriggerDefinition(TriggerCondition):
                 "state_present": self.condition != "buff_absent",
             }
         return self.model_copy(update={**patch, self.variant_field: candidate.value})
+
+
+class EnemyGambitRule(BaseModel):
+    """敵が優先順に判定する、公開トリガーと使用スキルの組み合わせ。."""
+
+    trigger_id: DefinitionId
+    trigger_variant_id: DefinitionId | None = None
+    skill_id: DefinitionId
+    enabled: bool = True
 
 
 def default_triggers() -> list[TriggerDefinition]:
@@ -1660,6 +1670,23 @@ class GameCatalog(BaseModel):
     def validate_enemy_skills(self, skills: dict) -> None:
         """敵の攻撃と命中時効果の参照を種類まで検証する."""
         for enemy in self.enemies:
+            for rule in enemy.gambits:
+                trigger = next(
+                    (t for t in self.triggers if t.id == rule.trigger_id),
+                    None,
+                )
+                skill = skills.get(rule.skill_id)
+                if not trigger or not trigger.variant(rule.trigger_variant_id):
+                    msg = "敵のガンビットのトリガーまたは変型が見つかりません。"
+                    raise ValueError(
+                        msg,
+                    )
+                if not skill or any(
+                    e.effect in {"recover_moves", "equip_attack"}
+                    for e in (skill.effects or [skill])
+                ):
+                    msg = "敵のガンビットには戦闘用スキルを選んでください。"
+                    raise ValueError(msg)
             if enemy.on_hit_skill_id and (
                 enemy.on_hit_skill_id not in skills
                 or any(

@@ -33,6 +33,7 @@ from .effects import (
     poison_damage,
     sync_bubble,
 )
+from .enemy_gambits import EnemyBattleRule, enemy_battle_rules
 from .gambits import apply_action, prepare_action
 from .inventory import equipment_wears_on_damage, equipped_stats, wear_weapon
 from .skill_outcomes import skill_effects
@@ -84,6 +85,7 @@ class EnemyStats(BaseModel):
     sound: str = "auto"
     on_hit_skill: StoredSkill | None = None
     attack_skill: StoredSkill | None = None
+    gambits: list[EnemyBattleRule] = Field(default_factory=list, max_length=20)
     weaknesses: list[str] = Field(default_factory=list)
     resistances: list[str] = Field(default_factory=list)
 
@@ -230,6 +232,7 @@ def style_enemies(
                         if any(e.id == key and e.enabled for e in catalog.elements)
                     ],
                     "attack_skill": skill,
+                    "gambits": enemy_battle_rules(template, catalog),
                     "icon": template.icon,
                     "name": f"達成度 {enemy.region + 1}の{template.name}"
                     if boss

@@ -103,6 +103,7 @@ class BattleMarker(BaseModel):
     skill: SpecialtySkill | None = None
     skillUsed: bool = False
     gambitAction: BattleAction | None = None
+    enemyAction: BattleAction | None = None
     schedule: ActionSchedule | None = None
     effects: list[BattleEffect] = Field(default_factory=list, max_length=200)
 

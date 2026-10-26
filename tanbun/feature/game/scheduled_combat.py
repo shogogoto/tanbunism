@@ -37,6 +37,7 @@ from .effects import (
     poison_damage,
     sync_speed_effects,
 )
+from .enemy_gambits import choose_enemy_action
 from .gambit_slots import gambit_capacity
 from .gambits import BattleAction, choose_action
 from .inventory import equipped_stats
@@ -44,6 +45,7 @@ from .skill_outcomes import (
     answer_effect,
     attack_stat,
     defense_stat,
+    effect_targets,
     enemy_attack_value,
     normal_attack,
     skill_effects,
@@ -122,6 +124,9 @@ def begin_scheduled_action(state, context) -> None:
         schedule.enemy_max_mp.setdefault(identity, value.mp)
     marker.quizIndices = {target: choice(enemy.quizIndexes or [enemy.quizIndex])}
     marker.gambitAction = None
+    marker.enemyAction = None
+    if actor != "player":
+        marker.enemyAction = choose_enemy_action(state.save, enemy)
     marker.endActionDone = actor != "player"
     marker.effects = [e for e in marker.effects if effect_unexpired(e, marker.turn)]
     schedule.queue = predict(schedule)
@@ -206,8 +211,10 @@ def incoming_attack(state, context, enemy, skill, roll_enemy):
     )
 
 
-def enemy_action_skill(enemy, schedule, fallback):
+def enemy_action_skill(enemy, schedule, fallback, selected=None):
     """MP不足なら最下位の通常攻撃へ戻る。旧戦闘は初期MPから補う."""
+    if selected:
+        return selected.skill
     skill = enemy.attack_skill or fallback
     return (
         skill
@@ -225,6 +232,7 @@ def spend_enemy_mp(state, context, enemy, *, retreat):
         enemy,
         schedule,
         context.default_attack or normal_attack(),
+        state.save.battle.enemyAction,
     )
     schedule.enemy_mp[enemy.id] = max(
         0,
@@ -242,6 +250,7 @@ def apply_enemy_components(state, context, enemy, *, correct, retreat):
         enemy,
         schedule,
         context.default_attack or normal_attack(),
+        marker.enemyAction,
     )
     # Select before spending MP so the final paid action is not lost.
     spend_enemy_mp(state, context, enemy, retreat=retreat)
@@ -251,18 +260,18 @@ def apply_enemy_components(state, context, enemy, *, correct, retreat):
             continue
         schedule.enemy_max_hp.setdefault(enemy.id, enemy.hp)
         schedule.enemy_max_mp.setdefault(enemy.id, enemy.mp)
-        apply_resource_effect(state.save, effect, enemy.id, context=context)
-        if effect.effect in {"buff", "debuff", "ailment"} and effect_activates(
+        targets = marker.enemyAction.target_ids if marker.enemyAction else None
+        apply_resource_effect(
+            state.save,
             effect,
-            marker,
-            enemy.id if effect.target == "self" else "player",
             enemy.id,
-        ):
-            add_effect(
-                marker,
-                effect,
-                enemy.id if effect.target == "self" else "player",
-            )
+            context=context,
+            target_ids=targets,
+        )
+        if effect.effect in {"buff", "debuff", "ailment"}:
+            for target in effect_targets(effect, marker, enemy.id, targets):
+                if effect_activates(effect, marker, target, enemy.id):
+                    add_effect(marker, effect, target)
 
 
 def action_damage(state, context, *, correct, roll_player, roll_enemy):
@@ -281,7 +290,7 @@ def action_damage(state, context, *, correct, roll_player, roll_enemy):
         if action
         else fallback
         if player_turn
-        else enemy_action_skill(enemy, schedule, fallback)
+        else enemy_action_skill(enemy, schedule, fallback, marker.enemyAction)
     )
     outgoing, incoming, countered = {}, 0, False
     for component in skill_effects(skill):
@@ -360,10 +369,15 @@ def component_damage(
                 roll_player=roll_player,
                 roll_enemy=roll_enemy,
             ), 0
-        return {}, (
-            incoming_attack(state, context, enemy, effect, roll_enemy)
-            if effect_activates(effect, marker, "player", enemy.id)
-            else 0
+        return (
+            enemy_targeted_damage(state, context, enemy, effect, roll_enemy)
+            if marker.enemyAction and marker.enemyAction.target_ids is not None
+            else (
+                {},
+                incoming_attack(state, context, enemy, effect, roll_enemy)
+                if effect_activates(effect, marker, "player", enemy.id)
+                else 0,
+            )
         )
     if not successful and skill.on_wrong.type == "counter":
         if player_turn:
@@ -383,6 +397,53 @@ def component_damage(
             roll_enemy=roll_enemy,
         ), 0
     return {}, 0
+
+
+def enemy_targeted_damage(state, context, source, skill, roll_enemy):
+    """敵の攻撃も確定済みの対象数・陣営へ適用する。."""
+    marker = state.save.battle
+    targets = effect_targets(skill, marker, source.id, marker.enemyAction.target_ids)
+    outgoing, incoming = {}, 0
+    enemies = {enemy.id: enemy for enemy in context.enemies}
+    for target in targets:
+        if not effect_activates(skill, marker, target, source.id):
+            continue
+        if target == "player":
+            incoming += incoming_attack(state, context, source, skill, roll_enemy)
+            continue
+        enemy = enemies[target]
+        attack = modified_stat(
+            enemy_attack_value(source, skill),
+            marker,
+            source.id,
+            attack_stat(skill),
+        )
+        defense = modified_stat(
+            enemy.special_defense if skill.damage_type == "special" else enemy.defense,
+            marker,
+            target,
+            defense_stat(skill),
+        )
+        amount = int(
+            roll_enemy(attack, defense, context.balance) * skill.multiplier,
+        ) + effect_amount(skill, attack)
+        outgoing[target] = min(
+            marker.schedule.enemy_hp[target],
+            elemental_damage(
+                amount,
+                skill,
+                marker,
+                source.id,
+                target,
+                weaknesses=enemy.weaknesses,
+                resistances=enemy.resistances,
+                resistance_multiplier=context.balance.resistance_multiplier,
+                weakness_multiplier=context.balance.weakness_multiplier,
+                enabled_elements=context.enabled_elements,
+                economy=state.save.economy,
+            ),
+        )
+    return outgoing, incoming
 
 
 def self_attack_damage(state, context, skill, *, schedule_actor, roll_enemy):

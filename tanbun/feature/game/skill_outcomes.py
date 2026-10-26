@@ -121,3 +121,21 @@ def skill_targets(
         if skill.target == "all_enemies" or getattr(skill, "target_count", 1) == "all"
         else enemies[: getattr(skill, "target_count", 1)]
     )
+
+
+def effect_targets(skill, marker, actor="player", target_ids=None):
+    """明示された発動先を優先し、未指定の旧行動は陣営から補う。."""
+    if target_ids is None:
+        return (
+            [actor]
+            if skill.target == "self"
+            else skill_targets(skill, marker.enemies)
+            if actor == "player"
+            else ["player"]
+        )
+    candidates = [
+        target
+        for target in target_ids
+        if target == "player" or target in marker.enemies
+    ]
+    return skill_targets(skill, candidates)

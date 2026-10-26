@@ -86,12 +86,13 @@ def state_matches(rule: GambitRule, marker, skills: dict, target="player") -> bo
     )
 
 
-def condition_matches(rule, save, skills, target="player") -> bool:
+def condition_matches(rule, save, skills, target="player", actor="player") -> bool:
     """一人ずつ条件を評価する。敵の現在値はサーバーの戦闘状態を使う。."""
     marker = save.battle
     condition = rule.condition
     if condition in {"always", "enemy_count"}:
-        return condition == "always" or len(marker.enemies) >= rule.threshold
+        opponents = len(marker.enemies) if actor == "player" else int(save.run.hp > 0)
+        return condition == "always" or opponents >= rule.threshold
     if condition.startswith(("hp_", "mp_")):
         value, maximum = target_resource(save, target, condition[:2])
         if value is None or maximum is None or maximum <= 0:
