@@ -20,8 +20,8 @@ from .state import restore_state
 from .test_scheduled_combat import encounter
 
 
-def test_boss_multipliers_cover_every_stat_and_compose_with_enemy_traits():
-    """ボス共通の倍率に、敵定義の個性を重ねる."""
+def test_boss_uses_normal_base_stats_and_only_enemy_definition_multipliers():
+    """ボス区分に隠れた共通倍率はなく、敵定義の倍率だけを一度掛ける。."""
     quiz = uuid4().hex
     balance = GameBalance(
         enemy_variance_percent=0,
@@ -37,13 +37,6 @@ def test_boss_multipliers_cover_every_stat_and_compose_with_enemy_traits():
         region_hp_growth_percent=0,
         region_attack_growth_percent=0,
         region_special_attack_growth_percent=0,
-        boss_hp_multiplier=2,
-        boss_attack_multiplier=3,
-        boss_mp_multiplier=4,
-        boss_defense_multiplier=5,
-        boss_special_attack_multiplier=6,
-        boss_special_defense_multiplier=7,
-        boss_speed_multiplier=8,
     )
     boss = derive_boss(
         {
@@ -55,13 +48,13 @@ def test_boss_multipliers_cover_every_stat_and_compose_with_enemy_traits():
         balance,
     )
     expected = {
-        "hp": 40,
-        "attack": 36,
-        "mp": 40,
-        "defense": 20,
-        "special_attack": 48,
-        "special_defense": 42,
-        "speed": 80,
+        "hp": 20,
+        "attack": 12,
+        "mp": 10,
+        "defense": 4,
+        "special_attack": 8,
+        "special_defense": 6,
+        "speed": 10,
     }
     assert {key: getattr(boss, key) for key in expected} == expected
     catalog = GameCatalog(
@@ -78,26 +71,19 @@ def test_boss_multipliers_cover_every_stat_and_compose_with_enemy_traits():
     assert {key: getattr(styled, key) for key in expected} == {
         key: value // 2 for key, value in expected.items()
     }
-    assert boss.hp == 40
+    assert boss.hp == 20
     preserved = style_enemies([styled], catalog, preserve_stats=True)[0]
     assert {key: getattr(preserved, key) for key in expected} == {
         key: getattr(styled, key) for key in expected
     }
 
 
-def test_old_boss_special_attack_preserves_legacy_attack_multiplier():
-    """旧設定に新項目がない場合だけ、従来の攻撃倍率を引き継ぐ."""
-    assert GameBalance(boss_attack_multiplier=2).boss_special_attack_multiplier == 2
-    assert (
-        GameBalance(
-            boss_attack_multiplier=2,
-            boss_special_attack_multiplier=3,
-        ).boss_special_attack_multiplier
-        == 3
-    )
+def test_common_boss_multipliers_are_not_part_of_balance():
+    """共通設定のAPIも保存データもボス倍率を持たない。."""
+    assert not any(key.startswith("boss_") for key in GameBalance.model_fields)
 
 
-@pytest.mark.parametrize("value", [0, -1, 21, float("inf"), float("nan")])
+@pytest.mark.parametrize("value", [0, -1, 401, float("inf"), float("nan")])
 def test_enemy_multiplier_validation(value):
     """倍率は正の有限値だけを受け付ける."""
     with pytest.raises(ValidationError):

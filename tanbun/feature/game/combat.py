@@ -330,7 +330,7 @@ def derive_boss(
     power: int,
     balance: GameBalance,
 ) -> EnemyStats | None:
-    """通常の敵と同じ能力式を、ボスの倍率で補正する."""
+    """通常の敵と同じ基礎能力を作り、個性の倍率は敵定義側だけで適用する。."""
     marker = content.get("battle") or {}
     level = marker.get("bossLevel")
     if not level:
@@ -346,32 +346,15 @@ def derive_boss(
         return None
     hp, attack = balance.enemy_stats(power, 0, level - 1, variation_key=identity)
     extra = balance.enemy_extra_stats(power, level - 1, identity)
-    for key in ("mp", "special_attack", "special_defense"):
-        extra[key] = min(
-            100000,
-            ceil(extra[key] * getattr(balance, f"boss_{key}_multiplier")),
-        )
     return EnemyStats(
         id=identity,
         name=f"達成度 {level}のボス",
         quizIndexes=indexes,
         quizIndex=marker.get("quizIndices", {}).get(identity, indexes[0]),
-        hp=min(100000, ceil(hp * balance.boss_hp_multiplier)),
-        attack=min(100000, ceil(attack * balance.boss_attack_multiplier)),
-        speed=min(
-            100000,
-            max(
-                1,
-                ceil(
-                    balance.enemy_speed_stat(power, level - 1, identity)
-                    * balance.boss_speed_multiplier,
-                ),
-            ),
-        ),
-        defense=min(
-            100000,
-            ceil(balance.enemy_defense * balance.boss_defense_multiplier),
-        ),
+        hp=hp,
+        attack=attack,
+        speed=balance.enemy_speed_stat(power, level - 1, identity),
+        defense=balance.enemy_defense,
         **extra,
         relations=0,
         region=level - 1,

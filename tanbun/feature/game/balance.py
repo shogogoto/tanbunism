@@ -1,5 +1,6 @@
 """現在の知識量に連動するゲームバランス。敵の能力値は保存しない."""
 
+import json
 from hashlib import blake2b
 from math import ceil, log1p
 
@@ -43,33 +44,6 @@ class GameBalance(BaseModel, frozen=True):
     mp_per_point: int = Field(default=2, ge=1, le=100)
     skill_mp_cost: int = Field(default=3, ge=1, le=10000)
     skill_term_attack: float = Field(default=4, ge=0.1, le=100, allow_inf_nan=False)
-    boss_hp_multiplier: float = Field(default=3, ge=1, le=20, allow_inf_nan=False)
-    boss_mp_multiplier: float = Field(default=1, ge=0.1, le=20, allow_inf_nan=False)
-    boss_defense_multiplier: float = Field(
-        default=1,
-        ge=0.1,
-        le=20,
-        allow_inf_nan=False,
-    )
-    boss_special_attack_multiplier: float = Field(
-        default=1.25,
-        ge=0.1,
-        le=20,
-        allow_inf_nan=False,
-    )
-    boss_special_defense_multiplier: float = Field(
-        default=1,
-        ge=0.1,
-        le=20,
-        allow_inf_nan=False,
-    )
-    boss_speed_multiplier: float = Field(default=1, ge=0.1, le=20, allow_inf_nan=False)
-    boss_attack_multiplier: float = Field(
-        default=1.25,
-        ge=1,
-        le=10,
-        allow_inf_nan=False,
-    )
     attack_per_point: int = Field(default=2, ge=1, le=100)
     defense_per_point: int = Field(default=1, ge=1, le=100)
     enemy_hp: int = Field(default=20, ge=1, le=10000)
@@ -180,20 +154,6 @@ class GameBalance(BaseModel, frozen=True):
     min_enemies: int = Field(default=1, ge=1, le=20)
     max_encounter_enemies: int = Field(default=3, ge=1, le=20)
     max_encounter_enemies_per_region: int = Field(default=0, ge=0, le=20)
-
-    @model_validator(mode="before")
-    @classmethod
-    def migrate_boss_special_attack(cls, values):
-        """従来は攻撃倍率が特攻にも使われていたので、未設定時は引き継ぐ."""
-        if isinstance(values, dict) and "boss_special_attack_multiplier" not in values:
-            return {
-                **values,
-                "boss_special_attack_multiplier": values.get(
-                    "boss_attack_multiplier",
-                    1.25,
-                ),
-            }
-        return values
 
     @model_validator(mode="after")
     def valid_enemy_ranges(self) -> "GameBalance":
@@ -356,15 +316,28 @@ class Allocation(BaseModel):
 
 
 async def get_game_balance() -> GameBalance:
-    """未設定は仮値。読み取りでは書き込まない."""
+    """未設定は仮値。旧ボス補正だけは敵定義へ一度移す。."""
+    from .boss_settings_migration import (  # noqa: PLC0415
+        LEGACY_BOSS_DEFAULTS,
+        migrate_boss_settings,
+    )
+
     rows, _ = await adb.cypher_query(
         "MATCH (s:AdminSettings {key:'game-balance'}) RETURN s.config LIMIT 1",
     )
-    return GameBalance.model_validate_json(rows[0][0]) if rows else GameBalance()
+    if not rows:
+        return GameBalance()
+    document = json.loads(rows[0][0])
+    if any(key in document for key in LEGACY_BOSS_DEFAULTS):
+        await migrate_boss_settings()
+    return GameBalance.model_validate(document)
 
 
 async def update_game_balance(balance: GameBalance) -> GameBalance:
     """能力値を固定せず既存の敵にも即時反映する."""
+    from .boss_settings_migration import migrate_boss_settings  # noqa: PLC0415
+
+    await migrate_boss_settings()
     await adb.cypher_query(
         "MERGE (s:AdminSettings {key:'game-balance'}) SET s.config=$config",
         {"config": balance.model_dump_json()},

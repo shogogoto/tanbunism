@@ -1207,13 +1207,13 @@ class GambitShopListing(BaseModel):
 class EnemyMultipliers(BaseModel):
     """基礎能力・ボス補正に重ねる敵ごとの個性。未設定は等倍."""
 
-    hp: float = Field(default=1, ge=0.1, le=20, allow_inf_nan=False)
-    mp: float = Field(default=1, ge=0.1, le=20, allow_inf_nan=False)
-    attack: float = Field(default=1, ge=0.1, le=20, allow_inf_nan=False)
-    defense: float = Field(default=1, ge=0.1, le=20, allow_inf_nan=False)
-    special_attack: float = Field(default=1, ge=0.1, le=20, allow_inf_nan=False)
-    special_defense: float = Field(default=1, ge=0.1, le=20, allow_inf_nan=False)
-    speed: float = Field(default=1, ge=0.1, le=20, allow_inf_nan=False)
+    hp: float = Field(default=1, ge=0.01, le=400, allow_inf_nan=False)
+    mp: float = Field(default=1, ge=0.01, le=400, allow_inf_nan=False)
+    attack: float = Field(default=1, ge=0.01, le=400, allow_inf_nan=False)
+    defense: float = Field(default=1, ge=0.01, le=400, allow_inf_nan=False)
+    special_attack: float = Field(default=1, ge=0.01, le=400, allow_inf_nan=False)
+    special_defense: float = Field(default=1, ge=0.01, le=400, allow_inf_nan=False)
+    speed: float = Field(default=1, ge=0.01, le=400, allow_inf_nan=False)
 
 
 class EnemyDefinition(BaseModel):
@@ -1422,6 +1422,7 @@ class GameCatalog(BaseModel):
     """IDと参照をまとめて検査し、一括保存する定義。."""
 
     skills: list[StoredSkill] = Field(default_factory=list, max_length=200)
+    boss_multipliers_version: Literal[1] = 1
     variant_sets: list[VariantSet] = Field(default_factory=list, max_length=100)
     elements: list[ElementDefinition] = Field(
         default_factory=default_elements,
@@ -1876,18 +1877,28 @@ def default_catalog() -> GameCatalog:
             EnemyDefinition(id="ghost", name="ゴースト", icon="ghost"),
             EnemyDefinition(id="bug", name="バグ", icon="bug"),
             EnemyDefinition(id="skull", name="スケルトン", icon="skull"),
-            EnemyDefinition(id="boss", name="ボス", icon="crown", boss=True),
+            EnemyDefinition(
+                id="boss",
+                name="ボス",
+                icon="crown",
+                boss=True,
+                multipliers=EnemyMultipliers(hp=3, attack=1.25, special_attack=1.25),
+            ),
         ],
     )
 
 
 async def get_game_catalog() -> GameCatalog:
-    """未保存なら組み込み定義を返し、読み取りでは作成しない。."""
+    """未保存なら組み込み定義を返し、旧ボス補正は一度だけ統合する。."""
+    from .boss_settings_migration import migrate_boss_settings  # noqa: PLC0415
+
     rows, _ = await adb.cypher_query(
         "MATCH (s:AdminSettings {key:'game_catalog'}) RETURN s.config LIMIT 1",
     )
-    if rows:
-        document = json.loads(rows[0][0])
+    document = json.loads(rows[0][0]) if rows else None
+    if document is None or document.get("boss_multipliers_version") != 1:
+        document = await migrate_boss_settings()
+    if document is not None:
         triggers = document.get("triggers", [])
         rejected = {row["id"] for row in triggers if not supported_trigger(row)}
         if rejected:
@@ -1920,6 +1931,9 @@ async def update_game_catalog(catalog: GameCatalog) -> GameCatalog:
     }:
         msg = "既存アイテムは削除せず、無効化してください。"
         raise ValueError(msg)
+    from .boss_settings_migration import migrate_boss_settings  # noqa: PLC0415
+
+    await migrate_boss_settings()
     await adb.cypher_query(
         "MERGE (s:AdminSettings {key:'game_catalog'}) SET s.config=$config",
         {"config": json.dumps(catalog.stored_document(), ensure_ascii=False)},
