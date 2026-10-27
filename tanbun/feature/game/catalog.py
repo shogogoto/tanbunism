@@ -1281,8 +1281,10 @@ class TriggerCondition(BaseModel):
         "always",
         "hp_below",
         "hp_above",
+        "hp_equal",
         "mp_below",
         "mp_above",
+        "mp_equal",
         "enemy_count",
         "state",
     ] = "always"

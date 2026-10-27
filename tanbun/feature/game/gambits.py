@@ -89,10 +89,13 @@ def condition_matches(rule, save, skills, target="player", actor="player") -> bo
         value, maximum = target_resource(save, target, condition[:2])
         if value is None or maximum is None or maximum <= 0:
             return False
+        current, threshold = value * 100, maximum * rule.threshold
+        if condition.endswith("equal"):
+            return current == threshold
         return (
-            value * 100 <= maximum * rule.threshold
+            current <= threshold
             if condition.endswith("below")
-            else value * 100 >= maximum * rule.threshold
+            else current >= threshold
         )
     if condition == "state":
         return state_matches(rule, marker, skills, target)
