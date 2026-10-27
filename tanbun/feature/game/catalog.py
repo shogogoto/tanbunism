@@ -1319,6 +1319,37 @@ class TriggerVariant(BaseModel):
     value: str | int | bool
 
 
+class TriggerVariantSet(BaseModel):
+    """複数のトリガーで共有する、一項目の変型候補."""
+
+    model_config = ConfigDict(extra="forbid")
+    id: DefinitionId
+    name: str = Field(min_length=1, max_length=80)
+    field: TriggerVariantField = "threshold"
+    values: list[TriggerVariant] = Field(default_factory=list, max_length=40)
+
+    @model_validator(mode="after")
+    def valid_values(self):
+        """未使用のセットも値の型と範囲を検査する."""
+        if len({v.id for v in self.values}) != len(self.values):
+            msg = "ガンビット変型セットの候補IDが重複しています。"
+            raise ValueError(msg)
+        for candidate in self.values:
+            expected = {"threshold": int, "state_present": bool}.get(self.field, str)
+            if type(candidate.value) is not expected:
+                msg = "ガンビット変型セットの値が不正です。"
+                raise ValueError(msg)
+            TriggerCondition.model_validate({self.field: candidate.value})
+            if self.field == "target" and candidate.value not in {
+                "enemy",
+                "self",
+                "ally",
+            }:
+                msg = "ガンビット変型セットの対象が不正です。"
+                raise ValueError(msg)
+        return self
+
+
 class TriggerDefinition(TriggerCondition):
     """管理者が公開する条件テンプレート。任意コードは実行しない."""
 
@@ -1329,6 +1360,7 @@ class TriggerDefinition(TriggerCondition):
     target: TriggerTarget | None = None
     variant_field: TriggerVariantField = "threshold"
     variants: list[TriggerVariant] = Field(default_factory=list, max_length=40)
+    variant_set_id: DefinitionId | None = None
 
     @model_validator(mode="after")
     def valid_variants(self):
@@ -1430,6 +1462,10 @@ class GameCatalog(BaseModel):
     skills: list[StoredSkill] = Field(default_factory=list, max_length=200)
     boss_multipliers_version: Literal[1] = 1
     variant_sets: list[VariantSet] = Field(default_factory=list, max_length=100)
+    trigger_variant_sets: list[TriggerVariantSet] = Field(
+        default_factory=list,
+        max_length=100,
+    )
     elements: list[ElementDefinition] = Field(
         default_factory=default_elements,
         max_length=100,
@@ -1453,6 +1489,39 @@ class GameCatalog(BaseModel):
         default_factory=default_triggers,
         max_length=100,
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def apply_trigger_variant_sets(cls, value):
+        """共有候補を保存データから解決し、ショップ・戦闘へ同じ定義を渡す."""
+        if not isinstance(value, dict):
+            return value
+        sets = [
+            s
+            if isinstance(s, TriggerVariantSet)
+            else TriggerVariantSet.model_validate(s)
+            for s in value.get("trigger_variant_sets", [])
+        ]
+        if len({s.id for s in sets}) != len(sets):
+            msg = "ガンビット変型セットのIDが重複しています。"
+            raise ValueError(msg)
+        by_id = {s.id: s for s in sets}
+        triggers = []
+        for raw in value.get("triggers", default_triggers()):
+            trigger = (
+                raw.model_dump() if isinstance(raw, TriggerDefinition) else dict(raw)
+            )
+            if identity := trigger.get("variant_set_id"):
+                shared = by_id.get(identity)
+                if shared is None:
+                    msg = "ガンビット変型セットが見つかりません。"
+                    raise ValueError(msg)
+                trigger.update(
+                    variant_field=shared.field,
+                    variants=[v.model_dump() for v in shared.values],
+                )
+            triggers.append(trigger)
+        return {**value, "triggers": triggers}
 
     @model_validator(mode="before")
     @classmethod
@@ -1553,6 +1622,12 @@ class GameCatalog(BaseModel):
     def stored_document(self) -> dict:
         """参照スキルは共通値を複製せず、識別情報だけを保存する."""
         document = self.model_dump(mode="json")
+        document["triggers"] = [
+            {k: v for k, v in trigger.items() if k not in {"variants", "variant_field"}}
+            if trigger.get("variant_set_id")
+            else trigger
+            for trigger in document["triggers"]
+        ]
         document["skill_templates"] = [
             {
                 key: value
@@ -1689,6 +1764,16 @@ class GameCatalog(BaseModel):
 
     def validate_trigger_skills(self, skills: dict) -> None:
         """状態の条件に指定したスキルが、継続状態を付与することを確認する。."""
+        for shared in self.trigger_variant_sets:
+            if shared.field == "state_skill_id":
+                for candidate in shared.values:
+                    skill = skills.get(candidate.value)
+                    if not skill or not any(
+                        e.effect in {"buff", "debuff", "ailment"}
+                        for e in (skill.effects or [skill])
+                    ):
+                        msg = "ガンビット変型セットには状態系スキルを選んでください。"
+                        raise ValueError(msg)
         for trigger in (
             resolved
             for root in self.triggers
