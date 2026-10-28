@@ -49,6 +49,14 @@ from tanbun.feature.game.settings import (
     get_battle_settings,
     update_battle_settings,
 )
+from tanbun.feature.game.settings_files import (
+    SettingsChangedError,
+    SettingsFileRequest,
+    SettingsFileSave,
+    read_settings,
+    save_settings_file,
+    settings_preview,
+)
 from tanbun.feature.game.simulation import (
     CombatSimulationRequest,
     CombatSimulationResult,
@@ -115,6 +123,32 @@ from .user_transfer import (
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.get("/game/settings-file")
+async def export_game_settings(_admin: AdminUser) -> dict:
+    """プレイヤー進行を含めず、ゲーム管理設定全体を書き出す."""
+    return (await read_settings()).document()
+
+
+@router.post("/game/settings-file/preview")
+async def preview_game_settings(body: SettingsFileRequest, _admin: AdminUser) -> dict:
+    """現在のDB設定へ統合した結果を、保存前に確認する."""
+    try:
+        return settings_preview(await read_settings(), body.document)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+
+
+@router.put("/game/settings-file")
+async def import_game_settings(body: SettingsFileSave, _admin: AdminUser) -> dict:
+    """差分確認後、全設定をまとめて反映する."""
+    try:
+        return await save_settings_file(body)
+    except SettingsChangedError as error:
+        raise HTTPException(409, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
 
 
 @router.get("/game/catalog")
