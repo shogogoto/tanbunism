@@ -92,17 +92,17 @@ def test_priority_conditions_affordability_and_frozen_definition():
 
 
 @pytest.mark.parametrize("condition", ["hp_below", "mp_below"])
-def test_percentage_trigger_includes_exact_boundary(condition):
-    """n%以下には、ちょうどn%も含まれる."""
+def test_percentage_trigger_excludes_exact_boundary(condition):
+    """n%未満は、ちょうどn%を含まない."""
     state = battle_state()
     run = state.save.run
     run.maxHp = run.maxMp = 100
-    run.hp = run.mp = 30
+    run.hp = run.mp = 29
     state.save.gambits = [
         GambitRule(condition=condition, threshold=30, definition_id="fire"),
     ]
     assert choose_action(state.save, default_catalog()) is not None
-    run.hp = run.mp = 31
+    run.hp = run.mp = 30
     assert choose_action(state.save, default_catalog()) is None
 
 

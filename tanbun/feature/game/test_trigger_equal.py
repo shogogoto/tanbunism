@@ -66,7 +66,9 @@ def test_bubble_uses_adjusted_maximum_and_preserves_thresholds(target, resource,
             threshold=50,
             definition_id="heal",
         )
-        assert condition_matches(rule, state.save, {}, target=target)
+        assert condition_matches(rule, state.save, {}, target=target) is (
+            comparison != "below"
+        )
     if target == "player":
         assert (getattr(run, resource), getattr(run, stat)) == (100, 200)
         setattr(run, resource, 99)

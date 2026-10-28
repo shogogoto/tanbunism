@@ -1274,6 +1274,9 @@ def default_elements() -> list[ElementDefinition]:
     ]
 
 
+MAX_TRIGGER_PERCENT = 100
+
+
 class TriggerCondition(BaseModel):
     """管理定義とプレイヤー設定で共有する条件パラメータ."""
 
@@ -1287,10 +1290,42 @@ class TriggerCondition(BaseModel):
         "mp_equal",
         "enemy_count",
         "state",
+        "stat",
     ] = "always"
-    threshold: int = Field(default=30, ge=1, le=100)
+    threshold: int = Field(default=30, ge=0, le=100000)
+    stat: Literal[
+        "hp",
+        "mp",
+        "attack",
+        "defense",
+        "special_attack",
+        "special_defense",
+        "speed",
+    ] = "hp"
+    stat_basis: Literal["current", "maximum", "percent"] = "current"
+    comparison: Literal["above", "below", "equal", "lowest", "highest"] = "below"
     state_present: bool = True
     state_skill_id: DefinitionId | None = None
+
+    @model_validator(mode="after")
+    def valid_stat_condition(self):
+        """割合・最大値はHP/MPだけに使い、割合は100%までとする."""
+        if (
+            self.condition == "stat"
+            and self.stat not in {"hp", "mp"}
+            and self.stat_basis != "current"
+        ):
+            msg = "現在値以外の判定はHP・MPだけに設定できます。"
+            raise ValueError(msg)
+        percent = self.condition.startswith(("hp_", "mp_")) or (
+            self.condition == "stat"
+            and self.stat_basis == "percent"
+            and self.comparison not in {"lowest", "highest"}
+        )
+        if percent and self.threshold > MAX_TRIGGER_PERCENT:
+            msg = "割合のしきい値は0〜100にしてください。"
+            raise ValueError(msg)
+        return self
 
 
 def supported_trigger(value) -> bool:
@@ -1310,6 +1345,9 @@ TriggerVariantField = Literal[
     "threshold",
     "state_skill_id",
     "state_present",
+    "stat",
+    "stat_basis",
+    "comparison",
 ]
 
 
@@ -1380,7 +1418,7 @@ class TriggerDefinition(TriggerCondition):
             if type(value) is not expected:
                 msg = "トリガーの変型の値が不正です。"
                 raise ValueError(msg)
-            TriggerCondition.model_validate({**self.model_dump(), field: value})
+            TriggerCondition.model_validate(self.variant(variant.id).model_dump())
             if not supported_trigger(self.variant(variant.id).model_dump()):
                 msg_0 = "状態判定には状態系スキルを選んでください。"
                 raise ValueError(msg_0)
@@ -1396,7 +1434,23 @@ class TriggerDefinition(TriggerCondition):
         candidate = next((v for v in self.variants if v.id == variant_id), None)
         if not candidate:
             return None
-        return self.model_copy(update={self.variant_field: candidate.value})
+        patch = {self.variant_field: candidate.value}
+        if self.variant_field in {
+            "stat",
+            "stat_basis",
+            "comparison",
+        } and self.condition.startswith(("hp_", "mp_")):
+            resource, comparison = self.condition.split("_")
+            patch = {
+                "condition": "stat",
+                "stat": resource,
+                "stat_basis": "percent",
+                "comparison": comparison,
+                **patch,
+            }
+            if patch["stat"] not in {"hp", "mp"}:
+                patch["stat_basis"] = "current"
+        return self.model_copy(update=patch)
 
 
 class EnemyGambitRule(BaseModel):
@@ -1414,8 +1468,8 @@ def default_triggers() -> list[TriggerDefinition]:
         TriggerDefinition(id=key, name=name, condition=key)
         for key, name in (
             ("always", "いつでも"),
-            ("hp_below", "HPがn%以下"),
-            ("mp_below", "MPがn%以下"),
+            ("hp_below", "HPがn%未満"),
+            ("mp_below", "MPがn%未満"),
             ("enemy_count", "敵がn体以上"),
         )
     ]

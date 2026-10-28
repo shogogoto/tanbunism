@@ -23,7 +23,7 @@ def targeted(condition="hp_below", target="enemy", **kwargs):
     state, context = encounter()
     marker = state.save.battle
     marker.schedule.actor_id = "player"
-    marker.schedule.enemy_hp = {"e": 100, "e2": 30}
+    marker.schedule.enemy_hp = {"e": 100, "e2": 29}
     state.save.run.hp = state.save.run.maxHp
     state.save.run.mp = 10
     catalog = default_catalog()
@@ -116,7 +116,7 @@ def test_enemy_recovery_and_full_target_skip():
     marker.gambitAction = choose_action(state.save, catalog)
     assert marker.gambitAction.target_ids == ["e2"]
     apply_action(state.save, successful=True, context=context)
-    assert marker.schedule.enemy_hp == {"e": 100, "e2": 50}
+    assert marker.schedule.enemy_hp == {"e": 100, "e2": 49}
     marker.schedule.enemy_hp["e2"] = 100
     assert choose_action(state.save, catalog) is None
 
@@ -201,7 +201,7 @@ def test_end_action_can_target_self_without_treating_player_as_enemy():
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("threshold", 0),
+        ("threshold", -1),
         ("threshold", True),
         ("threshold", "30"),
         ("target", "other"),

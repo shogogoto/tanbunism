@@ -104,7 +104,7 @@ def test_invalid_shared_sets_and_dangling_references_are_rejected(problem):
             "target": "target",
             "state_skill": "state_skill_id",
         }[problem]
-        shared["values"][0]["value"] = 0 if problem == "threshold" else "missing"
+        shared["values"][0]["value"] = -1 if problem == "threshold" else "missing"
     with pytest.raises(ValidationError):
         GameCatalog.model_validate(raw)
 

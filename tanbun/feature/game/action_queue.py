@@ -26,6 +26,7 @@ class ActionSchedule(BaseModel):
     waits: dict[str, float] = Field(default_factory=dict)
     speeds: dict[str, int] = Field(default_factory=dict)
     base_speeds: dict[str, int] = Field(default_factory=dict)
+    stat_bases: dict[str, dict[str, int]] = Field(default_factory=dict)
     enemy_hp: dict[str, int] = Field(default_factory=dict)
     enemy_mp: dict[str, int] = Field(default_factory=dict)
     enemy_max_hp: dict[str, int] = Field(default_factory=dict)

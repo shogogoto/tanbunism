@@ -20,6 +20,7 @@ from .effects import add_effect, apply_resource_effect, effect_active, effect_un
 from .gambit_access import rule_available
 from .inventory import consume_use
 from .skill_outcomes import answer_effect, skill_effects, skill_targets
+from .trigger_stats import order_targets, resource_values, stat_matches
 
 if TYPE_CHECKING:
     from .state import GameSave
@@ -93,37 +94,31 @@ def condition_matches(rule, save, skills, target="player", actor="player") -> bo
         if condition.endswith("equal"):
             return current == threshold
         return (
-            current <= threshold
-            if condition.endswith("below")
-            else current >= threshold
+            current < threshold if condition.endswith("below") else current >= threshold
         )
-    if condition == "state":
-        return state_matches(rule, marker, skills, target)
+    if condition in {"state", "stat"}:
+        return (
+            stat_matches(rule, save, target)
+            if condition == "stat"
+            else state_matches(rule, marker, skills, target)
+        )
     return False
 
 
 def target_resource(save, target, resource):
     """未初期化の敵の資源を推測しない。."""
-    if target == "player":
-        return getattr(save.run, resource), getattr(
-            save.run,
-            "maxHp" if resource == "hp" else "maxMp",
-        )
-    schedule = save.battle.schedule
-    if not schedule:
-        return None, None
-    return getattr(schedule, f"enemy_{resource}").get(target), getattr(
-        schedule,
-        f"enemy_max_{resource}",
-    ).get(target)
+    return resource_values(save, target, resource)
 
 
 def rule_targets(rule, save, catalog, skills):
     """対象未指定の旧条件だけは従来のプレイヤー判定を維持する。."""
     trigger = next((t for t in catalog.triggers if t.id == rule.trigger_id), None)
-    if trigger and (
-        trigger.target is not None
-        or (rule.trigger_variant_id and trigger.variant_field == "target")
+    if rule.condition == "stat" or (
+        trigger
+        and (
+            trigger.target is not None
+            or (rule.trigger_variant_id and trigger.variant_field == "target")
+        )
     ):
         targets = matching_targets(rule, save, skills)
         return bool(targets), targets
@@ -134,18 +129,25 @@ def matching_targets(rule, save, skills) -> list[str]:
     """味方には行動者本人を含める。現在の味方陣営はプレイヤー一人。."""
     marker = save.battle
     candidates = marker.enemies if rule.target == "enemy" else ["player"]
-    return [
-        target
-        for target in candidates
-        if (
-            (target == "player" and save.run.hp > 0)
-            or (
-                target != "player"
-                and (not marker.schedule or marker.schedule.enemy_hp.get(target, 0) > 0)
+    return order_targets(
+        rule,
+        save,
+        [
+            target
+            for target in candidates
+            if (
+                (target == "player" and save.run.hp > 0)
+                or (
+                    target != "player"
+                    and (
+                        not marker.schedule
+                        or marker.schedule.enemy_hp.get(target, 0) > 0
+                    )
+                )
             )
-        )
-        and condition_matches(rule, save, skills, target)
-    ]
+            and condition_matches(rule, save, skills, target)
+        ],
+    )
 
 
 def choose_action(
@@ -402,12 +404,17 @@ def effective_rule(rule: GambitRule, catalog: GameCatalog) -> GambitRule | None:
         rule.model_copy(
             update={
                 "condition": trigger.condition,
+                "stat": trigger.stat,
+                "stat_basis": trigger.stat_basis,
+                "comparison": trigger.comparison,
                 "state_present": trigger.state_present,
                 "state_skill_id": trigger.state_skill_id,
                 **({"target": trigger.target} if trigger.target else {}),
                 **(
                     {"threshold": trigger.threshold}
-                    if trigger.target is not None or rule.trigger_variant_id
+                    if trigger.condition == "stat"
+                    or trigger.target is not None
+                    or rule.trigger_variant_id
                     else {}
                 ),
             },

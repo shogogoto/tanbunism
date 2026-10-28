@@ -2,6 +2,7 @@
 
 from .catalog import StoredSkill, TriggerCondition, TriggerTarget
 from .gambits import BattleAction, can_receive, condition_matches, retarget_skill
+from .trigger_stats import order_targets
 
 
 class EnemyBattleRule(TriggerCondition):
@@ -65,5 +66,9 @@ def choose_enemy_action(save, enemy) -> BattleAction | None:
             > 0
         ]
         if targets:
-            return BattleAction(skill=skill, name=skill.name, target_ids=targets)
+            return BattleAction(
+                skill=skill,
+                name=skill.name,
+                target_ids=order_targets(rule, save, targets),
+            )
     return None

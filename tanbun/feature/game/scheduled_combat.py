@@ -111,6 +111,26 @@ def begin_scheduled_action(state, context) -> None:
         "player": run.speed,
         **{key: e.speed for key, e in enemies.items()},
     }
+    schedule.stat_bases = {
+        "player": equipped_stats(
+            state.save.allocation,
+            context.balance,
+            state.save.economy,
+        ),
+        **{
+            key: {
+                "attack": e.unmodified_attack
+                if e.unmodified_attack is not None
+                else e.attack,
+                "defense": e.defense,
+                "specialAttack": e.special_attack
+                if e.special_attack is not None
+                else e.attack,
+                "specialDefense": e.special_defense,
+            }
+            for key, e in enemies.items()
+        },
+    }
     sync_speed_effects(marker)
     actor = take_next(schedule)
     schedule.actor_id = actor
