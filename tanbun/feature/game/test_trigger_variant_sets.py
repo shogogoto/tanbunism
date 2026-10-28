@@ -46,13 +46,17 @@ def test_shared_candidates_resolve_without_copying_values_into_storage():
     assert all(t.variant("half").threshold == 50 for t in catalog.triggers)
     stored = catalog.stored_document()
     assert all(
-        "variants" not in t and "variant_field" not in t for t in stored["triggers"]
+        t["variant_set_ids"] == ["ratios"]
+        and t["variants"][0]["id"] == "half"
+        and "value" not in t["variants"][0]
+        and "resolved_values" not in t["variants"][0]
+        for t in stored["triggers"]
     )
     assert GameCatalog.model_validate(stored) == catalog
     stored["trigger_variant_sets"][0]["values"][0].update(name="七割", value=70)
     changed = GameCatalog.model_validate(stored)
     assert all(t.variant("half").threshold == 70 for t in changed.triggers)
-    assert all(t.variants[0].name == "七割" for t in changed.triggers)
+    assert all(t.variants[0].resolved_name == "七割" for t in changed.triggers)
     assert raw["trigger_variant_sets"][0]["values"][0]["value"] == 50
 
 

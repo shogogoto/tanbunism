@@ -21,8 +21,12 @@ from pydantic import (
 from .effect_chance import FULL_CHANCE
 from .template_variant_sets import (
     VariantField,
-    VariantSelection,
     VariantSet,
+)
+from .trigger_variants import apply_trigger_patch, resolve_trigger_variants
+from .variant_sets import (
+    VariantCandidate,
+    VariantSelection,
     attached_sets,
     selected_values,
 )
@@ -1351,12 +1355,35 @@ TriggerVariantField = Literal[
 ]
 
 
-class TriggerVariant(BaseModel):
+class TriggerVariantValue(VariantCandidate):
     """一つの条件項目を置き換える、副名付きの候補。."""
 
     id: DefinitionId
     name: str = Field(min_length=1, max_length=60)
     value: str | int | bool
+
+
+class TriggerVariant(TriggerVariantValue):
+    """親の変型を継承し、一項目か共有セットの候補を上書きする."""
+
+    value: str | int | bool | None = None
+    field: TriggerVariantField | None = None
+    child_field: TriggerVariantField | None = None
+    base_variant_id: DefinitionId | None = None
+    variant_set_ids: list[DefinitionId] = Field(default_factory=list, max_length=8)
+    variant_selections: list[VariantSelection] = Field(
+        default_factory=list,
+        max_length=8,
+    )
+    resolved_name: str | None = None
+    resolved_values: dict | None = None
+    effective_set_ids: list[DefinitionId] = Field(default_factory=list, max_length=8)
+
+    @model_serializer(mode="wrap")
+    def compact(self, handler):
+        """個別の旧候補には不要な派生情報を追加しない."""
+        values = handler(self)
+        return {k: v for k, v in values.items() if v is not None and v != []}
 
 
 class TriggerVariantSet(BaseModel):
@@ -1366,7 +1393,7 @@ class TriggerVariantSet(BaseModel):
     id: DefinitionId
     name: str = Field(min_length=1, max_length=80)
     field: TriggerVariantField = "threshold"
-    values: list[TriggerVariant] = Field(default_factory=list, max_length=40)
+    values: list[TriggerVariantValue] = Field(default_factory=list, max_length=40)
 
     @model_validator(mode="after")
     def valid_values(self):
@@ -1399,8 +1426,9 @@ class TriggerDefinition(TriggerCondition):
     # None preserves old definitions whose condition and action targets differed.
     target: TriggerTarget | None = None
     variant_field: TriggerVariantField = "threshold"
-    variants: list[TriggerVariant] = Field(default_factory=list, max_length=40)
+    variants: list[TriggerVariant] = Field(default_factory=list, max_length=200)
     variant_set_id: DefinitionId | None = None
+    variant_set_ids: list[DefinitionId] = Field(default_factory=list, max_length=8)
 
     @model_validator(mode="after")
     def valid_variants(self):
@@ -1412,8 +1440,19 @@ class TriggerDefinition(TriggerCondition):
             msg = "トリガーの変型IDが重複しています。"
             raise ValueError(msg)
         for variant in self.variants:
+            if variant.resolved_values is not None:
+                TriggerCondition.model_validate(variant.resolved_values)
+                if variant.resolved_values.get("target") not in {
+                    None,
+                    "enemy",
+                    "self",
+                    "ally",
+                } or not supported_trigger(variant.resolved_values):
+                    msg = "変型の条件または対象が不正です。"
+                    raise ValueError(msg)
+                continue
             value = variant.value
-            field = self.variant_field
+            field = variant.field or self.variant_field
             expected = {"threshold": int, "state_present": bool}.get(field, str)
             if type(value) is not expected:
                 msg = "トリガーの変型の値が不正です。"
@@ -1434,23 +1473,21 @@ class TriggerDefinition(TriggerCondition):
         candidate = next((v for v in self.variants if v.id == variant_id), None)
         if not candidate:
             return None
-        patch = {self.variant_field: candidate.value}
-        if self.variant_field in {
-            "stat",
-            "stat_basis",
-            "comparison",
-        } and self.condition.startswith(("hp_", "mp_")):
-            resource, comparison = self.condition.split("_")
-            patch = {
-                "condition": "stat",
-                "stat": resource,
-                "stat_basis": "percent",
-                "comparison": comparison,
-                **patch,
-            }
-            if patch["stat"] not in {"hp", "mp"}:
-                patch["stat_basis"] = "current"
-        return self.model_copy(update=patch)
+        patch = (
+            candidate.resolved_values
+            if candidate.resolved_values is not None
+            else apply_trigger_patch(
+                self.model_dump(),
+                {candidate.field or self.variant_field: candidate.value},
+            )
+        )
+        return self.model_copy(
+            update={
+                k: v
+                for k, v in patch.items()
+                if k in {*TriggerCondition.model_fields, "target"}
+            },
+        )
 
 
 class EnemyGambitRule(BaseModel):
@@ -1567,16 +1604,11 @@ class GameCatalog(BaseModel):
             trigger = (
                 raw.model_dump() if isinstance(raw, TriggerDefinition) else dict(raw)
             )
-            if identity := trigger.get("variant_set_id"):
-                shared = by_id.get(identity)
-                if shared is None:
-                    msg = "ガンビット変型セットが見つかりません。"
-                    raise ValueError(msg)
-                trigger.update(
-                    variant_field=shared.field,
-                    variants=[v.model_dump() for v in shared.values],
-                )
-            triggers.append(trigger)
+            condition = TriggerCondition.model_validate({
+                k: v for k, v in trigger.items() if k in TriggerCondition.model_fields
+            })
+            trigger = {**condition.model_dump(), "target": None, **trigger}
+            triggers.append(resolve_trigger_variants(trigger, by_id))
         return {**value, "triggers": triggers}
 
     @model_validator(mode="before")
@@ -1678,12 +1710,11 @@ class GameCatalog(BaseModel):
     def stored_document(self) -> dict:
         """参照スキルは共通値を複製せず、識別情報だけを保存する."""
         document = self.model_dump(mode="json")
-        document["triggers"] = [
-            {k: v for k, v in trigger.items() if k not in {"variants", "variant_field"}}
-            if trigger.get("variant_set_id")
-            else trigger
-            for trigger in document["triggers"]
-        ]
+        for trigger in document["triggers"]:
+            trigger.pop("variant_set_id", None)
+            for variant in trigger.get("variants", []):
+                for key in ("resolved_name", "resolved_values", "effective_set_ids"):
+                    variant.pop(key, None)
         document["skill_templates"] = [
             {
                 key: value

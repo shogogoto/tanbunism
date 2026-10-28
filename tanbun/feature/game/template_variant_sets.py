@@ -4,6 +4,10 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from .variant_sets import (
+    VariantCandidate,
+)
+
 Identity = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
 VariantField = Literal[
     "effect",
@@ -21,7 +25,7 @@ VariantField = Literal[
 ]
 
 
-class VariantValue(BaseModel):
+class VariantValue(VariantCandidate):
     """安定した識別子と副名を持つ一つの候補."""
 
     model_config = ConfigDict(extra="forbid")
@@ -46,53 +50,3 @@ class VariantSet(BaseModel):
             msg = "変型セットの候補IDが重複しています。"
             raise ValueError(msg)
         return self
-
-
-class VariantSelection(BaseModel):
-    """値を複製せず、使う候補を参照する."""
-
-    model_config = ConfigDict(extra="forbid")
-    set_id: Identity
-    value_id: Identity
-
-
-def attached_sets(template, sets):
-    """同じ項目を変更するセットは、上書き順に依存させず拒否する."""
-    ids = template.get("variant_set_ids", [])
-    if len(ids) != len(set(ids)) or any(identity not in sets for identity in ids):
-        msg = "変型セットの参照が重複しているか、見つかりません。"
-        raise ValueError(msg)
-    selected = [sets[identity] for identity in ids]
-    if len({s.field for s in selected}) != len(selected):
-        msg = "同じ項目を変更する変型セットは併用できません。"
-        raise ValueError(msg)
-    return selected
-
-
-def selected_values(base, template, sets):
-    """親に設定した順で候補を合成し、副名も同じ順に並べる."""
-    attached = attached_sets(base, sets)
-    selections = [
-        VariantSelection.model_validate(s)
-        for s in template.get("variant_selections", [])
-    ]
-    by_id = {s.set_id: s.value_id for s in selections}
-    if len(by_id) != len(selections) or set(by_id) - {s.id for s in attached}:
-        msg = (
-            "組み合わせの変型セットが重複しているか、テンプレートに設定されていません。"
-        )
-        raise ValueError(msg)
-    values, labels = {}, []
-    for variant_set in attached:
-        if variant_set.id not in by_id:
-            continue
-        candidate = next(
-            (v for v in variant_set.values if v.id == by_id[variant_set.id]),
-            None,
-        )
-        if candidate is None:
-            msg = "変型セットの候補が見つかりません。"
-            raise ValueError(msg)
-        values[variant_set.field] = candidate.value
-        labels.append(candidate.name)
-    return values, labels

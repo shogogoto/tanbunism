@@ -113,7 +113,9 @@ def gambit_products(catalog, *, include_disabled=False):
     return [
         Product(
             id=f"gambit:{key}",
-            name=f"{trigger.name}（{variant.name}）" if variant else trigger.name,  # noqa: RUF001
+            name=f"{trigger.name}（{variant.resolved_name or variant.name}）"  # noqa: RUF001
+            if variant
+            else trigger.name,
             kind="gambit",
             trigger_id=trigger.id,
             trigger_variant_id=variant.id if variant else None,
