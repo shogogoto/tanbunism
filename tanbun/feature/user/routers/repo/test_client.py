@@ -1,11 +1,13 @@
 """test."""
 
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from tanbun import config
 from tanbun.feature.user.routers import auth_router, user_router
 
 from .client import (
@@ -29,8 +31,13 @@ def client() -> TestClient:
 # def cred(client: TestClient) -> None:
 
 
-def test_crud_user(client: TestClient) -> None:
+def test_crud_user(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     """User CRUD flow."""
+    monkeypatch.setattr(config, "_F", tmp_path / "credentials.json")
     prefix = f"user-{uuid4()}"
     email = f"{prefix}@example.com"
     password = "password"  # noqa: S105

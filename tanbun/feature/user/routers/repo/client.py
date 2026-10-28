@@ -7,21 +7,11 @@ import httpx
 from pydantic import BaseModel
 
 from tanbun.config import LocalConfig
-from tanbun.config.env import Settings
+from tanbun.config.env import ClientSettings
 from tanbun.feature.user import PREFIX_USER
-from tanbun.feature.user.errors import TokenUnsavedError
+from tanbun.feature.user.client_auth import auth_header
 
-s = Settings()
-
-
-def auth_header() -> dict:
-    """認証リクエスト用ヘッダー."""
-    c = LocalConfig.load()
-    if not c.CREDENTIALS:
-        msg = "認証情報が取得できませんでした"
-        raise TokenUnsavedError(msg)
-    token = c.CREDENTIALS["access_token"]
-    return {"Authorization": f"Bearer {token}"}
+s = ClientSettings()
 
 
 class AuthPost(BaseModel):
@@ -51,6 +41,7 @@ def save_credential(login_res: httpx.Response) -> None:
     if login_res.is_success:
         c = LocalConfig.load()
         c.CREDENTIALS = login_res.json()
+        c.CREDENTIALS_URL = ClientSettings().KNOWDE_URL.rstrip("/")
         c.save()
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import click
@@ -17,14 +18,21 @@ def user_cli() -> None:
 
 
 @user_cli.command("google-sso")
-def sso_cmd() -> None:
+@click.option(
+    "--no-browser",
+    is_flag=True,
+    help="ブラウザを起動せずURLを表示。SSH利用時はこれを指定してください。",
+)
+@click.option(
+    "--token-file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="ブラウザのログイン結果JSONをファイルから読み込みます。",
+)
+def sso_cmd(*, no_browser: bool, token_file: Path | None) -> None:
     """Googleによるシングルサインオン."""
     from tanbun.feature.user.oauth.browse import browse_for_sso  # noqa: PLC0415
-    from tanbun.feature.user.routers.repo.client import AuthGet  # noqa: PLC0415
 
-    if browse_for_sso():
-        res = AuthGet().me()
-        echo_response(res, "Googleによるアカウント作成とログイン")
+    browse_for_sso(open_browser=not no_browser, token_file=token_file)
 
 
 @user_cli.command("register")

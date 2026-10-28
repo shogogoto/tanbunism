@@ -10,9 +10,6 @@ from fastapi_users.authentication import (
 )
 
 from tanbun.config.env import Settings
-from tanbun.feature.user.backend import get_cookie_transport, get_strategy
-
-s = Settings()
 
 
 class RedirectCookieAuthentication(AuthenticationBackend):
@@ -25,14 +22,20 @@ class RedirectCookieAuthentication(AuthenticationBackend):
         user: models.UP,
     ) -> Response:
         res = await super().login(strategy, user)
-        if s.FRONTEND_URL is not None:
+        settings = Settings()
+        if settings.FRONTEND_URL is not None:
             res.status_code = 303
-            res.headers["Location"] = s.FRONTEND_URL
+            res.headers["Location"] = settings.FRONTEND_URL
         return res
 
 
 def google_cookie_backend() -> AuthenticationBackend:
     """For fastapi-users."""
+    from tanbun.feature.user.backend import (  # noqa: PLC0415
+        get_cookie_transport,
+        get_strategy,
+    )
+
     return RedirectCookieAuthentication(
         name="cookie",
         transport=get_cookie_transport(),

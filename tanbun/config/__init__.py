@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Annotated, Final, Self
 
 from pydantic import BaseModel, Field, PlainSerializer
 from typing_extensions import TypedDict
 
-from tanbun.config.env import Settings
+from tanbun.config.env import ClientSettings
 
-s = Settings()
+s = ClientSettings()
 _F: Final = s.config_file
 
 
@@ -35,6 +36,7 @@ class LocalConfig(BaseModel):
     ] = None
 
     CREDENTIALS: Credential | None = None
+    CREDENTIALS_URL: str | None = None
 
     UPLOAD_HISTORY: dict[str, tuple[int, int]] = Field(default_factory=dict)
 
@@ -46,4 +48,7 @@ class LocalConfig(BaseModel):
 
     def save(self) -> None:
         """書き込み."""
-        _F.write_text(self.model_dump_json(indent=2))
+        descriptor = os.open(_F, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            os.fchmod(stream.fileno(), 0o600)
+            stream.write(self.model_dump_json(indent=2))

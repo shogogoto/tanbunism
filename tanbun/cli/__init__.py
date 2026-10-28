@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
+
 import click
 
 from tanbun.feature.entry.cli import anchor_cmd, sync_cmd
+from tanbun.feature.game.cli import game_cli
 from tanbun.feature.language_server.cli import lsp_cmd
 from tanbun.feature.parsing.check import check_cmd
 from tanbun.feature.user.cli import user_cli
@@ -28,12 +31,15 @@ def cli() -> None:
 def config_cmd() -> None:
     """設定内容の確認."""
     from tanbun.config import LocalConfig  # noqa: PLC0415
-    from tanbun.config.env import Settings  # noqa: PLC0415
+    from tanbun.config.env import ClientSettings  # noqa: PLC0415
 
-    s = Settings()
+    s = ClientSettings()
     click.echo(s.config_file)
     c = LocalConfig.load()
-    click.echo(c.model_dump_json(indent=2))
+    document = c.model_dump(mode="json")
+    if document.get("CREDENTIALS"):
+        document["CREDENTIALS"]["access_token"] = "<redacted>"  # noqa: S105
+    click.echo(json.dumps(document, ensure_ascii=False, indent=2))
 
 
 cli.add_command(view_cli)
@@ -42,6 +48,7 @@ cli.add_command(anchor_cmd)
 cli.add_command(sync_cmd)
 cli.add_command(lsp_cmd)
 cli.add_command(check_cmd)
+cli.add_command(game_cli)
 
 if __name__ == "__main__":
     cli()
