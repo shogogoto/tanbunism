@@ -1,0 +1,1241 @@
+{
+  "format": "tanbunism.game-settings",
+  "version": 1,
+  "catalog": {
+    "skill_templates": [
+      {
+        "id": "variety_strike",
+        "name": "打撃",
+        "target_count": 1,
+        "damage_type": "physical",
+        "effect": "attack",
+        "on_wrong": {
+          "type": "counter"
+        },
+        "amount": 0,
+        "amount_mode": "fixed",
+        "multiplier": 1
+      },
+      {
+        "id": "variety_heavy",
+        "name": "重撃",
+        "target_count": 1,
+        "damage_type": "physical",
+        "effect": "attack",
+        "on_wrong": {
+          "type": "counter"
+        },
+        "amount": 0,
+        "amount_mode": "fixed",
+        "multiplier": 1.35
+      },
+      {
+        "id": "variety_magic",
+        "name": "初級の属性魔法",
+        "target_count": 1,
+        "damage_type": "special",
+        "effect": "attack",
+        "on_wrong": {
+          "type": "fizzle"
+        },
+        "amount": 0,
+        "amount_mode": "fixed",
+        "multiplier": 1.2
+      },
+      {
+        "id": "variety_mend",
+        "name": "仲間の手当て",
+        "target_count": 1,
+        "damage_type": "physical",
+        "effect": "heal_hp",
+        "on_wrong": {
+          "type": "fizzle"
+        },
+        "amount": 30,
+        "amount_mode": "percent"
+      },
+      {
+        "id": "variety_guard",
+        "name": "守りの構え",
+        "target_count": 1,
+        "damage_type": "physical",
+        "effect": "buff",
+        "on_wrong": {
+          "type": "fizzle"
+        },
+        "stat": "defense",
+        "amount": 6,
+        "amount_mode": "fixed",
+        "duration_turns": 5,
+        "stack_limit": 1
+      },
+      {
+        "id": "variety_ward",
+        "name": "魔除け",
+        "target_count": 1,
+        "damage_type": "physical",
+        "effect": "buff",
+        "on_wrong": {
+          "type": "fizzle"
+        },
+        "stat": "specialDefense",
+        "amount": 8,
+        "amount_mode": "fixed",
+        "duration_turns": 5,
+        "stack_limit": 1
+      },
+      {
+        "id": "variety_haste",
+        "name": "加速",
+        "target_count": 1,
+        "damage_type": "physical",
+        "effect": "buff",
+        "on_wrong": {
+          "type": "fizzle"
+        },
+        "stat": "speed",
+        "amount": 30,
+        "amount_mode": "percent",
+        "duration_turns": 4,
+        "stack_limit": 1
+      },
+      {
+        "id": "variety_focus",
+        "name": "魔力集中",
+        "target_count": 1,
+        "damage_type": "physical",
+        "effect": "buff",
+        "on_wrong": {
+          "type": "fizzle"
+        },
+        "stat": "specialAttack",
+        "amount": 40,
+        "amount_mode": "percent",
+        "duration_turns": 4,
+        "stack_limit": 1
+      },
+      {
+        "id": "variety_poison",
+        "name": "毒",
+        "target_count": 1,
+        "damage_type": "physical",
+        "effect": "ailment",
+        "on_wrong": {
+          "type": "fizzle"
+        },
+        "ailment": "poison",
+        "amount": 3,
+        "amount_mode": "percent",
+        "duration_turns": 4,
+        "stack_limit": 1
+      },
+      {
+        "id": "variety_curse",
+        "name": "呪い",
+        "target_count": 1,
+        "damage_type": "physical",
+        "effect": "ailment",
+        "on_wrong": {
+          "type": "fizzle"
+        },
+        "ailment": "curse",
+        "amount": 1,
+        "amount_mode": "fixed",
+        "duration_turns": 3,
+        "stack_limit": 1
+      },
+      {
+        "id": "variety_regen",
+        "name": "再生",
+        "target_count": 1,
+        "damage_type": "physical",
+        "effect": "ailment",
+        "on_wrong": {
+          "type": "fizzle"
+        },
+        "ailment": "regen",
+        "amount": 5,
+        "amount_mode": "percent",
+        "duration_turns": 3,
+        "stack_limit": 1
+      },
+      {
+        "id": "variety_staff_attack",
+        "name": "杖の打撃補助",
+        "target_count": 1,
+        "damage_type": "physical",
+        "effect": "buff",
+        "on_wrong": {
+          "type": "fizzle"
+        },
+        "stat": "attack",
+        "amount": 4,
+        "amount_mode": "fixed",
+        "duration_turns": "infinite",
+        "stack_limit": 1
+      },
+      {
+        "id": "variety_staff_magic",
+        "name": "杖の魔力補助",
+        "target_count": 1,
+        "damage_type": "physical",
+        "effect": "buff",
+        "on_wrong": {
+          "type": "fizzle"
+        },
+        "stat": "specialAttack",
+        "amount": 12,
+        "amount_mode": "fixed",
+        "duration_turns": "infinite",
+        "stack_limit": 1
+      },
+      {
+        "id": "variety_shield_defense",
+        "name": "盾の物理防御",
+        "target_count": 1,
+        "damage_type": "physical",
+        "effect": "buff",
+        "on_wrong": {
+          "type": "fizzle"
+        },
+        "stat": "defense",
+        "amount": 8,
+        "amount_mode": "fixed",
+        "duration_turns": "infinite",
+        "stack_limit": 1
+      },
+      {
+        "id": "variety_shield_ward",
+        "name": "盾の特殊防御",
+        "target_count": 1,
+        "damage_type": "physical",
+        "effect": "buff",
+        "on_wrong": {
+          "type": "fizzle"
+        },
+        "stat": "specialDefense",
+        "amount": 8,
+        "amount_mode": "fixed",
+        "duration_turns": "infinite",
+        "stack_limit": 1
+      }
+    ],
+    "skills": [
+      {
+        "id": "variety_strike",
+        "name": "打撃",
+        "enabled": true,
+        "mp_cost": 0,
+        "template_ids": [
+          "variety_strike"
+        ],
+        "effect_chances": {},
+        "element": "none",
+        "sound": "auto",
+        "animation": "impact"
+      },
+      {
+        "id": "variety_heavy",
+        "name": "叩きつけ",
+        "enabled": true,
+        "mp_cost": 2,
+        "template_ids": [
+          "variety_heavy"
+        ],
+        "effect_chances": {},
+        "element": "none",
+        "sound": "auto",
+        "animation": "slash"
+      },
+      {
+        "id": "variety_firebolt",
+        "name": "火の矢",
+        "enabled": true,
+        "mp_cost": 3,
+        "template_ids": [
+          "variety_magic"
+        ],
+        "effect_chances": {},
+        "element": "fire",
+        "sound": "auto",
+        "animation": "willo_fire_impact"
+      },
+      {
+        "id": "variety_icebolt",
+        "name": "アイス",
+        "enabled": true,
+        "mp_cost": 3,
+        "template_ids": [
+          "variety_magic"
+        ],
+        "effect_chances": {},
+        "element": "ice",
+        "sound": "auto",
+        "animation": "willo_ice_shatter"
+      },
+      {
+        "id": "variety_thunderbolt",
+        "name": "サンダー",
+        "enabled": true,
+        "mp_cost": 3,
+        "template_ids": [
+          "variety_magic"
+        ],
+        "effect_chances": {},
+        "element": "lightning",
+        "sound": "auto",
+        "animation": "willo_zap"
+      },
+      {
+        "id": "variety_mend",
+        "name": "手当て",
+        "enabled": true,
+        "mp_cost": 4,
+        "template_ids": [
+          "variety_mend"
+        ],
+        "effect_chances": {},
+        "element": "none",
+        "sound": "auto",
+        "animation": "willo_heal"
+      },
+      {
+        "id": "variety_guard",
+        "name": "守りの構え",
+        "enabled": true,
+        "mp_cost": 3,
+        "template_ids": [
+          "variety_guard"
+        ],
+        "effect_chances": {},
+        "element": "none",
+        "sound": "auto",
+        "animation": "mochi_status_shield"
+      },
+      {
+        "id": "variety_ward",
+        "name": "魔除け",
+        "enabled": true,
+        "mp_cost": 3,
+        "template_ids": [
+          "variety_ward"
+        ],
+        "effect_chances": {},
+        "element": "none",
+        "sound": "auto",
+        "animation": "mochi_status_shield"
+      },
+      {
+        "id": "variety_haste",
+        "name": "加速",
+        "enabled": true,
+        "mp_cost": 3,
+        "template_ids": [
+          "variety_haste"
+        ],
+        "effect_chances": {},
+        "element": "none",
+        "sound": "auto",
+        "animation": "mochi_status_speed"
+      },
+      {
+        "id": "variety_focus",
+        "name": "魔力集中",
+        "enabled": true,
+        "mp_cost": 3,
+        "template_ids": [
+          "variety_focus"
+        ],
+        "effect_chances": {},
+        "element": "none",
+        "sound": "auto",
+        "animation": "mochi_status_buff"
+      },
+      {
+        "id": "variety_poison",
+        "name": "毒霧",
+        "enabled": true,
+        "mp_cost": 3,
+        "template_ids": [
+          "variety_poison"
+        ],
+        "effect_chances": {
+          "variety_poison": 75
+        },
+        "element": "none",
+        "sound": "auto",
+        "animation": "poison"
+      },
+      {
+        "id": "variety_venom_fang",
+        "name": "毒の牙",
+        "enabled": true,
+        "mp_cost": 2,
+        "template_ids": [
+          "variety_strike",
+          "variety_poison"
+        ],
+        "effect_chances": {
+          "variety_poison": 40
+        },
+        "element": "none",
+        "sound": "auto",
+        "animation": "impact"
+      },
+      {
+        "id": "variety_curse",
+        "name": "呪縛",
+        "enabled": true,
+        "mp_cost": 3,
+        "template_ids": [
+          "variety_curse"
+        ],
+        "effect_chances": {
+          "variety_curse": 75
+        },
+        "element": "dark",
+        "sound": "auto",
+        "animation": "mochi_status_curse"
+      },
+      {
+        "id": "variety_regen",
+        "name": "再生",
+        "enabled": true,
+        "mp_cost": 4,
+        "template_ids": [
+          "variety_regen"
+        ],
+        "effect_chances": {},
+        "element": "none",
+        "sound": "auto",
+        "animation": "mochi_status_heal"
+      },
+      {
+        "id": "variety_staff",
+        "name": "魔導杖の装備効果",
+        "enabled": true,
+        "mp_cost": 0,
+        "template_ids": [
+          "variety_staff_attack",
+          "variety_staff_magic"
+        ],
+        "effect_chances": {},
+        "element": "none",
+        "sound": "auto",
+        "animation": "none"
+      },
+      {
+        "id": "variety_shield",
+        "name": "魔除けの盾の装備効果",
+        "enabled": true,
+        "mp_cost": 0,
+        "template_ids": [
+          "variety_shield_defense",
+          "variety_shield_ward"
+        ],
+        "effect_chances": {},
+        "element": "none",
+        "sound": "auto",
+        "animation": "none"
+      }
+    ],
+    "items": [
+      {
+        "id": "variety_staff",
+        "name": "魔導杖",
+        "icon": "crawl_staff",
+        "enabled": true,
+        "skill_id": "variety_staff",
+        "kind": "weapon",
+        "max_uses": 30
+      },
+      {
+        "id": "variety_shield",
+        "name": "魔除けの盾",
+        "icon": "crawl_shield",
+        "enabled": true,
+        "skill_id": "variety_shield",
+        "kind": "weapon",
+        "max_uses": 30
+      },
+      {
+        "id": "variety_ice_scroll",
+        "name": "氷結の巻物",
+        "icon": "crawl_scroll",
+        "enabled": true,
+        "skill_id": "variety_icebolt",
+        "kind": "consumable",
+        "max_uses": 5
+      },
+      {
+        "id": "variety_thunder_scroll",
+        "name": "雷撃の巻物",
+        "icon": "crawl_scroll",
+        "enabled": true,
+        "skill_id": "variety_thunderbolt",
+        "kind": "consumable",
+        "max_uses": 5
+      },
+      {
+        "id": "variety_guard_scroll",
+        "name": "守りの巻物",
+        "icon": "crawl_scroll",
+        "enabled": true,
+        "skill_id": "variety_guard",
+        "kind": "consumable",
+        "max_uses": 1
+      },
+      {
+        "id": "variety_ward_scroll",
+        "name": "魔除けの巻物",
+        "icon": "crawl_scroll",
+        "enabled": true,
+        "skill_id": "variety_ward",
+        "kind": "consumable",
+        "max_uses": 1
+      },
+      {
+        "id": "variety_regen_scroll",
+        "name": "再生の巻物",
+        "icon": "crawl_scroll",
+        "enabled": true,
+        "skill_id": "variety_regen",
+        "kind": "consumable",
+        "max_uses": 1
+      },
+      {
+        "id": "variety_haste_scroll",
+        "name": "加速の巻物",
+        "icon": "crawl_scroll",
+        "enabled": true,
+        "skill_id": "variety_haste",
+        "kind": "consumable",
+        "max_uses": 1
+      }
+    ],
+    "shop": [
+      {
+        "item_id": "variety_staff",
+        "price": 180,
+        "enabled": true
+      },
+      {
+        "item_id": "variety_shield",
+        "price": 160,
+        "enabled": true
+      },
+      {
+        "item_id": "variety_ice_scroll",
+        "price": 60,
+        "enabled": true
+      },
+      {
+        "item_id": "variety_thunder_scroll",
+        "price": 60,
+        "enabled": true
+      },
+      {
+        "item_id": "variety_guard_scroll",
+        "price": 40,
+        "enabled": true
+      },
+      {
+        "item_id": "variety_ward_scroll",
+        "price": 40,
+        "enabled": true
+      },
+      {
+        "item_id": "variety_regen_scroll",
+        "price": 50,
+        "enabled": true
+      },
+      {
+        "item_id": "variety_haste_scroll",
+        "price": 60,
+        "enabled": true
+      },
+      {
+        "trigger_id": "variety_ally_hurt",
+        "price": 30,
+        "enabled": true
+      },
+      {
+        "trigger_id": "variety_self_hurt",
+        "price": 20,
+        "enabled": true
+      },
+      {
+        "trigger_id": "variety_self_mp_low",
+        "price": 20,
+        "enabled": true
+      },
+      {
+        "trigger_id": "variety_guard_absent",
+        "price": 30,
+        "enabled": true
+      },
+      {
+        "trigger_id": "variety_ward_absent",
+        "price": 30,
+        "enabled": true
+      },
+      {
+        "trigger_id": "variety_regen_absent",
+        "price": 30,
+        "enabled": true
+      },
+      {
+        "trigger_id": "variety_enemy_mp_high",
+        "price": 50,
+        "enabled": true
+      },
+      {
+        "trigger_id": "variety_enemy_hp_low",
+        "price": 30,
+        "enabled": true
+      },
+      {
+        "trigger_id": "variety_enemy_magic_guard_low",
+        "price": 40,
+        "enabled": true
+      }
+    ],
+    "triggers": [
+      {
+        "id": "variety_enemy",
+        "name": "敵：いつでも",
+        "enabled": true,
+        "target": "enemy",
+        "condition": "always"
+      },
+      {
+        "id": "variety_ally_hurt",
+        "name": "味方：HP65%未満",
+        "enabled": true,
+        "target": "ally",
+        "condition": "hp_below",
+        "threshold": 65
+      },
+      {
+        "id": "variety_self_hurt",
+        "name": "自分：HP40%未満",
+        "enabled": true,
+        "target": "self",
+        "condition": "hp_below",
+        "threshold": 40
+      },
+      {
+        "id": "variety_self_mp_low",
+        "name": "自分：MP30%未満",
+        "enabled": true,
+        "target": "self",
+        "condition": "mp_below",
+        "threshold": 30
+      },
+      {
+        "id": "variety_guard_absent",
+        "name": "自分：守りの構えなし",
+        "enabled": true,
+        "target": "self",
+        "condition": "state",
+        "state_skill_id": "variety_guard",
+        "state_present": false
+      },
+      {
+        "id": "variety_ward_absent",
+        "name": "自分：魔除けなし",
+        "enabled": true,
+        "target": "self",
+        "condition": "state",
+        "state_skill_id": "variety_ward",
+        "state_present": false
+      },
+      {
+        "id": "variety_focus_absent",
+        "name": "自分：魔力集中なし",
+        "enabled": true,
+        "target": "self",
+        "condition": "state",
+        "state_skill_id": "variety_focus",
+        "state_present": false
+      },
+      {
+        "id": "variety_regen_absent",
+        "name": "自分：再生なし",
+        "enabled": true,
+        "target": "self",
+        "condition": "state",
+        "state_skill_id": "variety_regen",
+        "state_present": false
+      },
+      {
+        "id": "variety_ally_haste_absent",
+        "name": "味方：加速なし",
+        "enabled": true,
+        "target": "ally",
+        "condition": "state",
+        "state_skill_id": "variety_haste",
+        "state_present": false
+      },
+      {
+        "id": "variety_enemy_poison_absent",
+        "name": "敵：毒なし",
+        "enabled": true,
+        "target": "enemy",
+        "condition": "state",
+        "state_skill_id": "variety_poison",
+        "state_present": false
+      },
+      {
+        "id": "variety_enemy_curse_absent",
+        "name": "敵：呪いなし",
+        "enabled": true,
+        "target": "enemy",
+        "condition": "state",
+        "state_skill_id": "variety_curse",
+        "state_present": false
+      },
+      {
+        "id": "variety_enemy_mp_high",
+        "name": "敵：MPが高い順",
+        "enabled": true,
+        "target": "enemy",
+        "condition": "stat",
+        "stat": "mp",
+        "stat_basis": "current",
+        "comparison": "highest"
+      },
+      {
+        "id": "variety_enemy_hp_low",
+        "name": "敵：HP割合が低い順",
+        "enabled": true,
+        "target": "enemy",
+        "condition": "stat",
+        "stat": "hp",
+        "stat_basis": "percent",
+        "comparison": "lowest"
+      },
+      {
+        "id": "variety_enemy_magic_guard_low",
+        "name": "敵：特守が低い順",
+        "enabled": true,
+        "target": "enemy",
+        "condition": "stat",
+        "stat": "special_defense",
+        "stat_basis": "current",
+        "comparison": "lowest"
+      }
+    ],
+    "enemies": [
+      {
+        "id": "ghost",
+        "name": "氷霧のゴースト",
+        "icon": "crawl_wraith",
+        "enabled": true,
+        "boss": false,
+        "speed": null,
+        "multipliers": {
+          "hp": 0.85,
+          "mp": 1.4,
+          "attack": 0.6,
+          "defense": 0.5,
+          "special_attack": 1.15,
+          "special_defense": 1.4,
+          "speed": 1.1
+        },
+        "attack_skill_id": null,
+        "on_hit_skill_id": null,
+        "gambits": [
+          {
+            "trigger_id": "variety_enemy",
+            "skill_id": "variety_icebolt",
+            "enabled": true
+          },
+          {
+            "trigger_id": "variety_enemy",
+            "skill_id": "variety_strike",
+            "enabled": true
+          }
+        ],
+        "weaknesses": [
+          "fire"
+        ],
+        "resistances": [
+          "ice"
+        ]
+      },
+      {
+        "id": "bug",
+        "name": "毒針虫",
+        "icon": "crawl_scorpion",
+        "enabled": true,
+        "boss": false,
+        "speed": null,
+        "multipliers": {
+          "hp": 0.8,
+          "mp": 0.8,
+          "attack": 0.8,
+          "defense": 0.7,
+          "special_attack": 0.6,
+          "special_defense": 0.65,
+          "speed": 1.2
+        },
+        "attack_skill_id": null,
+        "on_hit_skill_id": null,
+        "gambits": [
+          {
+            "trigger_id": "variety_enemy_poison_absent",
+            "skill_id": "variety_venom_fang",
+            "enabled": true
+          },
+          {
+            "trigger_id": "variety_enemy",
+            "skill_id": "variety_strike",
+            "enabled": true
+          }
+        ],
+        "weaknesses": [
+          "fire"
+        ],
+        "resistances": []
+      },
+      {
+        "id": "skull",
+        "name": "重装スケルトン",
+        "icon": "crawl_mummy",
+        "enabled": true,
+        "boss": false,
+        "speed": null,
+        "multipliers": {
+          "hp": 1.3,
+          "mp": 0.6,
+          "attack": 1,
+          "defense": 4,
+          "special_attack": 0.5,
+          "special_defense": 0.45,
+          "speed": 0.7
+        },
+        "attack_skill_id": null,
+        "on_hit_skill_id": null,
+        "gambits": [
+          {
+            "trigger_id": "variety_guard_absent",
+            "skill_id": "variety_guard",
+            "enabled": true
+          },
+          {
+            "trigger_id": "variety_enemy",
+            "skill_id": "variety_strike",
+            "enabled": true
+          }
+        ],
+        "weaknesses": [
+          "fire",
+          "light"
+        ],
+        "resistances": [
+          "dark"
+        ]
+      },
+      {
+        "id": "enemie_8e0fe471d6b5",
+        "name": "鉄殻かたつむり",
+        "icon": "snail",
+        "enabled": true,
+        "boss": false,
+        "speed": null,
+        "multipliers": {
+          "hp": 1.2,
+          "mp": 0.4,
+          "attack": 0.8,
+          "defense": 5,
+          "special_attack": 0.5,
+          "special_defense": 0.5,
+          "speed": 0.5
+        },
+        "attack_skill_id": null,
+        "on_hit_skill_id": null,
+        "gambits": [
+          {
+            "trigger_id": "variety_guard_absent",
+            "skill_id": "variety_guard",
+            "enabled": true
+          },
+          {
+            "trigger_id": "variety_enemy",
+            "skill_id": "variety_strike",
+            "enabled": true
+          }
+        ],
+        "weaknesses": [
+          "lightning"
+        ],
+        "resistances": [
+          "ice"
+        ]
+      },
+      {
+        "id": "variety_ink_slime",
+        "name": "呪墨スライム",
+        "icon": "art_ink_slime",
+        "enabled": true,
+        "boss": false,
+        "speed": null,
+        "multipliers": {
+          "hp": 1.05,
+          "mp": 1.2,
+          "attack": 0.65,
+          "defense": 0.75,
+          "special_attack": 0.8,
+          "special_defense": 1.1,
+          "speed": 0.85
+        },
+        "attack_skill_id": null,
+        "on_hit_skill_id": null,
+        "gambits": [
+          {
+            "trigger_id": "variety_enemy_curse_absent",
+            "skill_id": "variety_curse",
+            "enabled": true
+          },
+          {
+            "trigger_id": "variety_enemy",
+            "skill_id": "variety_strike",
+            "enabled": true
+          }
+        ],
+        "weaknesses": [
+          "lightning",
+          "light"
+        ],
+        "resistances": [
+          "dark"
+        ]
+      },
+      {
+        "id": "variety_owl_mender",
+        "name": "癒しのフクロウ",
+        "icon": "art_owl_mage",
+        "enabled": true,
+        "boss": false,
+        "speed": null,
+        "multipliers": {
+          "hp": 0.75,
+          "mp": 1.6,
+          "attack": 0.45,
+          "defense": 0.6,
+          "special_attack": 0.8,
+          "special_defense": 0.9,
+          "speed": 1
+        },
+        "attack_skill_id": null,
+        "on_hit_skill_id": null,
+        "gambits": [
+          {
+            "trigger_id": "variety_ally_hurt",
+            "skill_id": "variety_mend",
+            "enabled": true
+          },
+          {
+            "trigger_id": "variety_enemy",
+            "skill_id": "variety_strike",
+            "enabled": true
+          }
+        ],
+        "weaknesses": [
+          "lightning"
+        ],
+        "resistances": []
+      },
+      {
+        "id": "variety_orc_mage",
+        "name": "火術師オーク",
+        "icon": "crawl_orc_wizard",
+        "enabled": true,
+        "boss": false,
+        "speed": null,
+        "multipliers": {
+          "hp": 0.9,
+          "mp": 1.4,
+          "attack": 0.65,
+          "defense": 0.65,
+          "special_attack": 1.2,
+          "special_defense": 1.1,
+          "speed": 0.9
+        },
+        "attack_skill_id": null,
+        "on_hit_skill_id": null,
+        "gambits": [
+          {
+            "trigger_id": "variety_focus_absent",
+            "skill_id": "variety_focus",
+            "enabled": true
+          },
+          {
+            "trigger_id": "variety_enemy",
+            "skill_id": "variety_firebolt",
+            "enabled": true
+          },
+          {
+            "trigger_id": "variety_enemy",
+            "skill_id": "variety_strike",
+            "enabled": true
+          }
+        ],
+        "weaknesses": [
+          "ice"
+        ],
+        "resistances": [
+          "fire"
+        ]
+      },
+      {
+        "id": "variety_goblin_shaman",
+        "name": "鼓舞するゴブリン",
+        "icon": "crawl_goblin",
+        "enabled": true,
+        "boss": false,
+        "speed": null,
+        "multipliers": {
+          "hp": 0.8,
+          "mp": 1.2,
+          "attack": 0.6,
+          "defense": 0.75,
+          "special_attack": 0.6,
+          "special_defense": 0.8,
+          "speed": 1.15
+        },
+        "attack_skill_id": null,
+        "on_hit_skill_id": null,
+        "gambits": [
+          {
+            "trigger_id": "variety_ally_haste_absent",
+            "skill_id": "variety_haste",
+            "enabled": true
+          },
+          {
+            "trigger_id": "variety_enemy",
+            "skill_id": "variety_strike",
+            "enabled": true
+          }
+        ],
+        "weaknesses": [
+          "ice"
+        ],
+        "resistances": []
+      },
+      {
+        "id": "variety_wolf",
+        "name": "疾風狼",
+        "icon": "crawl_wolf",
+        "enabled": true,
+        "boss": false,
+        "speed": null,
+        "multipliers": {
+          "hp": 0.75,
+          "mp": 0.5,
+          "attack": 0.85,
+          "defense": 0.6,
+          "special_attack": 0.5,
+          "special_defense": 0.7,
+          "speed": 1.6
+        },
+        "attack_skill_id": null,
+        "on_hit_skill_id": null,
+        "gambits": [
+          {
+            "trigger_id": "variety_enemy",
+            "skill_id": "variety_strike",
+            "enabled": true
+          }
+        ],
+        "weaknesses": [
+          "ice"
+        ],
+        "resistances": []
+      },
+      {
+        "id": "variety_mimic",
+        "name": "巻物ミミック",
+        "icon": "art_scroll_mimic",
+        "enabled": true,
+        "boss": false,
+        "speed": null,
+        "multipliers": {
+          "hp": 1.1,
+          "mp": 0.6,
+          "attack": 1.2,
+          "defense": 1.8,
+          "special_attack": 0.5,
+          "special_defense": 0.65,
+          "speed": 0.75
+        },
+        "attack_skill_id": null,
+        "on_hit_skill_id": null,
+        "gambits": [
+          {
+            "trigger_id": "variety_enemy",
+            "skill_id": "variety_heavy",
+            "enabled": true
+          },
+          {
+            "trigger_id": "variety_enemy",
+            "skill_id": "variety_strike",
+            "enabled": true
+          }
+        ],
+        "weaknesses": [
+          "fire"
+        ],
+        "resistances": []
+      },
+      {
+        "id": "boss",
+        "name": "書庫の守護ゴーレム",
+        "icon": "art_archive_golem",
+        "enabled": true,
+        "boss": true,
+        "speed": null,
+        "multipliers": {
+          "hp": 3,
+          "mp": 1.2,
+          "attack": 1.15,
+          "defense": 4,
+          "special_attack": 0.6,
+          "special_defense": 0.65,
+          "speed": 0.7
+        },
+        "attack_skill_id": null,
+        "on_hit_skill_id": null,
+        "gambits": [
+          {
+            "trigger_id": "variety_guard_absent",
+            "skill_id": "variety_guard",
+            "enabled": true
+          },
+          {
+            "trigger_id": "variety_enemy",
+            "skill_id": "variety_heavy",
+            "enabled": true
+          },
+          {
+            "trigger_id": "variety_enemy",
+            "skill_id": "variety_strike",
+            "enabled": true
+          }
+        ],
+        "weaknesses": [
+          "lightning"
+        ],
+        "resistances": [
+          "earth"
+        ]
+      },
+      {
+        "id": "variety_crystal_dragon",
+        "name": "水晶竜",
+        "icon": "art_crystal_dragon",
+        "enabled": true,
+        "boss": true,
+        "speed": null,
+        "multipliers": {
+          "hp": 2.7,
+          "mp": 1.8,
+          "attack": 0.75,
+          "defense": 1.2,
+          "special_attack": 1.4,
+          "special_defense": 1.4,
+          "speed": 1.05
+        },
+        "attack_skill_id": null,
+        "on_hit_skill_id": null,
+        "gambits": [
+          {
+            "trigger_id": "variety_ward_absent",
+            "skill_id": "variety_ward",
+            "enabled": true
+          },
+          {
+            "trigger_id": "variety_enemy",
+            "skill_id": "variety_icebolt",
+            "enabled": true
+          },
+          {
+            "trigger_id": "variety_enemy",
+            "skill_id": "variety_strike",
+            "enabled": true
+          }
+        ],
+        "weaknesses": [
+          "fire"
+        ],
+        "resistances": [
+          "ice",
+          "water"
+        ]
+      },
+      {
+        "id": "variety_ancient_treant",
+        "name": "古樹の守護者",
+        "icon": "art_ancient_treant",
+        "enabled": true,
+        "boss": true,
+        "speed": null,
+        "multipliers": {
+          "hp": 3,
+          "mp": 1.6,
+          "attack": 1,
+          "defense": 1.8,
+          "special_attack": 0.8,
+          "special_defense": 0.85,
+          "speed": 0.65
+        },
+        "attack_skill_id": null,
+        "on_hit_skill_id": null,
+        "gambits": [
+          {
+            "trigger_id": "variety_regen_absent",
+            "skill_id": "variety_regen",
+            "enabled": true
+          },
+          {
+            "trigger_id": "variety_self_hurt",
+            "skill_id": "variety_mend",
+            "enabled": true
+          },
+          {
+            "trigger_id": "variety_enemy",
+            "skill_id": "variety_heavy",
+            "enabled": true
+          },
+          {
+            "trigger_id": "variety_enemy",
+            "skill_id": "variety_strike",
+            "enabled": true
+          }
+        ],
+        "weaknesses": [
+          "fire"
+        ],
+        "resistances": [
+          "earth",
+          "water"
+        ]
+      }
+    ],
+    "player_skills": [
+      {
+        "skill_id": "variety_icebolt",
+        "enabled": true
+      },
+      {
+        "skill_id": "variety_thunderbolt",
+        "enabled": true
+      }
+    ]
+  },
+  "balance": {
+    "chest_gold": 60,
+    "chest_healing_potions": 1
+  }
+}
