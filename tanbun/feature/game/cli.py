@@ -6,11 +6,6 @@ from pathlib import Path
 from uuid import uuid4
 
 import click
-import httpx
-
-from tanbun.config.env import ClientSettings
-from tanbun.feature.user.client_auth import auth_header
-from tanbun.feature.user.errors import TokenUnsavedError
 
 MAX_FILE_BYTES = 5 * 1024 * 1024
 SETTINGS_PATH = "/admin/game/settings-file"
@@ -18,6 +13,12 @@ SETTINGS_PATH = "/admin/game/settings-file"
 
 def request_settings(method: str, suffix: str = "", body=None) -> dict:
     """認証済みAPIだけを利用し、書き込みの自動再試行はしない."""
+    import httpx  # noqa: PLC0415
+
+    from tanbun.config.env import ClientSettings  # noqa: PLC0415
+    from tanbun.feature.user.client_auth import auth_header  # noqa: PLC0415
+    from tanbun.feature.user.errors import TokenUnsavedError  # noqa: PLC0415
+
     try:
         headers = auth_header()
     except TokenUnsavedError as error:
@@ -84,6 +85,13 @@ def game_cli():
     """管理者用ゲーム設定JSON。接続先はKNOWDE_URL、認証はtb userと共通."""
 
 
+def api_target() -> str:
+    """設定のロードは実行時だけ行い、補完やhelpでは行わない."""
+    from tanbun.config.env import ClientSettings  # noqa: PLC0415
+
+    return ClientSettings().KNOWDE_URL
+
+
 @game_cli.command("export")
 @click.option(
     "-o",
@@ -93,7 +101,7 @@ def game_cli():
 )
 def export_cmd(output: Path | None):
     """保存済みのゲーム設定全体を書き出す。読み取りのみ."""
-    click.echo(f"接続先: {ClientSettings().KNOWDE_URL}", err=True)
+    click.echo(f"接続先: {api_target()}", err=True)
     document = request_settings("GET")
     if output:
         write_document(output, document)
@@ -122,7 +130,7 @@ def export_cmd(output: Path | None):
 )
 def import_cmd(file: Path, backup: Path | None, *, dry_run: bool, yes: bool):
     """JSONを検証し、バックアップ後にAPIから一括反映する."""
-    click.echo(f"接続先: {ClientSettings().KNOWDE_URL}")
+    click.echo(f"接続先: {api_target()}")
     try:
         if file.stat().st_size > MAX_FILE_BYTES:
             msg = "JSONファイルは5MB以下にしてください。"

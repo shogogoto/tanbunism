@@ -9,6 +9,7 @@ import httpx
 import pytest
 from click.testing import CliRunner
 
+from tanbun.feature.user import client_auth
 from tanbun.feature.user.errors import TokenUnsavedError
 
 from . import cli
@@ -28,7 +29,7 @@ def api(monkeypatch):
     """ネットワークをモックし、認証付きのリクエストと送信順だけを記録する."""
     monkeypatch.setenv("KNOWDE_URL", "https://api.example.test")
     monkeypatch.setattr(
-        cli,
+        client_auth,
         "auth_header",
         lambda: {"Authorization": "Bearer cli-test"},
     )
@@ -47,7 +48,7 @@ def api(monkeypatch):
             return httpx.Response(200, json=AFTER)
         return httpx.Response(200, json=AFTER if state["saved"] else BEFORE)
 
-    monkeypatch.setattr(cli.httpx, "request", request)
+    monkeypatch.setattr(httpx, "request", request)
     return state
 
 
@@ -139,7 +140,7 @@ def test_existing_backup_blocks_apply(api, source):
 def test_api_errors_are_nonzero_and_do_not_print_credentials(api, monkeypatch, status):
     """権限や競合エラーを成功扱いにしない."""
     monkeypatch.setattr(
-        cli.httpx,
+        httpx,
         "request",
         lambda *_args, **_kwargs: httpx.Response(
             status,
@@ -166,7 +167,7 @@ def test_missing_credentials_gives_login_guidance(api, monkeypatch):
         msg = "not logged in"
         raise TokenUnsavedError(msg)
 
-    monkeypatch.setattr(cli, "auth_header", missing)
+    monkeypatch.setattr(client_auth, "auth_header", missing)
     result = CliRunner().invoke(cli.game_cli, ["export"])
     assert result.exit_code == 1
     assert "google-sso --no-browser" in result.output
@@ -175,7 +176,7 @@ def test_missing_credentials_gives_login_guidance(api, monkeypatch):
 
 def test_ambiguous_put_failure_is_not_retried(api, source, monkeypatch):
     """タイムアウト後は勝手に再送せず、退避ファイルを残す."""
-    request = cli.httpx.request
+    request = httpx.request
 
     def timeout(method, url, **kwargs):
         if method == "PUT":
@@ -184,7 +185,7 @@ def test_ambiguous_put_failure_is_not_retried(api, source, monkeypatch):
             raise httpx.ReadTimeout(msg)
         return request(method, url, **kwargs)
 
-    monkeypatch.setattr(cli.httpx, "request", timeout)
+    monkeypatch.setattr(httpx, "request", timeout)
     result = CliRunner().invoke(cli.game_cli, ["import", str(source), "--yes"])
     assert result.exit_code == 1
     assert "再実行せず" in result.output

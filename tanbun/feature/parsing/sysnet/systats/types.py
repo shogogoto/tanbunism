@@ -1,23 +1,5 @@
-"""型を独立 for CLI高速化."""
+"""既存のimport先を維持する、統計用の軽量型の再公開."""
 
-from enum import StrEnum
-from typing import NamedTuple
+from tanbun.feature.parsing.stat_types import Nw1N1Label, Nw1N1Recursive
 
-
-class Nw1N1Label(StrEnum):
-    """文脈タイプ."""
-
-    DETAIL = "detail"
-    REFER = "refer"
-    REFERRED = "referred"
-    PREMISE = "premise"
-    CONCLUSION = "conclusion"
-    EXAMPLE = "example"
-    GENERAL = "general"
-
-
-class Nw1N1Recursive(NamedTuple):
-    """どのlabelで何回再帰的に返すか."""
-
-    label: Nw1N1Label
-    n_rec: int
+__all__ = ["Nw1N1Label", "Nw1N1Recursive"]

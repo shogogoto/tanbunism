@@ -8,7 +8,7 @@ from typing import IO, TYPE_CHECKING
 import click
 from tabulate import tabulate
 
-from tanbun.feature.parsing.sysnet.systats.types import Nw1N1Label
+from tanbun.feature.parsing.stat_types import Nw1N1Label
 
 if TYPE_CHECKING:
     from tanbun.feature.parsing.sysnet.systats.nw1_n1.scorable import NRecursiveWeight

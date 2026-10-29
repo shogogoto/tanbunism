@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
-from tanbun.feature.parsing.check.domain import inspect_document
-from tanbun.feature.parsing.issue import ParseIssue, ParseIssueSeverity
+if TYPE_CHECKING:
+    from tanbun.feature.parsing.issue import ParseIssue
 
 DEFAULT_EXTENSIONS = ("tb", "kn")
 
@@ -40,6 +41,8 @@ def check_cmd(
     verbose: bool,
 ) -> None:
     """PATHのTanbun文書をDBへ接続せず検査する."""
+    from tanbun.feature.parsing.check.domain import inspect_document  # noqa: PLC0415
+
     files = list(_iter_files(path, extensions))
     error_count = 0
     warning_count = 0
@@ -105,6 +108,8 @@ def _display_path(source_path: Path, root: Path) -> Path:
 
 
 def _echo_issue(path: Path, text: str, issue: ParseIssue) -> None:
+    from tanbun.feature.parsing.issue import ParseIssueSeverity  # noqa: PLC0415
+
     source_range = issue.source_range
     line_number = source_range.line + 1
     column_number = source_range.start_character + 1
