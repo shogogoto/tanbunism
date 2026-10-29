@@ -14,6 +14,7 @@ from .catalog import (
     StoredSkill,
     TriggerCondition,
     TriggerTarget,
+    trigger_display_name,
 )
 from .effect_chance import effect_activates
 from .effects import add_effect, apply_resource_effect, effect_active, effect_unexpired
@@ -47,6 +48,7 @@ class BattleAction(BaseModel):
     specialty_use: SpecialtySkillUse | None = None
     item_max_uses: int = Field(default=1, ge=1, le=10000)
     target_ids: list[str] | None = None
+    trigger_name: str | None = Field(default=None, max_length=1000)
 
 
 def state_effect_ids(rule: GambitRule, skills: dict) -> set[str]:
@@ -247,6 +249,10 @@ def choose_action(
             specialty_use=use if specialty else None,
             item_max_uses=item.max_uses if item else 1,
             target_ids=targets,
+            trigger_name=trigger_display_name(
+                next(t for t in catalog.triggers if t.id == rule.trigger_id),
+                rule.trigger_variant_id,
+            ),
         )
     return None
 

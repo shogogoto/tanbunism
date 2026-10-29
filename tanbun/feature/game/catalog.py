@@ -1492,6 +1492,16 @@ class TriggerDefinition(TriggerCondition):
         )
 
 
+def trigger_display_name(trigger, variant_id=None) -> str:
+    """ショップと行動記録で、変型を含めて同じトリガー名を使う."""
+    variant = next((v for v in trigger.variants if v.id == variant_id), None)
+    return (
+        f"{trigger.name}（{variant.resolved_name or variant.name}）"  # noqa: RUF001
+        if variant
+        else trigger.name
+    )
+
+
 class EnemyGambitRule(BaseModel):
     """敵が優先順に判定する、公開トリガーと使用スキルの組み合わせ。."""
 

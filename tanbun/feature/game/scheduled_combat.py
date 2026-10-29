@@ -12,6 +12,7 @@ from tanbun.feature.domain.types import to_uuid
 from tanbun.feature.notification.usecase import dispatch_saved_notifications
 from tanbun.feature.quiz.answering.repo import create_answer_in_transaction
 
+from .action_details import describe_action
 from .action_queue import ActionSchedule, interval, predict, take_next
 from .catalog import get_game_catalog
 from .combat import (
@@ -152,6 +153,7 @@ def begin_scheduled_action(state, context) -> None:
     schedule.queue = predict(schedule)
     state.save.battleFeedback = None
     state.save.quizFeedback = None
+    state.save.battleActionDetails = None
     run.answerSeconds = context.balance.base_seconds
     run.answerDeadline = int(time() * 1000) + run.answerSeconds * 1000
 
@@ -626,6 +628,24 @@ def scheduled_action_outcome(marker, enemy, context, *, correct) -> str:
     )
 
 
+def scheduled_action_details(marker, enemy, context):
+    """勝敗処理で敵が消える前の対象と、選択済みトリガーを記録する."""
+    actor = marker.schedule.actor_id
+    action = marker.gambitAction if actor == "player" else marker.enemyAction
+    fallback = context.default_attack or normal_attack()
+    return describe_action(
+        action,
+        action.skill
+        if action
+        else fallback
+        if actor == "player"
+        else enemy_action_skill(enemy, marker.schedule, fallback),
+        marker,
+        {"player": "あなた", **{e.id: e.name for e in context.enemies}},
+        actor,
+    )
+
+
 def resolve_scheduled(
     state,
     body,
@@ -710,6 +730,9 @@ def resolve_scheduled(
         else "正解"
         if correct
         else "不正解"
+    )
+    updated.save.battleActionDetails = (
+        None if body.retreat else scheduled_action_details(marker, enemy, context)
     )
     award_kill_gold(updated, authoritative, marker.region)
     if updated.save.battle:

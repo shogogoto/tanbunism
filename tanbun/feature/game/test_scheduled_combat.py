@@ -76,6 +76,10 @@ def test_correct_answers_benefit_player_for_either_actor(actor):
     assert reply["state"].save.battleFeedback == f"戦う · {target}に12ダメージ"
     restored = type(state).model_validate_json(reply["state"].model_dump_json())
     assert restored.save.quizFeedback == "正解"
+    assert restored.save.battleActionDetails == reply["state"].save.battleActionDetails
+    assert restored.save.battleActionDetails.targets == (
+        ["e"] if actor == "player" else ["あなた"]
+    )
     assert "正解" not in restored.save.battleFeedback
     assert state.model_dump_json() == before
 
@@ -175,6 +179,7 @@ def test_dead_enemy_disappears_and_queue_remains_predictive():
     expected = updated.save.battle.schedule.queue[0].actor_id
     begin_scheduled_action(updated, context)
     assert updated.save.quizFeedback is None
+    assert updated.save.battleActionDetails is None
     assert updated.save.battle.schedule.actor_id == expected
     assert updated.save.battle.schedule.enemy_hp[target] == 0
 

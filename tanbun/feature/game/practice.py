@@ -537,6 +537,7 @@ def next_practice_turn(session: PracticeSession) -> GameState:
     }
     state.save.battleFeedback = None
     state.save.quizFeedback = None
+    state.save.battleActionDetails = None
     marker.effects = [e for e in marker.effects if effect_unexpired(e, marker.turn)]
     marker.gambitAction = None
     state.save.run.answerDeadline = (

@@ -50,17 +50,20 @@ def configured(target="self", condition="hp_below", skill_id="heal"):
 @pytest.mark.parametrize("correct", [True, False])
 def test_enemy_self_heal_is_sealed_and_spends_mp_once(correct):
     """誤答で敵が自分を回復し、正答で不発でもMPは一度消費する。."""
-    state, context, _ = configured()
+    state, context, catalog = configured()
     marker = state.save.battle
     assert marker.enemyAction.target_ids == ["e"]
     assert marker.enemyAction.skill.id == "heal"
     context.enemies[0].gambits[0].skill.amount = 999
+    catalog.triggers[0].name = "行動開始後の名前変更"
     body, results = answer(state, correct=correct)
     reply = resolve_scheduled(state, body, results, context)
     schedule = reply["state"].save.battle.schedule
     assert schedule.enemy_hp["e"] == (20 if correct else 40)
     assert schedule.enemy_mp["e"] == 7
     assert reply["damage"] == 0
+    assert reply["state"].save.battleActionDetails.trigger == "HPが少ない"
+    assert reply["state"].save.battleActionDetails.targets == ["e"]
     feedback = reply["state"].save.battleFeedback
     assert "eの" in feedback
     assert ("不発" if correct else "発動") in feedback
@@ -81,6 +84,7 @@ def test_ally_includes_actor_but_only_matching_ally_is_healed():
     save = reply["state"].save
     assert save.battle.schedule.enemy_hp == {"e": 100, "e2": 40}
     assert save.run.hp == player_hp
+    assert save.battleActionDetails.targets == ["e2"]
 
 
 def test_enemy_targets_player_and_uses_special_skill():

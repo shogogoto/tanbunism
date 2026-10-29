@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, model_validator
 from tanbun.feature.domain.types import UUIDy, to_uuid
 
 from .access import SLOT_SECONDS, get_adventure_access
+from .action_details import BattleActionDetails
 from .action_queue import ActionSchedule
 from .balance import Allocation, GameBalance, get_game_balance
 from .catalog import supported_trigger
@@ -127,6 +128,7 @@ class GameSave(BaseModel):
     content: dict | None = None
     battleFeedback: str | None = Field(default=None, max_length=1000)
     quizFeedback: str | None = Field(default=None, max_length=100)
+    battleActionDetails: BattleActionDetails | None = None
     allocation: Allocation = Field(default_factory=Allocation)
     economy: Economy = Field(default_factory=Economy)
     battle: BattleMarker | None = None

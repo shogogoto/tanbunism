@@ -23,7 +23,7 @@ from .end_actions import (
     finish_action,
     start_end_action,
 )
-from .gambits import GambitRule
+from .gambits import BattleAction, GambitRule
 from .practice import PracticeAction, PracticeSession, practice_action
 from .specialties import SpecialtyUpdate, strengthened, update_specialties
 from .specialty_types import Specialty
@@ -32,6 +32,29 @@ from .test_gambits import battle_state
 from .test_specialty import intermission, seed_state
 
 u = async_fixture()(fx_u)
+
+
+def test_end_action_preserves_trigger_and_target_details():
+    """追加クイズを伴う経路でも、選択時の条件と対象を結果まで保持する."""
+    state = battle_state()
+    skill = RecoverySkill(
+        id="heal",
+        name="回復",
+        effect="heal_hp",
+        target="self",
+        amount=5,
+    )
+    selected = BattleAction(
+        skill=skill,
+        name="回復",
+        trigger_name="自分のHP30%未満",
+        target_ids=["player"],
+    )
+    end_actions.begin_action(state.save, selected, skill, [], {"a": 100, "b": 100})
+    assert state.save.battle.endAction["details"]["trigger"] == "自分のHP30%未満"
+    finish_action(state)
+    assert state.save.battleActionDetails.trigger == "自分のHP30%未満"
+    assert state.save.battleActionDetails.targets == ["あなた"]
 
 
 @mark_async_test()

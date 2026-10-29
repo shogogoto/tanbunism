@@ -732,6 +732,7 @@ def apply_turn_result(
         (base_stats if broken and base_stats is not None else stats)["maxMp"],
     )
     summary = "撤退" if body.retreat else "行動終了"
+    updated.save.battleActionDetails = None
     updated.save.quizFeedback = (
         None
         if body.retreat
@@ -966,6 +967,7 @@ async def next_turn(user_id: UUIDy, body: TurnRequest) -> GameState:
     updated.save.run.answerDeadline = int(time() * 1000) + seconds * 1000
     updated.save.battleFeedback = None
     updated.save.quizFeedback = None
+    updated.save.battleActionDetails = None
     await prepare_action(updated.save, user_id)
     async with atomic():
         await persist(user_id, previous, updated)

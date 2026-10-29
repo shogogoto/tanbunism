@@ -1,6 +1,6 @@
 """敵陣営から見た条件・対象を使い、行動開始時に選択を固定する。."""
 
-from .catalog import StoredSkill, TriggerCondition, TriggerTarget
+from .catalog import StoredSkill, TriggerCondition, TriggerTarget, trigger_display_name
 from .gambits import BattleAction, can_receive, condition_matches, retarget_skill
 from .trigger_stats import order_targets
 
@@ -12,6 +12,7 @@ class EnemyBattleRule(TriggerCondition):
     skill: StoredSkill
     state_skill: StoredSkill | None = None
     enabled: bool = True
+    trigger_name: str | None = None
 
 
 def enemy_battle_rules(enemy, catalog):
@@ -31,6 +32,7 @@ def enemy_battle_rules(enemy, catalog):
                 target=trigger.target or "enemy",
                 skill=skill.model_copy(deep=True),
                 state_skill=skills.get(trigger.state_skill_id),
+                trigger_name=trigger_display_name(root, row.trigger_variant_id),
             ),
         )
     return result
@@ -70,5 +72,6 @@ def choose_enemy_action(save, enemy) -> BattleAction | None:
                 skill=skill,
                 name=skill.name,
                 target_ids=order_targets(rule, save, targets),
+                trigger_name=rule.trigger_name,
             )
     return None

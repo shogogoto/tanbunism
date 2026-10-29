@@ -20,6 +20,7 @@ from .catalog import (
     GameCatalog,
     ShopListing,
     get_game_catalog,
+    trigger_display_name,
     trigger_unlock_id,
 )
 from .dungeon_keys import use_dungeon_key
@@ -114,9 +115,7 @@ def gambit_products(catalog, *, include_disabled=False):
     return [
         Product(
             id=f"gambit:{key}",
-            name=f"{trigger.name}（{variant.resolved_name or variant.name}）"  # noqa: RUF001
-            if variant
-            else trigger.name,
+            name=trigger_display_name(trigger, variant.id if variant else None),
             kind="gambit",
             trigger_id=trigger.id,
             trigger_variant_id=variant.id if variant else None,

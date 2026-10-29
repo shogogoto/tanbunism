@@ -15,6 +15,7 @@ from tanbun.feature.notification.usecase import dispatch_saved_notifications
 from tanbun.feature.quiz.answering.repo import create_answer_in_transaction
 from tanbun.feature.quiz.chain.usecase import expand_quiz_chain
 
+from .action_details import BattleActionDetails, describe_action
 from .catalog import get_game_catalog, parse_skill
 from .combat import (
     ENEMIES_TO_CLEAR,
@@ -222,6 +223,15 @@ def begin_action(
         "name": selected.name,
         "skill": skill.model_dump(),
         "target_ids": selected.target_ids,
+        "details": describe_action(
+            selected,
+            skill,
+            save.battle,
+            {
+                "player": "あなた",
+                **({e.id: e.name for e in context.enemies} if context else {}),
+            },
+        ).model_dump(),
         "quiz_ids": quizzes,
         "index": 0,
         "correct": 0,
@@ -464,6 +474,11 @@ def finish_action(state: GameState) -> dict[str, int]:
             else f"{action['correct']}/{total}問正解"
         )
     state.save.battleFeedback = f"{action['name']} · {'発動' if applies else '不発'}"
+    state.save.battleActionDetails = (
+        BattleActionDetails.model_validate(action["details"])
+        if action.get("details")
+        else None
+    )
     marker.endAction = None
     state.save.endActionReceipt = {
         "battle_id": marker.id,

@@ -133,6 +133,10 @@ def test_variants_override_one_field_and_deleted_candidate_skips_rule():
     state.save.economy.unlocked_triggers.append("test:half")
     rule.threshold = 1  # Player cannot override an admin-defined candidate.
     assert choose_action(state.save, catalog).target_ids == ["e2"]
+    selected = choose_action(state.save, catalog)
+    assert selected.trigger_name == "条件（半分）"  # noqa: RUF001
+    catalog.triggers[0].name = "変更後"
+    assert selected.trigger_name == "条件（半分）"  # noqa: RUF001
     catalog.triggers[0].variants = []
     assert choose_action(state.save, catalog) is None
 
