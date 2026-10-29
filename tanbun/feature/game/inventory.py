@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Field, computed_field, model_validator
 
 from .balance import Allocation, GameBalance
+from .item_categories import ItemCategory
 
 ProductId = str
 
@@ -83,6 +84,7 @@ class Product(BaseModel, frozen=True):
     name: str
     price: int | None
     kind: Literal["weapon", "hp", "mp", "moves", "skill", "dungeon_unlock", "gambit"]
+    category: ItemCategory = ItemCategory.OTHER
     trigger_id: str | None = None
     trigger_variant_id: str | None = None
     resource_id: str | None = None

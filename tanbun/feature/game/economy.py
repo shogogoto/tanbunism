@@ -69,6 +69,7 @@ def catalog_products(
         Product(
             id=i.id,
             name=i.name,
+            category=i.category,
             price=(
                 listings[i.id].price
                 if i.id in listings and i.enabled and skills[i.skill_id].enabled

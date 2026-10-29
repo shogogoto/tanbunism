@@ -19,6 +19,7 @@ from pydantic import (
 )
 
 from .effect_chance import FULL_CHANCE
+from .item_categories import ItemCategory
 from .template_variant_sets import (
     VariantField,
     VariantSet,
@@ -1169,6 +1170,7 @@ class ItemDefinition(BaseModel):
     enabled: bool = True
     skill_id: DefinitionId
     kind: Literal["weapon", "consumable"] = "consumable"
+    category: ItemCategory = ItemCategory.OTHER
     max_uses: int = Field(default=1, ge=1, le=10000)
 
     @model_validator(mode="before")
@@ -1846,6 +1848,18 @@ class GameCatalog(BaseModel):
             ):
                 msg = f"{item.name}のスキルまたは種類が不正です。"
                 raise ValueError(msg)
+            if "category" not in item.model_fields_set:
+                # 旧データだけを補完する。明示したカテゴリは効果から再判定しない。
+                item.category = (
+                    ItemCategory.WEAPON
+                    if item.kind == "weapon"
+                    else ItemCategory.RECOVERY
+                    if all(
+                        effect.effect in {"heal_hp", "heal_mp", "recover_moves"}
+                        for effect in (skill.effects or [skill])
+                    )
+                    else ItemCategory.OTHER
+                )
         self.validate_enemy_skills(skills)
         return self
 

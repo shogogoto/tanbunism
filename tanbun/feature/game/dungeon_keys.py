@@ -13,6 +13,7 @@ from tanbun.feature.notification.repo import create_notification
 from tanbun.feature.notification.usecase import dispatch_saved_notifications
 
 from .inventory import DungeonKey, Product, consume_use
+from .item_categories import ItemCategory
 from .state import GameSave, GameState, StateUpdate, compare_and_save, read_state
 from .unlocks import MAX_UNLOCKED_DUNGEONS, DungeonUnlock
 
@@ -36,6 +37,7 @@ def key_products(save: GameSave) -> list[Product]:
             id=identity,
             name=f"{key.name}のダンジョン開放キー",
             kind="dungeon_unlock",
+            category=ItemCategory.UNLOCK_KEY,
             resource_id=key.resource_id,
             price=None,
             amount=0,
