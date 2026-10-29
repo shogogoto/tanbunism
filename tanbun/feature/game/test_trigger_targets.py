@@ -36,6 +36,7 @@ def targeted(condition="hp_below", target="enemy", **kwargs):
             **kwargs,
         ),
     ]
+    state.save.economy.unlocked_triggers = ["test"]
     state.save.gambits = [GambitRule(trigger_id="test", definition_id="fire")]
     return state, context, catalog
 
@@ -129,6 +130,7 @@ def test_variants_override_one_field_and_deleted_candidate_skips_rule():
     assert choose_action(state.save, catalog) is None
     rule = state.save.gambits[0]
     rule.trigger_variant_id = "half"
+    state.save.economy.unlocked_triggers.append("test:half")
     rule.threshold = 1  # Player cannot override an admin-defined candidate.
     assert choose_action(state.save, catalog).target_ids == ["e2"]
     catalog.triggers[0].variants = []
@@ -144,6 +146,7 @@ def test_target_variant_overrides_condition_and_action_together():
     )
     assert choose_action(state.save, catalog) is None
     state.save.gambits[0].trigger_variant_id = "foe"
+    state.save.economy.unlocked_triggers.append("test:foe")
     action = choose_action(state.save, catalog)
     assert action.target_ids == ["e2"]
     assert action.skill.target == "enemy"
@@ -162,6 +165,7 @@ def test_state_presence_variant_checks_absence_of_selected_skill():
     )
     assert choose_action(state.save, catalog) is None
     state.save.gambits[0].trigger_variant_id = "absent"
+    state.save.economy.unlocked_triggers.append("test:absent")
     assert choose_action(state.save, catalog).target_ids == ["e", "e2"]
 
 

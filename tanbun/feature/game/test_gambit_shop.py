@@ -105,14 +105,16 @@ def test_variants_are_independently_priced_purchased_and_unlocked():
     assert economy.unlocked_triggers == ["hp_below:half", "hp_below"]
 
 
-def test_unsold_variants_inherit_base_purchase_requirement():
-    """変型の販売設定がなければ従来どおり基本条件の購入権を使う."""
+def test_unsold_variants_require_their_own_ownership():
+    """基本条件を持っていても、未入手の変型は使えない."""
     catalog = configured_catalog()
     trigger = next(t for t in catalog.triggers if t.id == "hp_below")
     trigger.variants = [TriggerVariant(id="half", name="半分", value=50)]
     economy = Economy()
     assert not trigger_available(catalog, economy, trigger.id, "half")
     economy.unlocked_triggers.append(trigger.id)
+    assert not trigger_available(catalog, economy, trigger.id, "half")
+    economy.unlocked_triggers.append(f"{trigger.id}:half")
     assert trigger_available(catalog, economy, trigger.id, "half")
 
 
@@ -120,6 +122,7 @@ def test_unpurchased_trigger_cannot_execute_or_be_bypassed_with_inline_condition
     """購入前は実行不可で、直接条件を送っても迂回できない。."""
     catalog = configured_catalog()
     state = battle_state()
+    state.save.economy.unlocked_triggers = []
     rule = GambitRule(trigger_id="hp_below", definition_id="heal")
     state.save.gambits = [rule]
     assert choose_action(state.save, catalog) is None
@@ -130,7 +133,20 @@ def test_unpurchased_trigger_cannot_execute_or_be_bypassed_with_inline_condition
     )
     state.save.economy.unlocked_triggers.append("hp_below")
     assert choose_action(state.save, catalog).skill.id == "heal"
-    assert trigger_available(catalog, state.save.economy, "always")
+    assert not trigger_available(catalog, state.save.economy, "always")
+
+
+def test_unsold_triggers_and_inline_conditions_are_not_free():
+    """ショップ未掲載でも所有が必要。存在しない・無効な所有IDも使えない."""
+    catalog = default_catalog()
+    economy = Economy()
+    assert not trigger_available(catalog, economy, "always")
+    assert not rule_available(catalog, economy, GambitRule(definition_id="fire"))
+    economy.unlocked_triggers = ["always", "missing"]
+    assert trigger_available(catalog, economy, "always")
+    assert not trigger_available(catalog, economy, "missing")
+    next(t for t in catalog.triggers if t.id == "always").enabled = False
+    assert not trigger_available(catalog, economy, "always")
 
 
 def test_normal_items_and_trigger_products_can_share_definition_ids():

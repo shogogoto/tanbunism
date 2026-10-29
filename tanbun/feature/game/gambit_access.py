@@ -1,21 +1,19 @@
-"""販売設定されたトリガーは購入後に利用する。敵の利用権限とは独立する。."""
+"""プレイヤーは入手済みの条件だけを使う。敵の利用権限とは独立する。."""
 
-from .catalog import GambitShopListing, trigger_unlock_id
+from .catalog import trigger_unlock_id
 
 
 def trigger_available(catalog, economy, trigger_id, variant_id=None) -> bool:
-    """販売未設定の既存トリガーを維持し、購入済みなら再購入を要さない。."""
-    key = trigger_unlock_id(trigger_id, variant_id)
-    if key in economy.unlocked_triggers:
-        return True
-    if any(
-        isinstance(row, GambitShopListing)
-        and row.trigger_id == trigger_id
-        and row.trigger_variant_id == variant_id
-        for row in catalog.shop
-    ):
-        return False
-    return not variant_id or trigger_available(catalog, economy, trigger_id)
+    """基本と各変型を別々の所有権として扱い、販売の有無には依存しない。."""
+    trigger = next(
+        (t for t in catalog.triggers if t.id == trigger_id and t.enabled),
+        None,
+    )
+    return bool(
+        trigger
+        and trigger.variant(variant_id)
+        and trigger_unlock_id(trigger_id, variant_id) in economy.unlocked_triggers,
+    )
 
 
 def rule_available(catalog, economy, rule) -> bool:
@@ -27,4 +25,4 @@ def rule_available(catalog, economy, rule) -> bool:
             rule.trigger_id,
             rule.trigger_variant_id,
         )
-    return not any(isinstance(row, GambitShopListing) for row in catalog.shop)
+    return False

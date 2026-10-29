@@ -53,8 +53,12 @@ async def test_missing_specialty_source_skips_without_unlocking_extra_rules(
         ),
     ]
     save.gambits = [
-        GambitRule(action="specialty", definition_id="specialty_missing"),
-        GambitRule(definition_id="heal"),
+        GambitRule(
+            trigger_id="always",
+            action="specialty",
+            definition_id="specialty_missing",
+        ),
+        GambitRule(trigger_id="always", definition_id="heal"),
     ]
     monkeypatch.setattr(
         end_actions,
@@ -90,7 +94,8 @@ async def test_practice_end_gambit_never_writes_live_state(u):
     state = await intermission(u)
     original = await read_state(u.uid)
     state.save.run.hp = 5
-    state.save.gambits = [GambitRule(definition_id="heal")]
+    state.save.economy.unlocked_triggers = ["always", "hp_below"]
+    state.save.gambits = [GambitRule(trigger_id="always", definition_id="heal")]
     session = PracticeSession(
         state=state,
         context=await combat_context(u.uid),
@@ -202,8 +207,14 @@ async def test_end_heal_uses_current_hp_not_normal_quiz_results_and_spends_once(
     """通常回答を参照せずターン末のHPから回復を選び、再送で再消費しない."""
     state = await intermission(u)
     state.save.run.hp = 5
+    state.save.economy.unlocked_triggers = ["always", "hp_below"]
     state.save.gambits = [
-        GambitRule(condition="hp_below", threshold=30, definition_id="heal"),
+        GambitRule(
+            trigger_id="hp_below",
+            condition="hp_below",
+            threshold=30,
+            definition_id="heal",
+        ),
     ]
     await seed_state(u, state)
     request = EndActionRequest(
@@ -297,8 +308,13 @@ async def test_fused_specialty_asks_one_question_and_is_idempotent(u, monkeypatc
             equipped=True,
         ),
     ]
+    state.save.economy.unlocked_triggers = ["always", "hp_below"]
     state.save.gambits = [
-        GambitRule(action="specialty", definition_id="specialty_test"),
+        GambitRule(
+            trigger_id="always",
+            action="specialty",
+            definition_id="specialty_test",
+        ),
     ]
     await seed_state(u, state)
     result = await start_end_action(

@@ -392,9 +392,9 @@ async def prepare_action(save: "GameSave", user_id) -> None:  # noqa: RUF029
 
 
 def effective_rule(rule: GambitRule, catalog: GameCatalog) -> GambitRule | None:
-    """削除・無効化された条件テンプレートを実行しない."""
+    """条件・対象は管理定義だけから復元し、クライアントの上書きを使わない."""
     if not rule.trigger_id:
-        return rule
+        return None
     trigger = next(
         (t for t in catalog.triggers if t.id == rule.trigger_id and t.enabled),
         None,
@@ -409,14 +409,8 @@ def effective_rule(rule: GambitRule, catalog: GameCatalog) -> GambitRule | None:
                 "comparison": trigger.comparison,
                 "state_present": trigger.state_present,
                 "state_skill_id": trigger.state_skill_id,
-                **({"target": trigger.target} if trigger.target else {}),
-                **(
-                    {"threshold": trigger.threshold}
-                    if trigger.condition == "stat"
-                    or trigger.target is not None
-                    or rule.trigger_variant_id
-                    else {}
-                ),
+                "target": trigger.target,
+                "threshold": trigger.threshold,
             },
         )
         if trigger
@@ -429,7 +423,9 @@ def validate_rules(rules: list[GambitRule], catalog: GameCatalog) -> None:
     skills, items = {s.id: s for s in catalog.skills}, {i.id: i for i in catalog.items}
     for rule in rules:
         effective = effective_rule(rule, catalog)
-        if effective and effective.condition == "state":
+        if effective is None:
+            raise HTTPException(422, "定義済みのガンビットを選んでください。")
+        if effective.condition == "state":
             state_skill = skills.get(effective.state_skill_id)
             if not state_skill or not any(
                 effect.effect in {"buff", "debuff", "ailment"}
@@ -437,10 +433,12 @@ def validate_rules(rules: list[GambitRule], catalog: GameCatalog) -> None:
             ):
                 raise HTTPException(422, "状態判定には状態系スキルを選んでください。")
         if rule.action == "specialty":
-            continue  # Owned/equipped references are checked at execution time.
+            continue  # Ownership is checked separately when saving and executing.
         item = items.get(rule.definition_id) if rule.action == "item" else None
         skill = skills.get(item.skill_id if item else rule.definition_id)
-        if rule.action == "item" and (not item or item.kind == "weapon"):
+        if rule.action == "item" and (
+            not item or not item.enabled or item.kind == "weapon"
+        ):
             raise HTTPException(422, "戦闘に使えるアイテムを選んでください。")
         direct_locked = (
             skill
@@ -451,6 +449,7 @@ def validate_rules(rules: list[GambitRule], catalog: GameCatalog) -> None:
         )
         if (
             not skill
+            or not skill.enabled
             or direct_locked
             or skill.effect
             not in {
@@ -464,3 +463,43 @@ def validate_rules(rules: list[GambitRule], catalog: GameCatalog) -> None:
             }
         ):
             raise HTTPException(422, "戦闘に使えるスキル・アイテムを選んでください。")
+
+
+def validate_owned_actions(
+    rules: list[GambitRule],
+    save: "GameSave",
+    catalog: GameCatalog,
+) -> None:
+    """所持アイテム・装備専門分野も、設定を保存する時点で利用権を検査する."""
+    for rule in rules:
+        if (
+            rule.action == "item"
+            and save.economy.inventory.get(rule.definition_id, 0) < 1
+        ):
+            raise HTTPException(422, "所持しているアイテムを選んでください。")
+        if rule.action == "specialty":
+            specialty = next(
+                (
+                    s
+                    for s in save.specialties
+                    if s.id == rule.definition_id and s.equipped
+                ),
+                None,
+            )
+            skill = next(
+                (
+                    s
+                    for s in catalog.skills
+                    if specialty and s.id == specialty.skill_id and s.enabled
+                ),
+                None,
+            )
+            if (
+                not specialty
+                or not skill
+                or not any(
+                    u.skill_id == skill.id and u.enabled
+                    for u in catalog.specialty_skills
+                )
+            ):
+                raise HTTPException(422, "装備済みの専門分野のスキルを選んでください。")

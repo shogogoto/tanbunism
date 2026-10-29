@@ -34,6 +34,7 @@ def stat_battle(stat="defense", comparison="lowest", **changes):
             **changes,
         ),
     ]
+    state.save.economy.unlocked_triggers = ["stat"]
     state.save.gambits = [GambitRule(trigger_id="stat", definition_id="fire")]
     return state, context, catalog
 

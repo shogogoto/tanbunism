@@ -22,6 +22,7 @@ from .catalog import (
 from .combat import EnemyStats, TurnRequest, apply_turn_result, style_enemies
 from .effects import BattleEffect
 from .gambits import GambitRule, choose_action, validate_rules
+from .inventory import Economy
 from .skill_outcomes import skill_effects
 from .specialty_types import Specialty
 from .state import (
@@ -41,6 +42,9 @@ def battle_state() -> GameState:
     """回復と攻撃の分岐を試せる最小の戦闘."""
     return GameState(
         save=GameSave(
+            economy=Economy(
+                unlocked_triggers=["always", "hp_below", "enemy_count", "status"],
+            ),
             run=Run(
                 resourceId="book",
                 name="本",
@@ -67,11 +71,22 @@ def test_priority_conditions_affordability_and_frozen_definition():
     """HP条件を優先し、MP不足なら所持品、それもなければ次へ進む."""
     state = battle_state()
     state.save.gambits = [
-        GambitRule(condition="hp_below", threshold=30, definition_id="heal"),
-        GambitRule(condition="enemy_count", threshold=2, definition_id="fire_all"),
-        GambitRule(definition_id="fire"),
+        GambitRule(
+            trigger_id="hp_below",
+            condition="hp_below",
+            threshold=30,
+            definition_id="heal",
+        ),
+        GambitRule(
+            trigger_id="enemy_count",
+            condition="enemy_count",
+            threshold=2,
+            definition_id="fire_all",
+        ),
+        GambitRule(trigger_id="always", definition_id="fire"),
     ]
     catalog = default_catalog()
+    next(t for t in catalog.triggers if t.id == "enemy_count").threshold = 2
     action = choose_action(state.save, catalog)
     assert action.skill.id == "heal"
     catalog.skills[2].amount = 999
@@ -85,7 +100,7 @@ def test_priority_conditions_affordability_and_frozen_definition():
     state.save.run.hp = 10
     state.save.gambits.insert(
         0,
-        GambitRule(action="item", definition_id="healing_potion"),
+        GambitRule(trigger_id="always", action="item", definition_id="healing_potion"),
     )
     state.save.economy.inventory["healing_potion"] = 1
     assert choose_action(state.save, catalog).item_id == "healing_potion"
@@ -99,11 +114,21 @@ def test_percentage_trigger_excludes_exact_boundary(condition):
     run.maxHp = run.maxMp = 100
     run.hp = run.mp = 29
     state.save.gambits = [
-        GambitRule(condition=condition, threshold=30, definition_id="fire"),
+        GambitRule(
+            trigger_id=condition,
+            condition=condition,
+            threshold=30,
+            definition_id="fire",
+        ),
     ]
-    assert choose_action(state.save, default_catalog()) is not None
+    catalog = default_catalog()
+    catalog.triggers = [
+        TriggerDefinition(id=condition, name="割合", condition=condition, threshold=30),
+    ]
+    state.save.economy.unlocked_triggers.append(condition)
+    assert choose_action(state.save, catalog) is not None
     run.hp = run.mp = 30
-    assert choose_action(state.save, default_catalog()) is None
+    assert choose_action(state.save, catalog) is None
 
 
 @pytest.mark.parametrize("condition", ["hp_above", "mp_above"])
@@ -114,11 +139,21 @@ def test_percentage_above_includes_exact_boundary(condition):
     run.maxHp = run.maxMp = 100
     run.hp = run.mp = 30
     state.save.gambits = [
-        GambitRule(condition=condition, threshold=30, definition_id="fire"),
+        GambitRule(
+            trigger_id=condition,
+            condition=condition,
+            threshold=30,
+            definition_id="fire",
+        ),
     ]
-    assert choose_action(state.save, default_catalog()) is not None
+    catalog = default_catalog()
+    catalog.triggers = [
+        TriggerDefinition(id=condition, name="割合", condition=condition, threshold=30),
+    ]
+    state.save.economy.unlocked_triggers.append(condition)
+    assert choose_action(state.save, catalog) is not None
     run.hp = run.mp = 29
-    assert choose_action(state.save, default_catalog()) is None
+    assert choose_action(state.save, catalog) is None
 
 
 @pytest.mark.parametrize(
@@ -247,7 +282,7 @@ def test_state_skill_references_are_validated(skill_id):
 def test_recovery_uses_normal_answers_and_consumes_only_once_in_result(correct):
     """正解時だけ反撃前に回復し、未回答でも消費する。入力状態は変更しない."""
     state = battle_state()
-    state.save.gambits = [GambitRule(definition_id="heal")]
+    state.save.gambits = [GambitRule(trigger_id="always", definition_id="heal")]
     state.save.battle.gambitAction = choose_action(state.save, default_catalog())
     body = TurnRequest(
         battle_id="battle",
@@ -280,7 +315,9 @@ def test_recovery_uses_normal_answers_and_consumes_only_once_in_result(correct):
 def test_items_do_not_use_mp_and_retreat_does_not_execute_gambits():
     """アイテムはMPと独立し、撤退時は効果・消費とも行わない."""
     state = battle_state()
-    state.save.gambits = [GambitRule(action="item", definition_id="healing_potion")]
+    state.save.gambits = [
+        GambitRule(trigger_id="always", action="item", definition_id="healing_potion"),
+    ]
     state.save.economy.inventory["healing_potion"] = 1
     state.save.battle.gambitAction = choose_action(state.save, default_catalog())
     stats = state.save.allocation.stats(GameBalance())
@@ -302,8 +339,8 @@ def test_items_do_not_use_mp_and_retreat_does_not_execute_gambits():
     )
     assert retreat.save.economy.inventory["healing_potion"] == 1
     for rule in (
-        GambitRule(action="item", definition_id="missing"),
-        GambitRule(definition_id="recover_steps"),
+        GambitRule(trigger_id="always", action="item", definition_id="missing"),
+        GambitRule(trigger_id="always", definition_id="recover_steps"),
     ):
         with pytest.raises(HTTPException):
             validate_rules([rule], default_catalog())
@@ -313,12 +350,14 @@ def test_item_only_effects_and_locked_specialties_cannot_be_cast_directly():
     """消費なしの回復や、未解放の専門分野の発動を防ぐ."""
     state = battle_state()
     catalog = default_catalog()
-    rule = GambitRule(definition_id="potion_heal")
+    rule = GambitRule(trigger_id="always", definition_id="potion_heal")
     state.save.gambits = [rule]
     assert choose_action(state.save, catalog) is None
     with pytest.raises(HTTPException):
         validate_rules([rule], catalog)
-    state.save.gambits = [GambitRule(definition_id="specialty_burst")]
+    state.save.gambits = [
+        GambitRule(trigger_id="always", definition_id="specialty_burst"),
+    ]
     assert choose_action(state.save, catalog) is None
     state.save.bossClears = {"book": [5]}
     assert choose_action(state.save, catalog) is None
@@ -332,7 +371,11 @@ def test_item_only_effects_and_locked_specialties_cannot_be_cast_directly():
         ),
     ]
     state.save.gambits = [
-        GambitRule(action="specialty", definition_id="specialty_test"),
+        GambitRule(
+            trigger_id="always",
+            action="specialty",
+            definition_id="specialty_test",
+        ),
     ]
     assert choose_action(state.save, catalog).skill.id == "specialty_burst"
 
@@ -366,7 +409,13 @@ async def test_rules_are_revision_checked_and_legacy_snapshot_writes_preserve_th
     """他端末の設定を上書きせず、戦闘中の変更を拒否する."""
     user = await aregister("gambit@example.com")
     headers = await aauth_header(user.email)
-    body = {"revision": 0, "rules": [{"definition_id": "fire"}]}
+    state = await read_state(user.uid)
+    state.save.economy.unlocked_triggers = ["always"]
+    await adb.cypher_query(
+        "MATCH (u:User {uid:$uid}) SET u.game_state=$state",
+        {"uid": user.uid, "state": state.model_dump_json()},
+    )
+    body = {"revision": 0, "rules": [{"trigger_id": "always", "definition_id": "fire"}]}
     assert (await ac.get("/game/gambits/capacity")).status_code == 401
     capacity = await ac.get("/game/gambits/capacity", headers=headers)
     assert capacity.json() == {"slots": 1, "next_level": 5}
@@ -409,7 +458,8 @@ async def test_receipt_retries_never_consume_gambit_twice(u):
     state = await encounter(u)
     state.save.run.mp = 10
     state.save.run.maxMp = 10
-    state.save.gambits = [GambitRule(definition_id="fire")]
+    state.save.economy.unlocked_triggers.append("always")
+    state.save.gambits = [GambitRule(trigger_id="always", definition_id="fire")]
     state.save.battle.gambitAction = choose_action(state.save, default_catalog())
     poisoned_enemy = state.save.battle.enemies[0]
     state.save.battle.effects = [

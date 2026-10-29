@@ -44,7 +44,7 @@ from .end_actions import (
 )
 from .gambit_access import rule_available
 from .gambit_slots import GambitCapacity, gambit_capacity
-from .gambits import GambitRule, validate_rules
+from .gambits import GambitRule, effective_rule, validate_owned_actions, validate_rules
 from .knowledge import KnowledgeValidation, valid_knowledge
 from .population import (
     MAX_LEGACY_POOL_SIZE,
@@ -144,11 +144,12 @@ async def save_gambits(user: ActiveUser, body: GambitUpdate) -> GameState:
     if any(
         not rule_available(catalog, state.save.economy, rule) for rule in body.rules
     ):
-        raise HTTPException(422, "購入済みのガンビットを選んでください。")
+        raise HTTPException(422, "入手済みのガンビットを選んでください。")
+    validate_owned_actions(body.rules, state.save, catalog)
     if len(body.rules) > (await gambit_capacity(user.uid)).slots:
         raise HTTPException(422, "ガンビットの開放済み枠数を超えています。")
     updated = state.model_copy(deep=True)
-    updated.save.gambits = body.rules
+    updated.save.gambits = [effective_rule(rule, catalog) for rule in body.rules]
     async with atomic():
         await persist(user.uid, state, updated)
     return updated
