@@ -129,6 +129,26 @@ def test_feedback_names_defeated_enemy():
     )
 
 
+@pytest.mark.parametrize("outcome", ["発動", "不発", "軽減"])
+def test_support_feedback_keeps_one_outcome_and_other_events(outcome):
+    """支援行動の結果は一度だけ表示し、破損などの付随イベントも残す."""
+    state, context = encounter()
+    state.save.battleFeedback = f"行動終了 · 回復 · {outcome} · 武器が壊れた"
+    body, _ = answer(state)
+    assert (
+        scheduled_feedback(
+            state,
+            context,
+            body,
+            outgoing={},
+            incoming=0,
+            action_name="回復",
+            action_outcome=outcome,
+        )
+        == f"回復 · {outcome} · 武器が壊れた"
+    )
+
+
 def test_client_cannot_claim_kills_or_answer_other_quizzes():
     """The backend derives kills from its own HP only."""
     state, context = encounter()

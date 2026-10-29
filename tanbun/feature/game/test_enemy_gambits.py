@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from .catalog import (
+    BuffSkill,
     EnemyDefinition,
     EnemyGambitRule,
     GameCatalog,
@@ -60,6 +61,9 @@ def test_enemy_self_heal_is_sealed_and_spends_mp_once(correct):
     assert schedule.enemy_hp["e"] == (20 if correct else 40)
     assert schedule.enemy_mp["e"] == 7
     assert reply["damage"] == 0
+    feedback = reply["state"].save.battleFeedback
+    assert "eの" in feedback
+    assert ("不発" if correct else "発動") in feedback
 
 
 def test_ally_includes_actor_but_only_matching_ally_is_healed():
@@ -88,6 +92,45 @@ def test_enemy_targets_player_and_uses_special_skill():
     assert reply["damage"] > 0
     assert reply["outgoing_damage"] == {}
     assert reply["state"].save.battle.schedule.enemy_mp["e"] == 7
+
+
+@pytest.mark.parametrize("correct", [True, False])
+@pytest.mark.parametrize("reduced", [True, False])
+def test_enemy_haste_reports_actor_and_actual_outcome(correct, reduced):
+    """加速は名前だけで終わらず、正答時の不発・軽減と誤答時の発動を伝える."""
+    state, context, _ = configured(condition="always")
+    marker = state.save.battle
+    marker.enemyAction.skill = BuffSkill(
+        id="haste",
+        name="加速",
+        effect="buff",
+        stat="speed",
+        amount=30,
+        amount_mode="percent",
+        duration_turns=4,
+        mp_cost=3,
+        on_wrong={
+            "type": "reduced",
+            "duration_turns": 2,
+            "amount": 10,
+            "amount_mode": "percent",
+        }
+        if reduced
+        else {"type": "fizzle"},
+    )
+    marker.enemyAction.name = "加速"
+    context.enemies[0].name = "ゴブリン"
+    body, results = answer(state, correct=correct)
+    reply = resolve_scheduled(state, body, results, context)
+    save = reply["state"].save
+    expected = "軽減" if correct and reduced else "不発" if correct else "発動"
+    assert save.battleFeedback == f"ゴブリンの加速 · {expected}"
+    assert save.quizFeedback == ("正解" if correct else "不正解")
+    assert save.battle.schedule.enemy_mp["e"] == 7
+    effects = [effect for effect in save.battle.effects if effect.skill.id == "haste"]
+    assert bool(effects) is (not correct or reduced)
+    if effects:
+        assert effects[0].skill.duration_turns == (2 if correct else 4)
 
 
 def test_mp_shortage_skips_to_next_rule_and_unmatched_rules_fall_back():

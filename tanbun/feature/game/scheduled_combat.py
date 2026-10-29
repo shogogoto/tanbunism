@@ -551,6 +551,7 @@ def scheduled_feedback(
     outgoing,
     incoming,
     action_name=None,
+    action_outcome=None,
 ) -> str:
     """戦闘の行動・効果だけを伝え、クイズの正誤は混ぜない."""
     extras = [
@@ -571,7 +572,14 @@ def scheduled_feedback(
     messages.extend(
         f"{names.get(identity, '敵')}を倒した" for identity in body.defeated
     )
-    messages.extend(extra for extra in extras if extra)
+    if (
+        action_name
+        and not body.retreat
+        and incoming <= 0
+        and not any(outgoing.values())
+    ):
+        messages.append(action_outcome or "効果なし")
+    messages.extend(extra for extra in extras if extra and extra not in messages)
     return " · ".join(messages) or "効果なし"
 
 
@@ -585,7 +593,37 @@ def scheduled_action_name(marker, enemy, context) -> str:
     fallback = context.default_attack or normal_attack()
     if marker.schedule.actor_id != "player" and enemy.attack_skill:
         fallback = enemy.attack_skill
+    if action and marker.schedule.actor_id != "player":
+        return f"{enemy.name}の{action.name}"
     return action.name if action else fallback.name
+
+
+def scheduled_action_outcome(marker, enemy, context, *, correct) -> str:
+    """敵の行動では正誤を反転し、不発・軽減・反撃を管理定義から判定する."""
+    if correct == (marker.schedule.actor_id == "player"):
+        return "発動"
+    action = (
+        marker.gambitAction
+        if marker.schedule.actor_id == "player"
+        else marker.enemyAction
+    )
+    skill = (
+        action.skill
+        if action
+        else enemy.attack_skill
+        if marker.schedule.actor_id != "player" and enemy.attack_skill
+        else context.default_attack or normal_attack()
+    )
+    components = skill_effects(skill)
+    if any(
+        answer_effect(component, correct=False) is not None for component in components
+    ):
+        return "軽減"
+    return (
+        "反撃"
+        if any(component.on_wrong.type == "counter" for component in components)
+        else "不発"
+    )
 
 
 def resolve_scheduled(
@@ -657,6 +695,12 @@ def resolve_scheduled(
         outgoing=outgoing,
         incoming=incoming,
         action_name=scheduled_action_name(marker, enemy, context),
+        action_outcome=scheduled_action_outcome(
+            marker,
+            enemy,
+            context,
+            correct=correct,
+        ),
     )
     updated.save.quizFeedback = (
         None
