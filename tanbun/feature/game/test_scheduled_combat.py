@@ -72,7 +72,11 @@ def test_correct_answers_benefit_player_for_either_actor(actor):
     assert reply["outgoing_damage"] == {target: 12}
     assert reply["state"].save.battle.schedule.enemy_hp[target] == 88
     assert reply["damage"] == 0
-    assert reply["state"].save.battleFeedback == f"正解 · {target}に12ダメージ"
+    assert reply["state"].save.quizFeedback == "正解"
+    assert reply["state"].save.battleFeedback == f"戦う · {target}に12ダメージ"
+    restored = type(state).model_validate_json(reply["state"].model_dump_json())
+    assert restored.save.quizFeedback == "正解"
+    assert "正解" not in restored.save.battleFeedback
     assert state.model_dump_json() == before
 
 
@@ -86,7 +90,8 @@ def test_wrong_and_unanswered_risky_attacks_damage_player(actor):
     assert reply["damage"] == 7
     assert reply["state"].save.run.hp == 13
     assert not reply["outgoing_damage"]
-    assert reply["state"].save.battleFeedback == "不正解 · 7ダメージを受けた"
+    assert reply["state"].save.quizFeedback in {"不正解", "時間切れ"}
+    assert reply["state"].save.battleFeedback == "戦う · 7ダメージを受けた"
 
 
 @pytest.mark.parametrize("retreat", [True, False])
@@ -94,37 +99,33 @@ def test_feedback_keeps_events_but_omits_zero_totals(retreat):
     """破損や報酬は残し、ゼロ集計や撤退の重複は出さない."""
     state, context = encounter()
     state.save.battleFeedback = (
-        "正解 1/1 · 撃破 0体 · HP -0 · "
-        + ("撤退 · " if retreat else "")
-        + "武器が壊れた · +10 G"
+        "行動終了 · " + ("撤退 · " if retreat else "") + "武器が壊れた · +10 G"
     )
     body, _ = answer(state, retreat=retreat)
     message = scheduled_feedback(
         state,
         context,
         body,
-        correct=True,
         outgoing={},
         incoming=0,
     )
-    assert message == ("撤退" if retreat else "正解") + " · 武器が壊れた · +10 G"
+    assert message == ("撤退 · " if retreat else "") + "武器が壊れた · +10 G"
 
 
 def test_feedback_names_defeated_enemy():
     """撃破数の集計ではなく倒した相手を伝える."""
     state, context = encounter()
-    state.save.battleFeedback = "正解 1/1 · 撃破 1体 · HP -0"
+    state.save.battleFeedback = "行動終了"
     body, _ = answer(state, defeated=["e"])
     assert (
         scheduled_feedback(
             state,
             context,
             body,
-            correct=True,
             outgoing={"e": 12},
             incoming=0,
         )
-        == "正解 · eに12ダメージ · eを倒した"
+        == "eに12ダメージ · eを倒した"
     )
 
 
@@ -153,6 +154,7 @@ def test_dead_enemy_disappears_and_queue_remains_predictive():
     }
     expected = updated.save.battle.schedule.queue[0].actor_id
     begin_scheduled_action(updated, context)
+    assert updated.save.quizFeedback is None
     assert updated.save.battle.schedule.actor_id == expected
     assert updated.save.battle.schedule.enemy_hp[target] == 0
 

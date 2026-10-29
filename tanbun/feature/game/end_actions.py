@@ -457,11 +457,13 @@ def finish_action(state: GameState) -> dict[str, int]:
         applies = applies or (applied and bool(affected))
     skill = original
     total = len(action["quiz_ids"])
-    state.save.battleFeedback = (
-        f"{action['name']} · {action['correct']}/{total}問正解"
-        if total
-        else f"{action['name']} · 発動"
-    )
+    if total:
+        state.save.quizFeedback = (
+            ("正解" if action["correct"] else "不正解")
+            if total == 1
+            else f"{action['correct']}/{total}問正解"
+        )
+    state.save.battleFeedback = f"{action['name']} · {'発動' if applies else '不発'}"
     marker.endAction = None
     state.save.endActionReceipt = {
         "battle_id": marker.id,

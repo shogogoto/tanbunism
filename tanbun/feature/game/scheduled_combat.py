@@ -151,6 +151,7 @@ def begin_scheduled_action(state, context) -> None:
     marker.effects = [e for e in marker.effects if effect_unexpired(e, marker.turn)]
     schedule.queue = predict(schedule)
     state.save.battleFeedback = None
+    state.save.quizFeedback = None
     run.answerSeconds = context.balance.base_seconds
     run.answerDeadline = int(time() * 1000) + run.answerSeconds * 1000
 
@@ -542,13 +543,23 @@ def apply_enemy_periodic(state, context, marker) -> None:
             )
 
 
-def scheduled_feedback(updated, context, body, *, correct, outgoing, incoming) -> str:
-    """Show one verdict and meaningful events, preserving status/unlock notices."""
-    # Drop the three legacy round totals while retaining subsequent events.
-    extras = updated.save.battleFeedback.split(" · ", 3)[3:]
-    if body.retreat and extras:
-        extras = [extras[0].removeprefix("撤退").removeprefix(" · ")]
-    messages = ["撤退" if body.retreat else "正解" if correct else "不正解"]
+def scheduled_feedback(
+    updated,
+    context,
+    body,
+    *,
+    outgoing,
+    incoming,
+    action_name=None,
+) -> str:
+    """戦闘の行動・効果だけを伝え、クイズの正誤は混ぜない."""
+    extras = [
+        part
+        for part in (updated.save.battleFeedback or "").split(" · ")
+        if part
+        not in {"行動終了", "撤退", action_name, "発動" if action_name else None}
+    ]
+    messages = ["撤退"] if body.retreat else [action_name] if action_name else []
     names = {e.id: e.name for e in context.enemies}
     messages.extend(
         f"{names.get(identity, '敵')}に{amount}ダメージ"
@@ -561,7 +572,20 @@ def scheduled_feedback(updated, context, body, *, correct, outgoing, incoming) -
         f"{names.get(identity, '敵')}を倒した" for identity in body.defeated
     )
     messages.extend(extra for extra in extras if extra)
-    return " · ".join(messages)
+    return " · ".join(messages) or "効果なし"
+
+
+def scheduled_action_name(marker, enemy, context) -> str:
+    """行動名は戦闘開始時に固定したスキルから表示する."""
+    action = (
+        marker.gambitAction
+        if marker.schedule.actor_id == "player"
+        else marker.enemyAction
+    )
+    fallback = context.default_attack or normal_attack()
+    if marker.schedule.actor_id != "player" and enemy.attack_skill:
+        fallback = enemy.attack_skill
+    return action.name if action else fallback.name
 
 
 def resolve_scheduled(
@@ -630,9 +654,18 @@ def resolve_scheduled(
         updated,
         context,
         authoritative,
-        correct=correct,
         outgoing=outgoing,
         incoming=incoming,
+        action_name=scheduled_action_name(marker, enemy, context),
+    )
+    updated.save.quizFeedback = (
+        None
+        if body.retreat
+        else "時間切れ"
+        if target not in body.answers
+        else "正解"
+        if correct
+        else "不正解"
     )
     award_kill_gold(updated, authoritative, marker.region)
     if updated.save.battle:

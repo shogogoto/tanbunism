@@ -191,6 +191,8 @@ def test_correct_ratio_applies_effect_once_and_status_is_binary():
     finish_action(state)
     assert state.save.run.hp == 25
     assert marker.endAction is None
+    assert state.save.quizFeedback == "1/2問正解"
+    assert "正解" not in state.save.battleFeedback
     assert state.save.endActionReceipt["action_id"] == "action"
     assert state.save.endActionReceipt["sound"] == "heal"
     assert state.save.endActionReceipt["effect"] == "heal_hp"

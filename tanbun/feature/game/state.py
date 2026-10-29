@@ -126,6 +126,7 @@ class GameSave(BaseModel):
     run: Run | None = None
     content: dict | None = None
     battleFeedback: str | None = Field(default=None, max_length=1000)
+    quizFeedback: str | None = Field(default=None, max_length=100)
     allocation: Allocation = Field(default_factory=Allocation)
     economy: Economy = Field(default_factory=Economy)
     battle: BattleMarker | None = None

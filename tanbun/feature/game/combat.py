@@ -731,12 +731,16 @@ def apply_turn_result(
         (base_stats if broken and base_stats is not None else stats)["maxHp"],
         (base_stats if broken and base_stats is not None else stats)["maxMp"],
     )
-    summary = (
-        f"正解 {sum(results.values())}/{len(marker.enemies)} · "
-        f"撃破 {len(set(body.defeated))}体 · HP -{damage}"
+    summary = "撤退" if body.retreat else "行動終了"
+    updated.save.quizFeedback = (
+        None
+        if body.retreat
+        else "時間切れ"
+        if not body.answers
+        else ("正解" if all(results.values()) else "不正解")
+        if len(marker.enemies) == 1
+        else f"{sum(results.values())}/{len(marker.enemies)}問正解"
     )
-    if body.retreat:
-        summary += " · 撤退"
     updated.save.battleFeedback = summary
     updated.save.battleFeedback += status_feedback(
         broken=broken,
@@ -961,6 +965,7 @@ async def next_turn(user_id: UUIDy, body: TurnRequest) -> GameState:
     updated.save.run.answerSeconds = seconds
     updated.save.run.answerDeadline = int(time() * 1000) + seconds * 1000
     updated.save.battleFeedback = None
+    updated.save.quizFeedback = None
     await prepare_action(updated.save, user_id)
     async with atomic():
         await persist(user_id, previous, updated)

@@ -306,7 +306,8 @@ def apply_skill_result(
         else f"HP -{incoming}"
     )
     unlocked = "専門分野開放" in (updated.save.battleFeedback or "")
-    updated.save.battleFeedback = f"{marker.skill.name} · {label} · {effect}" + (
+    updated.save.quizFeedback = label
+    updated.save.battleFeedback = f"{marker.skill.name} · {effect}" + (
         " · 専門分野開放" if unlocked else ""
     )
     gold = updated.save.economy.gold - previous.save.economy.gold
