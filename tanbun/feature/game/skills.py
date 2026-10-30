@@ -60,7 +60,9 @@ async def specialty_pools(user_id: UUIDy, state: GameState) -> list[dict]:
     rows, _ = await adb.cypher_query(
         """UNWIND $unlocks AS unlock
         MATCH (u:User {uid:$uid})-[:LEARN]->(q)
-        MATCH (r:Resource {uid:unlock.resource})-[:PARENT*0..]->()-[:OWNED]->(u)
+        MATCH (r:Resource {uid:unlock.resource})
+        WHERE EXISTS { MATCH (r)-[:PARENT*0..]->()-[:OWNED]->(u) }
+           OR EXISTS { MATCH (u)-[:PLAYS_DUNGEON]->(r) }
         MATCH (q)-[:QUIZ_TARGET]->(:Sentence {resource_uid:unlock.resource})
         WHERE NOT EXISTS { MATCH (q)-[:BROKEN_BY]->() }
         RETURN r.uid, coalesce(r.title, '専門分野'), collect(DISTINCT q.uid)""",

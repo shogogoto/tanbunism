@@ -6,7 +6,6 @@ from uuid import UUID
 from fastapi import BackgroundTasks
 from neomodel import adb
 
-from tanbun.feature.entry.resource.repo.owner import check_entry_owner
 from tanbun.feature.quiz.learning.selection.domain import QuizFillStrategy
 from tanbun.feature.quiz.learning.study_plan.preparation_control import (
     UserPreparationLimitError,
@@ -31,6 +30,7 @@ from tanbun.feature.quiz.learning.study_plan.usecase import (
 )
 
 from .population import REGION_QUIZ_COUNT, get_or_prepare_region_pool
+from .shared_dungeons import dungeon_accessible
 from .state import GameState, read_state
 
 logger = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ def _frontier(state: GameState, resource_id: str) -> int:
 
 async def _prepare_resource_to_frontier(user_id: UUID, resource_id: str) -> None:
     """開拓済みの未準備領域を順に生成。次の保存・状態確認でも再試行可能."""
-    if not await check_entry_owner(user_id, resource_id):
+    if not await dungeon_accessible(user_id, resource_id):
         plan_id, _ = await adventure_quiz_progress(user_id, resource_id)
         if plan_id:
             await set_preparation_state(
@@ -229,7 +229,7 @@ async def schedule_dungeon_quizzes(
             user_id,
             resource_id,
         )
-        owned = plan_id or await check_entry_owner(user_id, resource_id)
+        owned = await dungeon_accessible(user_id, resource_id)
         initial_missing = not plan_id or (
             not target
             and await count_prepared_quizzes(plan_id, user_id) < REGION_QUIZ_COUNT

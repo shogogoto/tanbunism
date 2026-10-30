@@ -154,7 +154,7 @@ async def ensure_default_resource_study_plan(
     q = """
         MATCH (user:User {uid: $user_id})
         MATCH (resource:Resource {uid: $resource_id})
-        MERGE (plan:StudyPlan {auto_resource_uid: $resource_id})
+        MERGE (plan:StudyPlan {auto_resource_uid: $resource_id})-[:OWNED]->(user)
         ON CREATE SET
             plan.uid = $plan_id,
             plan.name = $resource_name,

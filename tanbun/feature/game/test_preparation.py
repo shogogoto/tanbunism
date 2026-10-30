@@ -59,7 +59,7 @@ def setup_preparation(monkeypatch):
     user_id, resource_id, plan_id = uuid4(), str(uuid4()), uuid4()
     monkeypatch.setattr(preparation, "preparation_states", AsyncMock(return_value={}))
     monkeypatch.setattr(preparation, "set_preparation_state", AsyncMock())
-    monkeypatch.setattr(preparation, "check_entry_owner", AsyncMock(return_value=True))
+    monkeypatch.setattr(preparation, "dungeon_accessible", AsyncMock(return_value=True))
     monkeypatch.setattr(
         preparation.adb,
         "cypher_query",

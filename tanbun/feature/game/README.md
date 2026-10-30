@@ -1,5 +1,23 @@
 # Game systems
 
+## Playing another user's dungeon
+
+Authenticated players can search existing public bookshelf resources using
+`GET /game/dungeons/public?q=...&offset=...` (30 results per page), then add one
+using `POST /game/dungeons/{resource_id}/join` with their current game revision.
+Joining atomically records `User-[:PLAYS_DUNGEON]->Resource` and a `shared` dungeon
+unlock; it does not transfer ownership, consume a key, copy the owner's progress,
+or grant XP. Only joined resources additionally pass game knowledge/exposure
+validation. Own resources keep their existing access rules.
+
+Quiz preparation creates a default resource StudyPlan per **player and resource**.
+Quiz pools, answers, XP, maps, chest receipts and boss clears remain player-scoped.
+Joined resources appear in the player's destination list even before earning XP;
+they do not appear in that player's public owned-only bookshelf. Existing public
+resource visibility is unchanged; this feature does not introduce private-resource
+sharing permissions. The original owner must still own the underlying resource
+for it to be offered as a new destination.
+
 ## Skill compositions
 
 Skills own their name, MP cost, animation/SE and enabled state. Ordered

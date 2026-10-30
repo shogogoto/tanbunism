@@ -254,6 +254,8 @@ async def fetch_resource_growth(
             MATCH (resource)-[:PARENT*0..]->()-[:OWNED]->(:User {uid: $user_id})
         } OR (NOT $owned_only AND EXISTS {
             MATCH (:ResourceXpEvent {user_id: $user_id, resource_id: resource.uid})
+        }) OR (NOT $owned_only AND EXISTS {
+            MATCH (:User {uid:$user_id})-[:PLAYS_DUNGEON]->(resource)
         }))
         WITH DISTINCT resource
         OPTIONAL MATCH (resource)-[:STATS]->(cache:ResourceStatsCache)

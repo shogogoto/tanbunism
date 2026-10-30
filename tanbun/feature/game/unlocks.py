@@ -24,7 +24,7 @@ class DungeonUnlock(BaseModel):
     resourceId: str = Field(max_length=64)
     name: str = Field(max_length=1000)
     achievement: int = Field(ge=0)
-    source: Literal["exploration", "item"] = "exploration"
+    source: Literal["exploration", "item", "shared"] = "exploration"
 
     @model_validator(mode="after")
     def valid_achievement(self):

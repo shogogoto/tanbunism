@@ -10,8 +10,12 @@ def q_reviewable_sentences() -> str:
         MATCH (sentence:Sentence)
         WHERE sentence.uid IN $sentence_ids
         MATCH (resource:Resource {uid: sentence.resource_uid})
-            -[:PARENT*0..]->(owner_entry)-[:OWNED]->(:User {uid: $user_id})
-        WHERE $resource_id IS NULL OR resource.uid = $resource_id
+        WHERE ($resource_id IS NULL OR resource.uid = $resource_id)
+          AND (EXISTS {
+            MATCH (resource)-[:PARENT*0..]->()-[:OWNED]->(:User {uid:$user_id})
+          } OR EXISTS {
+            MATCH (:User {uid:$user_id})-[:PLAYS_DUNGEON]->(resource)
+          })
         WITH DISTINCT sentence
         """
         + q_location("sentence")

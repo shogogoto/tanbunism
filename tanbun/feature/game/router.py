@@ -1,8 +1,9 @@
 """認証済みユーザー本人の冒険権API."""
 
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
 from tanbun.feature.quiz.learning.study_plan.preparation_state import (
@@ -59,6 +60,7 @@ from .preparation import (
     schedule_dungeon_quizzes,
 )
 from .roster import assign_enemy_quizzes, enemy_identity
+from .shared_dungeons import join_dungeon, public_dungeons
 from .skills import (
     SkillAnswer,
     SkillRequest,
@@ -78,6 +80,37 @@ from .state import (
 from .treasure import ChestRequest, open_chest
 
 router = APIRouter(prefix="/game", tags=["game"])
+
+
+class DungeonJoin(BaseModel):
+    """参加は最新の冒険状態を前提に行う."""
+
+    revision: int = Field(ge=0)
+
+
+@router.get("/dungeons/public")
+async def browse_public_dungeons(
+    user: ActiveUser,
+    response: Response,
+    q: Annotated[str, Query(max_length=200)] = "",
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[dict]:
+    """他ユーザーの公開リソースから行き先を探す."""
+    response.headers["Cache-Control"] = "no-store"
+    return await public_dungeons(user.uid, q, offset)
+
+
+@router.post("/dungeons/{resource_id}/join")
+async def add_public_dungeon(
+    resource_id: UUID,
+    body: DungeonJoin,
+    user: ActiveUser,
+    background_tasks: BackgroundTasks,
+) -> GameState:
+    """自分の行き先へ追加し、自分用のクイズを準備する."""
+    state = await join_dungeon(user.uid, resource_id, body.revision)
+    await schedule_dungeon_quizzes(user.uid, state, background_tasks, [resource_id.hex])
+    return state
 
 
 @router.get("/specialties")
