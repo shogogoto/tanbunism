@@ -35,7 +35,12 @@ from .effects import (
 )
 from .enemy_gambits import EnemyBattleRule, enemy_battle_rules
 from .gambits import apply_action, prepare_action
-from .inventory import equipment_wears_on_damage, equipped_stats, wear_weapon
+from .inventory import (
+    apply_equipment_stats,
+    equipment_wears_on_damage,
+    equipped_stats,
+    wear_weapon,
+)
 from .skill_outcomes import skill_effects
 from .state import BattleMarker, GameState, StateUpdate, compare_and_save, read_state
 
@@ -642,7 +647,9 @@ def apply_turn_result(
     next_run = updated.save.run
     apply_on_hit_effects(updated.save.battle, on_hit_skills or {}, results)
     defensive = equipment_wears_on_damage(updated.save.economy)
-    broken = not defensive and wear_weapon(
+    broken = (
+        not defensive or updated.save.economy.equipment is not None
+    ) and wear_weapon(
         updated.save.economy,
         sum(bool(results.get(e)) for e in marker.enemies)
         if equipment_hits is None
@@ -654,7 +661,9 @@ def apply_turn_result(
         stats,
         previous.save.economy,
         broken=broken,
-        base_stats=base_stats,
+        base_stats=apply_equipment_stats(base_stats, updated.save.economy)
+        if base_stats is not None and updated.save.economy.equipment is not None
+        else base_stats,
     )
     first_only = (
         marker.gambitAction
@@ -672,11 +681,14 @@ def apply_turn_result(
     )
     periodic_hp, periodic_mp = apply_player_periodic(next_run, marker, damage)
     if defensive:
-        broken = wear_defensive_equipment(
-            updated.save,
-            damage + periodic_hp,
-            stats,
-            base_stats,
+        broken = (
+            wear_defensive_equipment(
+                updated.save,
+                damage + periodic_hp,
+                stats,
+                base_stats,
+            )
+            or broken
         )
     next_run.kills += 0 if marker.bossLevel else len(set(body.defeated))
     next_run.quizCursor += len(body.answers)
@@ -748,6 +760,7 @@ def apply_turn_result(
         hp=periodic_hp,
         mp=periodic_mp,
         defensive=defensive,
+        slotted=updated.save.economy.equipment is not None,
     )
     if action_feedback:
         updated.save.battleFeedback += f" · {action_feedback}"
@@ -793,7 +806,7 @@ def wear_defensive_equipment(save, damage, stats, base_stats=None) -> bool:
     if damage <= 0 or not equipment_wears_on_damage(save.economy):
         return False
     snapshot = save.economy.model_copy(deep=True)
-    broken = wear_weapon(save.economy, 1)
+    broken = wear_weapon(save.economy, 1, defensive=True)
     if broken:
         apply_combat_stats(
             save.run,
@@ -801,17 +814,33 @@ def wear_defensive_equipment(save, damage, stats, base_stats=None) -> bool:
             stats,
             snapshot,
             broken=True,
-            base_stats=base_stats,
+            base_stats=apply_equipment_stats(base_stats, save.economy)
+            if base_stats is not None and save.economy.equipment is not None
+            else base_stats,
         )
     return broken
 
 
-def status_feedback(*, broken: bool, hp: int, mp: int, defensive: bool = False) -> str:
+def status_feedback(
+    *,
+    broken: bool,
+    hp: int,
+    mp: int,
+    defensive: bool = False,
+    slotted: bool = False,
+) -> str:
     """通常攻防以外の変化をまとめる."""
     return "".join(
         text
         for enabled, text in [
-            (broken, " · 防具が壊れた" if defensive else " · 武器が壊れた"),
+            (
+                broken,
+                " · 装備が壊れた"
+                if slotted
+                else " · 防具が壊れた"
+                if defensive
+                else " · 武器が壊れた",
+            ),
             (hp, f" · 毒 HP -{hp}"),
             (mp, f" · 呪い MP -{mp}"),
         ]

@@ -536,7 +536,7 @@ def apply_end_counter(state, action, skill):
         broken = (
             damage > 0
             and equipment_wears_on_damage(state.save.economy)
-            and wear_weapon(state.save.economy, 1)
+            and wear_weapon(state.save.economy, 1, defensive=True)
         )
     if broken:
         state.save.battleFeedback += " · 防具が壊れた"

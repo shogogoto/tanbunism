@@ -24,6 +24,7 @@ from .catalog import (
     trigger_unlock_id,
 )
 from .dungeon_keys import use_dungeon_key
+from .equipment_slots import EquipmentSlot
 from .inventory import (
     Economy,
     EquipmentBuff,
@@ -31,6 +32,7 @@ from .inventory import (
     ProductId,
     consume_use,
     equipped_stats,
+    unequip_item,
 )
 from .state import GameSave, GameState, StateUpdate, compare_and_save, read_state
 
@@ -43,6 +45,7 @@ class EconomyAction(BaseModel):
 
     revision: int = Field(ge=0)
     product_id: ProductId
+    slot: EquipmentSlot | None = None
 
 
 def catalog_products(
@@ -88,6 +91,16 @@ def catalog_products(
             skill_name=skills[i.skill_id].name,
             enabled=i.enabled and skills[i.skill_id].enabled,
             max_uses=i.max_uses,
+            equipment_part=i.equipment_part
+            or (
+                "arm"
+                if i.category == "weapon"
+                else "body"
+                if i.category == "armor"
+                else "accessory"
+            )
+            if i.kind == "weapon"
+            else None,
             element_names={element.id: element.name for element in catalog.elements},
             equipment_buffs=[
                 EquipmentBuff(
@@ -240,7 +253,13 @@ async def change_economy(user_id: UUIDy, body: EconomyAction, action: str) -> Ga
         raise HTTPException(409, "戦闘中はショップ・所持品を操作できません。")
     updated = previous.model_copy(deep=True)
     economy = updated.save.economy
-    await apply_inventory_action(user_id, updated.save, body.product_id, action)
+    await apply_inventory_action(
+        user_id,
+        updated.save,
+        body.product_id,
+        action,
+        body.slot,
+    )
     stats = equipped_stats(updated.save.allocation, await get_game_balance(), economy)
     for current in [updated.save.run, *(d.run for d in updated.save.dungeons.values())]:
         if current:
@@ -277,9 +296,12 @@ async def apply_inventory_action(
     save: GameSave,
     product_id: str,
     action: str,
+    slot: EquipmentSlot | None = None,
 ) -> None:
     """通常カタログの品物と対象付き開放キーを同じ所持品操作で扱う."""
     economy = save.economy
+    if action == "equip" and unequip_item(economy, product_id, slot):
+        return
     if product_id in economy.dungeon_keys:
         if action != "use":
             raise HTTPException(422, "ダンジョン開放キーは使用のみ可能です。")
@@ -295,6 +317,26 @@ async def apply_inventory_action(
     elif action == "equip":
         if product.kind != "weapon" or not quantity:
             raise HTTPException(422, "所持している武器を選んでください。")
+        if slot is not None or economy.equipment is not None:
+            from .inventory import equip_item  # noqa: PLC0415
+
+            selected = slot or next(
+                (
+                    key
+                    for key, item in (economy.equipment or {}).items()
+                    if item.item_id == product.id
+                ),
+                None,
+            )
+            selected = selected or {"arm": "arm1", "accessory": "accessory1"}.get(
+                product.equipment_part,
+                product.equipment_part,
+            )
+            try:
+                equip_item(economy, product, selected)
+            except ValueError as cause:
+                raise HTTPException(422, str(cause)) from cause
+            return
         economy.weapon = None if economy.weapon == product.id else product.id
         economy.equipment_attack = (
             (

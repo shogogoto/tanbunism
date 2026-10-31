@@ -1172,6 +1172,7 @@ class ItemDefinition(BaseModel):
     kind: Literal["weapon", "consumable"] = "consumable"
     category: ItemCategory = ItemCategory.OTHER
     max_uses: int = Field(default=1, ge=1, le=10000)
+    equipment_part: Literal["arm", "body", "feet", "head", "accessory"] | None = None
 
     @model_validator(mode="before")
     @classmethod

@@ -1,5 +1,23 @@
 # Game systems
 
+## Equipment slots
+
+The equipment menu has seven slots: arm1/arm2, body, feet, head and
+accessory1/accessory2. Item definitions can specify `equipment_part` independently
+of their display category and skill. Unspecified parts default to arm for weapons,
+body for armor and accessory for other equipment. The equip endpoint accepts an
+optional `slot` with the current revision and validates ownership, combat state
+and slot compatibility. Removing a retired definition remains possible.
+
+Equipment effects are frozen per slot and combined against the same base stats.
+Legacy single equipment remains readable and is preserved in arm1 when slot-based
+equipment is first changed. The existing remaining-use counter is retained.
+Because durability is currently tracked per item definition rather than inventory
+instance, selecting the same item in another slot moves it; it cannot be equipped
+twice. Weapons consume uses on successful damage, defensive equipment on damage
+received (including counterattacks). Breaking one item removes only its bonuses
+and does not automatically equip a spare copy.
+
 ## Playing another user's dungeon
 
 Authenticated players can search existing public bookshelf resources using
