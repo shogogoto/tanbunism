@@ -19,11 +19,12 @@ from tanbun.feature.quiz.learning.study_plan.repo import (
 )
 from tanbun.feature.user.testing import aauth_header, aregister
 
-from . import router
+from . import economy, router
 from .combat import EncounterRequest, TurnRequest, settle_turn, start_combat
+from .economy import EconomyAction, change_economy
 from .knowledge import KnowledgeValidation, valid_knowledge
 from .preparation import _prepare_resource_to_frontier
-from .shared_dungeons import dungeon_accessible, join_dungeon
+from .shared_dungeons import claim_dungeon_key, dungeon_accessible
 from .state import DungeonMap, Run, StateUpdate, read_state, write_state
 
 
@@ -36,7 +37,7 @@ async def test_join_and_prepare_independent_dungeon(ac: AsyncClient, monkeypatch
     resource = to_uuid(resource)
     headers = await aauth_header(learner.email)
     monkeypatch.setattr(router, "schedule_dungeon_quizzes", AsyncMock())
-    path = f"/game/dungeons/{resource}/join"
+    path = f"/game/dungeons/{resource}/key"
     assert (await ac.get("/game/dungeons/public")).status_code == 401
     assert (await ac.post(path, json={"revision": 0})).status_code == 401
     before_owner = await read_state(owner.uid)
@@ -52,23 +53,17 @@ async def test_join_and_prepare_independent_dungeon(ac: AsyncClient, monkeypatch
     assert listing.status_code == 200
     assert listing.json()[0]["owner_id"] == owner.uid
     assert listing.json()[0]["joined"] is False
-    response = await ac.post(path, json={"revision": 0}, headers=headers)
-    assert response.is_success, response.text
-    assert response.json()["save"]["unlockedDungeons"][0]["source"] == "shared"
-    assert await dungeon_accessible(learner.uid, resource)
+    await claim_and_use_key(ac, headers, resource, learner.uid)
     assert not await check_entry_owner(learner.uid, resource)
+    assert await dungeon_accessible(learner.uid, resource)
     assert await valid_knowledge(learner.uid, validation) == rows[0]
     assert (
-        await ac.post(path, json={"revision": 0}, headers=headers)
-    ).status_code == 409
-    assert (
-        len(
-            (await ac.post(path, json={"revision": 1}, headers=headers)).json()["save"][
-                "unlockedDungeons"
-            ],
+        await ac.post(
+            f"/game/dungeons/{resource}/join",
+            json={"revision": 2},
+            headers=headers,
         )
-        == 1
-    )
+    ).status_code == 404
     guest_plan = await ensure_default_resource_study_plan(
         learner.uid,
         resource,
@@ -96,6 +91,39 @@ async def test_join_and_prepare_independent_dungeon(ac: AsyncClient, monkeypatch
     await play_guest_turn(learner.uid, resource.hex, rows[0][0], pool.json()["quizzes"])
     assert await read_state(owner.uid) == before_owner
     assert (await fetch_resource_growth(owner.uid))[0].total_xp == 0
+
+
+async def claim_and_use_key(ac, headers, resource, user_id):
+    """受領と使用の間では探索権・クイズ準備が発生せず、一回だけ使える."""
+    path = f"/game/dungeons/{resource}/key"
+    response = await ac.post(path, json={"revision": 0}, headers=headers)
+    assert response.is_success, response.text
+    identity = f"@dungeon:{resource.hex}"
+    assert response.json()["save"]["economy"]["inventory"][identity] == 1
+    assert response.json()["save"]["unlockedDungeons"] == []
+    assert not await dungeon_accessible(user_id, resource)
+    router.schedule_dungeon_quizzes.assert_not_awaited()
+    assert (await ac.get("/game/dungeons/public?q=title", headers=headers)).json()[0][
+        "key_owned"
+    ]
+    assert (
+        await ac.post(path, json={"revision": 0}, headers=headers)
+    ).status_code == 409
+    assert (await ac.post(path, json={"revision": 1}, headers=headers)).json()[
+        "revision"
+    ] == 1
+    response = await ac.post(
+        "/game/inventory/use",
+        json={"revision": 1, "product_id": identity},
+        headers=headers,
+    )
+    assert response.is_success, response.text
+    assert response.json()["save"]["economy"]["inventory"][identity] == 0
+    assert response.json()["save"]["unlockedDungeons"][0]["source"] == "shared"
+    router.schedule_dungeon_quizzes.assert_awaited_once()
+    repeated = await ac.post(path, json={"revision": 2}, headers=headers)
+    assert repeated.json()["revision"] == 2
+    assert repeated.json()["save"]["economy"]["inventory"][identity] == 0
 
 
 async def play_guest_turn(user_id, resource_id, sentence_id, quizzes):
@@ -153,6 +181,52 @@ async def test_missing_dungeon_does_not_mutate_guest():
     before = await read_state(user.uid)
     for resource in (uuid4(), to_uuid(await learning_resource_id(user.uid))):
         with pytest.raises(HTTPException) as error:
-            await join_dungeon(to_uuid(user.uid), resource, 0)
+            await claim_dungeon_key(to_uuid(user.uid), resource, 0)
         assert error.value.status_code == 404
     assert await read_state(user.uid) == before
+
+
+@mark_async_test()
+async def test_failed_key_use_never_enrolls_or_consumes(monkeypatch):
+    """CASの衝突時に、開放・参加・キー消費を一つも先行確定しない."""
+    owner = await fx_learning()
+    resource = to_uuid(await learning_resource_id(owner.uid))
+    guest = await aregister("key-conflict@example.com")
+    state = await claim_dungeon_key(to_uuid(guest.uid), resource, 0)
+    monkeypatch.setattr(economy, "compare_and_save", AsyncMock(return_value=[]))
+    with pytest.raises(HTTPException) as error:
+        await change_economy(
+            guest.uid,
+            EconomyAction(
+                revision=state.revision,
+                product_id=f"@dungeon:{resource.hex}",
+            ),
+            "use",
+        )
+    assert error.value.status_code == 409
+    assert await read_state(guest.uid) == state
+    assert not await dungeon_accessible(guest.uid, resource)
+
+
+@mark_async_test()
+async def test_removed_public_resource_does_not_consume_its_key():
+    """取得後に削除されたダンジョンのキーを消費しない."""
+    owner = await fx_learning()
+    resource = to_uuid(await learning_resource_id(owner.uid))
+    guest = await aregister("key-removed@example.com")
+    state = await claim_dungeon_key(to_uuid(guest.uid), resource, 0)
+    await adb.cypher_query(
+        "MATCH (r:Resource {uid:$uid}) DETACH DELETE r",
+        {"uid": resource.hex},
+    )
+    with pytest.raises(HTTPException) as error:
+        await change_economy(
+            guest.uid,
+            EconomyAction(
+                revision=state.revision,
+                product_id=f"@dungeon:{resource.hex}",
+            ),
+            "use",
+        )
+    assert error.value.status_code == 404
+    assert await read_state(guest.uid) == state

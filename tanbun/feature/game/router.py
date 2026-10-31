@@ -60,7 +60,7 @@ from .preparation import (
     schedule_dungeon_quizzes,
 )
 from .roster import assign_enemy_quizzes, enemy_identity
-from .shared_dungeons import join_dungeon, public_dungeons
+from .shared_dungeons import claim_dungeon_key, public_dungeons
 from .skills import (
     SkillAnswer,
     SkillRequest,
@@ -82,8 +82,8 @@ from .treasure import ChestRequest, open_chest
 router = APIRouter(prefix="/game", tags=["game"])
 
 
-class DungeonJoin(BaseModel):
-    """参加は最新の冒険状態を前提に行う."""
+class DungeonKeyClaim(BaseModel):
+    """鍵の取得は最新の冒険状態を前提に行う."""
 
     revision: int = Field(ge=0)
 
@@ -100,17 +100,14 @@ async def browse_public_dungeons(
     return await public_dungeons(user.uid, q, offset)
 
 
-@router.post("/dungeons/{resource_id}/join")
-async def add_public_dungeon(
+@router.post("/dungeons/{resource_id}/key")
+async def claim_public_dungeon_key(
     resource_id: UUID,
-    body: DungeonJoin,
+    body: DungeonKeyClaim,
     user: ActiveUser,
-    background_tasks: BackgroundTasks,
 ) -> GameState:
-    """自分の行き先へ追加し、自分用のクイズを準備する."""
-    state = await join_dungeon(user.uid, resource_id, body.revision)
-    await schedule_dungeon_quizzes(user.uid, state, background_tasks, [resource_id.hex])
-    return state
+    """旅人の書庫から開放キーを所持品へ追加する。まだ探索は開放しない."""
+    return await claim_dungeon_key(user.uid, resource_id, body.revision)
 
 
 @router.get("/specialties")
@@ -358,9 +355,22 @@ async def equip_product(user: ActiveUser, body: EconomyAction) -> GameState:
 
 
 @router.post("/inventory/use")
-async def use_product(user: ActiveUser, body: EconomyAction) -> GameState:
-    """回復薬を一個消費する."""
-    return await change_economy(user.uid, body, "use")
+async def use_product(
+    user: ActiveUser,
+    body: EconomyAction,
+    background_tasks: BackgroundTasks,
+) -> GameState:
+    """アイテムを消費し、開放キーなら本人用のクイズ準備を予約する."""
+    state = await change_economy(user.uid, body, "use")
+    key = state.save.economy.dungeon_keys.get(body.product_id)
+    if key:
+        await schedule_dungeon_quizzes(
+            user.uid,
+            state,
+            background_tasks,
+            [key.resource_id],
+        )
+    return state
 
 
 @router.put("/state")

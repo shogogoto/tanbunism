@@ -5,12 +5,12 @@ from uuid import UUID
 from fastapi import HTTPException
 from neomodel import adb
 
-from tanbun.config.transactions import atomic
 from tanbun.feature.domain.types import UUIDy, to_uuid
+from tanbun.feature.notification.usecase import dispatch_saved_notifications
 
-from .dungeon_keys import opened_resources
-from .state import GameState, StateUpdate, compare_and_save, read_state
-from .unlocks import MAX_UNLOCKED_DUNGEONS, DungeonUnlock
+from .dungeon_keys import opened_resources, save_key_grant
+from .inventory import DungeonKey
+from .state import GameState, read_state
 
 
 async def dungeon_accessible(user_id: UUIDy, resource_id: UUIDy) -> bool:
@@ -40,63 +40,71 @@ async def public_dungeons(user_id: UUID, query: str, offset: int) -> list[dict]:
         ORDER BY r.title, r.uid, owner.uid SKIP $offset LIMIT 30""",
         {"user": user_id.hex, "query": query, "offset": offset},
     )
+    state = await read_state(user_id)
+    opened = opened_resources(state.save)
     return [
-        dict(
-            zip(
-                ("resource_id", "name", "owner_id", "owner_name", "joined"),
-                row,
-                strict=True,
+        {
+            **dict(
+                zip(
+                    ("resource_id", "name", "owner_id", "owner_name", "joined"),
+                    row,
+                    strict=True,
+                ),
             ),
-        )
+            "joined": row[4] or row[0] in opened,
+            "key_owned": state.save.economy.inventory.get(f"@dungeon:{row[0]}", 0) > 0,
+        }
         for row in rows
     ]
 
 
-async def join_dungeon(user_id: UUID, resource_id: UUID, revision: int) -> GameState:
-    """所持・学習・進行を譲渡せず、本人だけの開放と参加をまとめて保存する."""
-    async with atomic():
-        rows, _ = await adb.cypher_query(
-            """MATCH (r:Resource {uid:$resource})
+async def public_resource_name(user_id: UUIDy, resource_id: UUIDy) -> str:
+    """取得時と使用時に、現在も公開本棚の所有リソースであることを確認する."""
+    rows, _ = await adb.cypher_query(
+        """MATCH (r:Resource {uid:$resource})
                 -[:PARENT*0..]->()-[:OWNED]->(owner:User)
             WHERE owner.uid <> $user AND coalesce(owner.is_active,true)
               AND EXISTS { MATCH (:Sentence {resource_uid:r.uid}) }
             RETURN DISTINCT coalesce(r.title,'ダンジョン')""",
-            {"resource": resource_id.hex, "user": user_id.hex},
-        )
-        if not rows:
-            raise HTTPException(404, "対象のダンジョンが見つかりません。")
-        previous = await read_state(user_id)
-        if previous.revision != revision:
-            raise HTTPException(
-                409,
-                "冒険状態が更新されました。再読み込みしてください。",
-            )
-        updated = previous.model_copy(deep=True)
-        if resource_id.hex not in opened_resources(updated.save):
-            if len(updated.save.unlockedDungeons) >= MAX_UNLOCKED_DUNGEONS:
-                raise HTTPException(422, "開放済みダンジョンの上限に達しました。")
-            updated.save.unlockedDungeons.append(
-                DungeonUnlock(
-                    sourceId=resource_id.hex,
-                    resourceId=resource_id.hex,
-                    name=rows[0][0][:1000],
-                    achievement=0,
-                    source="shared",
-                ),
-            )
-        updated.revision += 1
-        if not await compare_and_save(
-            user_id,
-            StateUpdate(revision=revision, save=updated.save),
-            updated,
-        ):
-            raise HTTPException(
-                409,
-                "冒険状態が更新されました。再読み込みしてください。",
-            )
-        await adb.cypher_query(
-            """MATCH (u:User {uid:$user}), (r:Resource {uid:$resource})
-            MERGE (u)-[:PLAYS_DUNGEON]->(r)""",
-            {"user": user_id.hex, "resource": resource_id.hex},
-        )
-        return updated
+        {"resource": to_uuid(resource_id).hex, "user": to_uuid(user_id).hex},
+    )
+    if not rows:
+        raise HTTPException(404, "対象のダンジョンが見つかりません。")
+    return rows[0][0][:1000]
+
+
+async def claim_dungeon_key(
+    user_id: UUID,
+    resource_id: UUID,
+    revision: int,
+) -> GameState:
+    """書庫では鍵を一個だけ渡し、使用するまでは探索・クイズを開放しない."""
+    name = await public_resource_name(user_id, resource_id)
+    previous = await read_state(user_id)
+    if previous.revision != revision:
+        raise HTTPException(409, "冒険状態が更新されました。再読み込みしてください。")
+    if (
+        previous.save.battle
+        or previous.save.battleFeedback
+        or (previous.save.run and previous.save.run.phase == "battle")
+    ):
+        raise HTTPException(409, "戦闘が終わってから開放キーを入手してください。")
+    identity = f"@dungeon:{resource_id.hex}"
+    if (
+        resource_id.hex in opened_resources(previous.save)
+        or identity in previous.save.economy.dungeon_keys
+    ):
+        return previous
+    updated = previous.model_copy(deep=True)
+    updated.save.economy.dungeon_keys[identity] = DungeonKey(
+        resource_id=resource_id.hex,
+        name=name,
+        source="shared",
+    )
+    updated.save.economy.inventory[identity] = 1
+    updated.revision += 1
+    rows, notifications = await save_key_grant(user_id, previous, updated, identity)
+    if not rows:
+        raise HTTPException(409, "冒険状態が更新されました。再読み込みしてください。")
+    await dispatch_saved_notifications(user_id, notifications)
+    return updated

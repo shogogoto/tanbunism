@@ -150,14 +150,37 @@ async def use_dungeon_key(user_id: UUIDy, save: GameSave, identity: str) -> None
         raise HTTPException(409, "このダンジョンはすでに開放されています。")
     if len(save.unlockedDungeons) >= MAX_UNLOCKED_DUNGEONS:
         raise HTTPException(422, "開放済みダンジョンの上限に達しました。")
-    name = await owned_resource_name(user_id, key.resource_id)
+    if key.source == "shared":
+        from .shared_dungeons import public_resource_name  # noqa: PLC0415
+
+        name = await public_resource_name(user_id, key.resource_id)
+    else:
+        name = await owned_resource_name(user_id, key.resource_id)
     save.unlockedDungeons.append(
         DungeonUnlock(
             sourceId=key.resource_id,
             resourceId=key.resource_id,
             name=name,
             achievement=0,
-            source="item",
+            source="shared" if key.source == "shared" else "item",
         ),
     )
     consume_use(save.economy, identity, 1)
+
+
+async def enroll_opened_key(user_id: UUIDy, save: GameSave, identity: str) -> None:
+    """開放状態のCASと同じtransaction内で、共有ダンジョンの参加を確定する."""
+    key = save.economy.dungeon_keys.get(identity)
+    if not key or key.source != "shared":
+        return
+    rows, _ = await adb.cypher_query(
+        """MATCH (u:User {uid:$user}), (r:Resource {uid:$resource})
+        WHERE EXISTS {
+            MATCH (r)-[:PARENT*0..]->()-[:OWNED]->(owner:User)
+            WHERE owner.uid <> $user AND coalesce(owner.is_active,true)
+        }
+        MERGE (u)-[:PLAYS_DUNGEON]->(r) RETURN r.uid""",
+        {"user": to_uuid(user_id).hex, "resource": key.resource_id},
+    )
+    if not rows:
+        raise HTTPException(404, "対象のダンジョンが見つかりません。")

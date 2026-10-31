@@ -44,6 +44,7 @@ class DungeonKey(BaseModel, frozen=True):
 
     resource_id: str = Field(max_length=64)
     name: str = Field(max_length=1000)
+    source: Literal["owned", "shared"] = "owned"
 
 
 class EquippedItem(BaseModel):

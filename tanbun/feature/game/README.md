@@ -38,12 +38,19 @@ and does not automatically equip a spare copy.
 ## Playing another user's dungeon
 
 Authenticated players can search existing public bookshelf resources using
-`GET /game/dungeons/public?q=...&offset=...` (30 results per page), then add one
-using `POST /game/dungeons/{resource_id}/join` with their current game revision.
-Joining atomically records `User-[:PLAYS_DUNGEON]->Resource` and a `shared` dungeon
-unlock; it does not transfer ownership, consume a key, copy the owner's progress,
-or grant XP. Only joined resources additionally pass game knowledge/exposure
-validation. Own resources keep their existing access rules.
+`GET /game/dungeons/public?q=...&offset=...` (30 results per page) in the game
+menu's Traveler's Library. `POST /game/dungeons/{resource_id}/key` with the current
+revision gives one free existing-format dungeon key, marked `source=shared`.
+Receiving a key does not unlock exploration, enroll the player or prepare quizzes.
+Repeated claims do not duplicate keys. Existing shared unlocks remain available.
+
+Using the key through `/game/inventory/use` revalidates the public resource,
+then atomically consumes the key, records a `shared` unlock and enrolls the player
+through `User-[:PLAYS_DUNGEON]->Resource`. Quiz preparation is scheduled after use.
+Failed revision checks or missing resources do not consume the key or grant access.
+No ownership or progress is transferred. Own-resource import keys keep their
+original ownership checks, and only enrolled resources pass shared exploration
+validation. The old direct-join endpoint is removed.
 
 Quiz preparation creates a default resource StudyPlan per **player and resource**.
 Quiz pools, answers, XP, maps, chest receipts and boss clears remain player-scoped.

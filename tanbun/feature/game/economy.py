@@ -23,7 +23,7 @@ from .catalog import (
     trigger_display_name,
     trigger_unlock_id,
 )
-from .dungeon_keys import use_dungeon_key
+from .dungeon_keys import enroll_opened_key, use_dungeon_key
 from .equipment_slots import EquipmentSlot
 from .inventory import (
     Economy,
@@ -288,6 +288,8 @@ async def change_economy(user_id: UUIDy, body: EconomyAction, action: str) -> Ga
                 409,
                 "所持品が更新されました。もう一度操作してください。",
             )
+        if action == "use":
+            await enroll_opened_key(user_id, updated.save, body.product_id)
     return updated
 
 
