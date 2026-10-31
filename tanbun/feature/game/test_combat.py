@@ -28,6 +28,31 @@ from .state import GameSave, GameState, Run, StateUpdate, read_state, write_stat
 u = async_fixture()(fx_u)
 
 
+def test_battle_labels_do_not_accumulate_across_context_refreshes():
+    """カタログ上の名前を保ち、別の遭遇の記号に重ねて追記しない."""
+    enemy = combat.EnemyStats(
+        id="e",
+        name="ゴースト",
+        quizIndex=0,
+        hp=10,
+        attack=1,
+        relations=0,
+        region=0,
+    )
+    marker = combat.BattleMarker(
+        id="battle",
+        region=0,
+        enemies=["e"],
+        enemyLabels={"e": "A"},
+    )
+    first = combat.label_enemies([enemy], marker)
+    assert first[0].name == "ゴーストA"
+    assert combat.label_enemies(first, marker)[0].name == "ゴーストA"
+    second = marker.model_copy(update={"id": "another", "enemyLabels": {"e": "B"}})
+    assert combat.label_enemies(first, second)[0].name == "ゴーストB"
+    assert enemy.name == "ゴースト"
+
+
 @mark_async_test()
 async def test_practice_reads_live_content_without_changing_state_or_answers(u: LUser):
     """Actual DB sources are read, but practice never alters the existing battle."""
@@ -125,6 +150,10 @@ async def encounter(
 async def test_scheduled_combat_seals_one_question_and_replays_receipt(u: LUser):
     """The live protocol persists enemy HP and never doubles an answer or damage."""
     state = await encounter(u, scheduled=True)
+    assert list(state.save.battle.enemyLabels.values()) == ["A", "B"]
+    assert (
+        await read_state(u.uid)
+    ).save.battle.enemyLabels == state.save.battle.enemyLabels
     marker = state.save.battle
     schedule = marker.schedule
     assert len(schedule.queue) == 10
@@ -140,6 +169,7 @@ async def test_scheduled_combat_seals_one_question_and_replays_receipt(u: LUser)
     assert resolved["results"] == {target: True}
     assert resolved["outgoing_damage"][target] > 0
     restored = await read_state(u.uid)
+    assert restored.save.battle.enemyLabels == state.save.battle.enemyLabels
     if restored.save.battle:
         assert (
             restored.save.battle.schedule.enemy_hp[target] < schedule.enemy_hp[target]

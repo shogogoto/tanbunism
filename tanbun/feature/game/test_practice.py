@@ -294,7 +294,7 @@ async def test_dungeon_practice_keeps_saved_enemy_identity_and_quiz_sets(monkeyp
     assert len(session.context.enemies) == 1
     enemy = session.context.enemies[0]
     assert enemy.id == "saved-enemy"
-    assert enemy.name == "保存済みの敵"
+    assert enemy.name == "保存済みの敵A"
     assert enemy.quizIndexes == [0, 1]
     assert source.model_dump_json() == original
 

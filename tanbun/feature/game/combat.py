@@ -73,6 +73,7 @@ class EnemyStats(BaseModel):
 
     id: str
     name: str
+    base_name: str | None = None
     quizIndex: int  # noqa: N815
     quizIndexes: list[int] = Field(default_factory=list)  # noqa: N815
     hp: int
@@ -103,6 +104,25 @@ class CombatContext(BaseModel):
     default_attack: StoredSkill | None = None
     enabled_elements: list[str] | None = None
     elements: list[ElementDefinition] = Field(default_factory=list)
+
+
+def label_enemies(
+    enemies: list[EnemyStats],
+    marker: BattleMarker | None,
+) -> list[EnemyStats]:
+    """遭遇時に付けた固定記号を、表示名とメッセージで共有する."""
+    labels = marker.enemyLabels if marker else {}
+    return [
+        enemy.model_copy(
+            update={
+                "name": f"{enemy.base_name or enemy.name}{labels[enemy.id]}",
+                "base_name": enemy.base_name or enemy.name,
+            },
+        )
+        if enemy.id in labels
+        else enemy
+        for enemy in enemies
+    ]
 
 
 async def combat_context(
@@ -141,14 +161,17 @@ async def combat_context(
             element.id for element in catalog.elements if element.enabled
         ],
         elements=catalog.elements,
-        enemies=style_enemies(
-            derive_enemies(
-                {**content, "battle": battle_payload},
-                relations,
-                power,
-                balance,
+        enemies=label_enemies(
+            style_enemies(
+                derive_enemies(
+                    {**content, "battle": battle_payload},
+                    relations,
+                    power,
+                    balance,
+                ),
+                catalog,
             ),
-            catalog,
+            state.save.battle,
         ),
     )
 
@@ -419,10 +442,13 @@ async def start_combat(user_id: UUIDy, body: EncounterRequest) -> GameState:
         checkpoint=body.checkpoint,
         discoveredPlace=body.discovered_place,
         enemies=[e.id for e in chosen],
+        enemyLabels={enemy.id: chr(65 + index) for index, enemy in enumerate(chosen)},
         quizIndices={
             enemy.id: choice(enemy.quizIndexes or [enemy.quizIndex]) for enemy in chosen
         },
     )
+    chosen = label_enemies(chosen, updated.save.battle)
+    context.enemies = label_enemies(context.enemies, updated.save.battle)
     stats = equipped_stats(
         updated.save.allocation,
         context.balance,

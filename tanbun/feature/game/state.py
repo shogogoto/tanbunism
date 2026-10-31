@@ -99,6 +99,7 @@ class BattleMarker(BaseModel):
     endAction: dict | None = None
     endActionDone: bool = False
     enemies: list[str] = Field(min_length=1, max_length=20)
+    enemyLabels: dict[str, str] = Field(default_factory=dict, max_length=20)
     quizIndices: dict[str, int] = Field(default_factory=dict)
     bossLevel: int | None = Field(default=None, ge=5, le=20)
     bossQuizIds: list[str] = Field(default_factory=list, max_length=100)

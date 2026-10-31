@@ -21,6 +21,7 @@ from .combat import (
     TurnRequest,
     apply_turn_result,
     combat_context,
+    label_enemies,
     select_encounter,
     style_enemies,
 )
@@ -371,8 +372,10 @@ def _begin_practice(
         id=f"practice-{seed}",
         region=region,
         enemies=[enemy.id for enemy in chosen],
+        enemyLabels={enemy.id: chr(65 + index) for index, enemy in enumerate(chosen)},
         quizIndices={enemy.id: rng.choice(enemy.quizIndexes) for enemy in chosen},
     )
+    context.enemies = label_enemies(chosen, state.save.battle)
     now = int(time() * 1000)
     stats = equipped_stats(state.save.allocation, context.balance, state.save.economy)
     state.save.run.answerDeadline = now + stats["answerSeconds"] * 1000

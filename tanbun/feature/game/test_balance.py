@@ -9,6 +9,17 @@ from pydantic import ValidationError
 from .balance import Allocation, GameBalance
 
 
+def test_activation_sounds_accept_catalog_ids_and_none_only():
+    """発動前SEは登録済み素材か無音を保存し、任意URLは拒否する."""
+    settings = GameBalance(
+        physical_activation_sound="willo_zap",
+        magical_activation_sound="none",
+    )
+    assert GameBalance.model_validate_json(settings.model_dump_json()) == settings
+    with pytest.raises(ValidationError):
+        GameBalance(physical_activation_sound="https://example.com/untrusted.mp3")
+
+
 @pytest.mark.parametrize("region", [0, 2, 4])
 @pytest.mark.parametrize("formula", ["log", "sqrt"])
 def test_region_growth_multiplies_power_adjusted_stats(

@@ -68,6 +68,7 @@ async def start_boss(user_id: UUIDy, body: BossRequest) -> GameState:
         region=body.level - 1,
         checkpoint=dungeon.current,
         enemies=[identity],
+        enemyLabels={identity: "A"},
         bossLevel=body.level,
         bossQuizIds=quiz_ids,
     )

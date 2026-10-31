@@ -73,7 +73,8 @@ def test_correct_answers_benefit_player_for_either_actor(actor):
     assert reply["state"].save.battle.schedule.enemy_hp[target] == 88
     assert reply["damage"] == 0
     assert reply["state"].save.quizFeedback == "正解"
-    assert reply["state"].save.battleFeedback == f"戦う · {target}に12ダメージ"
+    name = "戦う" if actor == "player" else "eの戦う"
+    assert reply["state"].save.battleFeedback == f"{name} · {target}に12ダメージ"
     restored = type(state).model_validate_json(reply["state"].model_dump_json())
     assert restored.save.quizFeedback == "正解"
     assert restored.save.battleActionDetails == reply["state"].save.battleActionDetails
@@ -95,7 +96,8 @@ def test_wrong_and_unanswered_risky_attacks_damage_player(actor):
     assert reply["state"].save.run.hp == 13
     assert not reply["outgoing_damage"]
     assert reply["state"].save.quizFeedback in {"不正解", "時間切れ"}
-    assert reply["state"].save.battleFeedback == "戦う · 7ダメージを受けた"
+    name = "戦う" if actor == "player" else "eの戦う"
+    assert reply["state"].save.battleFeedback == f"{name} · 7ダメージを受けた"
 
 
 @pytest.mark.parametrize("retreat", [True, False])

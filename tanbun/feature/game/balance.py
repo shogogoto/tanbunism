@@ -9,12 +9,15 @@ from neomodel import adb
 from pydantic import BaseModel, Field, model_validator
 
 from .action_queue import SpeedFormula
+from .catalog import SkillSound
 
 
 class GameBalance(BaseModel, frozen=True):
     """数値は仮値。既存の敵にも読み取り時に適用する."""
 
     base_hp: int = Field(default=35, ge=1, le=10000)
+    physical_activation_sound: SkillSound = SkillSound.SLASH
+    magical_activation_sound: SkillSound = SkillSound.MAGIC
     weakness_multiplier: float = Field(default=1.5, ge=1, le=10, allow_inf_nan=False)
     resistance_multiplier: float = Field(default=0.5, ge=0.1, le=1, allow_inf_nan=False)
     gambit_levels_per_slot: int = Field(default=5, ge=2, le=100)

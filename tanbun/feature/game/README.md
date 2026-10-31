@@ -1,5 +1,22 @@
 # Game systems
 
+## Battle presentation
+
+Each encounter assigns immutable `enemyLabels` (A–T); removing an enemy does not
+renumber survivors, and saved battles retain these labels on reload. Combat
+messages and the icon-only forecast use the same identities. The battlefield is
+a fixed-height enemy-left/player-right area; defeated enemies disappear after
+their impact effect, without shifting the quiz. Names, exact HP/MP and existing
+affinities are available from each avatar's details. No appraisal/unlock mechanic
+is introduced here. The answered quiz's explanation opens above the existing
+battle without advancing it. Battle tempo controls are no longer shown.
+
+Admins configure `physical_activation_sound` and `magical_activation_sound` in
+game balance, with licensed sound previews and a `none` choice. Startup audio
+finishes before the skill effect sound and animation, without delaying quiz
+settlement or turn advancement. These settings participate in the unified game
+settings import/export.
+
 ## Equipment slots
 
 The equipment menu has seven slots: arm1/arm2, body, feet, head and

@@ -595,8 +595,8 @@ def scheduled_action_name(marker, enemy, context) -> str:
     fallback = context.default_attack or normal_attack()
     if marker.schedule.actor_id != "player" and enemy.attack_skill:
         fallback = enemy.attack_skill
-    if action and marker.schedule.actor_id != "player":
-        return f"{enemy.name}の{action.name}"
+    if marker.schedule.actor_id != "player":
+        return f"{enemy.name}の{action.name if action else fallback.name}"
     return action.name if action else fallback.name
 
 
