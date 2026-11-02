@@ -20,6 +20,7 @@ from pydantic import (
 
 from .effect_chance import FULL_CHANCE
 from .item_categories import ItemCategory
+from .rewards import RewardSettings
 from .template_variant_sets import (
     VariantField,
     VariantSet,
@@ -1566,6 +1567,7 @@ class GameCatalog(BaseModel):
     """IDと参照をまとめて検査し、一括保存する定義。."""
 
     skills: list[StoredSkill] = Field(default_factory=list, max_length=200)
+    rewards: RewardSettings | None = None
     boss_multipliers_version: Literal[1] = 1
     variant_sets: list[VariantSet] = Field(default_factory=list, max_length=100)
     trigger_variant_sets: list[TriggerVariantSet] = Field(
@@ -1756,6 +1758,20 @@ class GameCatalog(BaseModel):
             for skill in document["skills"]
         ]
         return document
+
+    @model_validator(mode="after")
+    def valid_reward_items(self):
+        """報酬表の参照は保存時に検査し、実行時には無効化も反映する。."""
+        if self.rewards:
+            item_ids = {item.id for item in self.items}
+            if any(
+                entry.item_id not in item_ids
+                for table in self.rewards.tables
+                for entry in table.entries
+            ):
+                msg = "報酬表のアイテムが見つかりません。"
+                raise ValueError(msg)
+        return self
 
     @model_validator(mode="after")
     def valid_shop(self):

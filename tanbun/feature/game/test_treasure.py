@@ -12,7 +12,9 @@ from pydantic import ValidationError
 from . import state as state_module
 from . import treasure
 from .balance import GameBalance
+from .catalog import GameCatalog, default_catalog
 from .inventory import ChestReward, Economy
+from .rewards import RewardEntry, RewardSettings, RewardTable
 from .state import DungeonMap, GameSave, GameState, MapPlace, Run, StateUpdate
 from .treasure import ChestRequest, open_chest
 
@@ -59,6 +61,11 @@ def setup(monkeypatch):
     )
     monkeypatch.setattr(treasure, "compare_and_save", AsyncMock(side_effect=save))
     monkeypatch.setattr(treasure, "atomic", nullcontext)
+    monkeypatch.setattr(
+        treasure,
+        "get_game_catalog",
+        AsyncMock(return_value=GameCatalog()),
+    )
     monkeypatch.setattr(
         treasure,
         "get_game_balance",
@@ -141,6 +148,74 @@ async def test_concurrent_update_does_not_return_uncommitted_rewards(monkeypatch
     with pytest.raises(HTTPException) as error:
         await open_chest("user", ChestRequest(revision=0, region=0))
     assert error.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_configured_rewards_use_server_growth_preserve_durability_and_history(
+    setup,
+    monkeypatch,
+):
+    """達成度で中級へ進み、同じ装備の入手で耐久を回復させない."""
+    catalog = default_catalog()
+    catalog.rewards = RewardSettings(
+        chest_table_id="chest",
+        tables=[
+            RewardTable(
+                id="chest",
+                name="宝箱",
+                entries=[
+                    RewardEntry(item_id="bronze_sword", tier=1),
+                    RewardEntry(item_id="steel_sword", tier=2, quantity=2),
+                ],
+            ),
+        ],
+    )
+    monkeypatch.setattr(treasure, "get_game_catalog", AsyncMock(return_value=catalog))
+    growth = AsyncMock(return_value=[SimpleNamespace(power=400, level=5)])
+    monkeypatch.setattr(treasure, "fetch_resource_growth", growth)
+    setup.state.save.economy.inventory["steel_sword"] = 1
+    setup.state.save.economy.remaining_uses["steel_sword"] = 7
+    first = await open_chest("user", ChestRequest(revision=0, region=0))
+    growth.assert_awaited_once_with("user", only_resource="book")
+    assert first.save.economy.gold == 50
+    assert first.save.economy.inventory["steel_sword"] == 3
+    assert first.save.economy.remaining_uses["steel_sword"] == 7
+    reward = first.save.economy.opened_chests["book"]["0"]
+    assert reward.items["steel_sword"].quantity == 2
+    catalog.items = [
+        item.model_copy(update={"name": "改名後"}) for item in catalog.items
+    ]
+    reopened = await open_chest("user", ChestRequest(revision=1, region=0))
+    assert reopened.save.economy == first.save.economy
+    assert growth.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_disabled_item_and_skill_are_excluded_from_chest_pool(monkeypatch):
+    """アイテム定義と発動スキルの両方が有効な候補だけを使う."""
+    catalog = default_catalog()
+    catalog.rewards = RewardSettings(
+        chest_table_id="chest",
+        tables=[
+            RewardTable(
+                id="chest",
+                name="宝箱",
+                entries=[
+                    RewardEntry(item_id="bronze_sword"),
+                    RewardEntry(item_id="steel_sword"),
+                ],
+            ),
+        ],
+    )
+    catalog.items[0].enabled = False
+    steel = next(item for item in catalog.items if item.id == "steel_sword")
+    next(
+        skill for skill in catalog.skills if skill.id == steel.skill_id
+    ).enabled = False
+    monkeypatch.setattr(treasure, "get_game_catalog", AsyncMock(return_value=catalog))
+    monkeypatch.setattr(treasure, "fetch_resource_growth", AsyncMock(return_value=[]))
+    result = await open_chest("user", ChestRequest(revision=0, region=0))
+    assert not result.save.economy.opened_chests["book"]["0"].items
 
 
 def test_only_completed_region_treasure_can_be_current_location():

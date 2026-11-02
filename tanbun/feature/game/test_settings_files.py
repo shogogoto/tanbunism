@@ -149,7 +149,21 @@ async def test_admin_preview_apply_and_conflict_leave_other_data_untouched(ac):
     user.is_superuser = True
     await user.save()
     before = (await ac.get(path, headers=headers)).json()
-    document = patch(balance={"base_hp": 77}, battle={"base_seconds": 60})
+    reward_settings = {
+        "chest_table_id": "treasure",
+        "tables": [
+            {
+                "id": "treasure",
+                "name": "宝箱",
+                "entries": [{"item_id": "bronze_sword", "tier": 2}],
+            },
+        ],
+    }
+    document = patch(
+        balance={"base_hp": 77},
+        battle={"base_seconds": 60},
+        catalog={"rewards": reward_settings},
+    )
     response = await ac.post(
         path + "/preview",
         json={"document": document},
@@ -166,6 +180,8 @@ async def test_admin_preview_apply_and_conflict_leave_other_data_untouched(ac):
     assert saved.status_code == 200
     assert saved.json()["balance"]["base_hp"] == 77
     assert saved.json()["battle"]["base_seconds"] == 60
+    assert saved.json()["catalog"]["rewards"]["tables"][0]["entries"][0]["tier"] == 2
+    assert (await ac.get(path, headers=headers)).json() == saved.json()
     assert (
         await ac.put(
             path,

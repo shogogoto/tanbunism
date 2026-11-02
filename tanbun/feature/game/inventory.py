@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, computed_field, model_validator
 from .balance import Allocation, GameBalance
 from .equipment_slots import EquipmentPart, EquipmentSlot
 from .item_categories import ItemCategory
+from .rewards import RewardId, RewardItem
 
 ProductId = str
 
@@ -37,6 +38,7 @@ class ChestReward(BaseModel, frozen=True):
     gold: int = Field(default=0, ge=0)
     healing_potion: int = Field(default=0, ge=0)
     step_potion: int = Field(default=0, ge=0)
+    items: dict[RewardId, RewardItem] = Field(default_factory=dict, max_length=200)
 
 
 class DungeonKey(BaseModel, frozen=True):
