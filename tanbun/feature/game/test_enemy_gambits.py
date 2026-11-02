@@ -49,7 +49,7 @@ def configured(target="self", condition="hp_below", skill_id="heal"):
 
 @pytest.mark.parametrize("correct", [True, False])
 def test_enemy_self_heal_is_sealed_and_spends_mp_once(correct):
-    """誤答で敵が自分を回復し、正答で不発でもMPは一度消費する。."""
+    """誤答で敵が回復し、正答では不発と反撃。MPは一度だけ消費する。."""
     state, context, catalog = configured()
     marker = state.save.battle
     assert marker.enemyAction.target_ids == ["e"]
@@ -57,9 +57,10 @@ def test_enemy_self_heal_is_sealed_and_spends_mp_once(correct):
     context.enemies[0].gambits[0].skill.amount = 999
     catalog.triggers[0].name = "行動開始後の名前変更"
     body, results = answer(state, correct=correct)
-    reply = resolve_scheduled(state, body, results, context)
+    reply = resolve_scheduled(state, body, results, context, roll_player=lambda *_: 12)
     schedule = reply["state"].save.battle.schedule
-    assert schedule.enemy_hp["e"] == (20 if correct else 40)
+    assert schedule.enemy_hp["e"] == (8 if correct else 40)
+    assert reply["outgoing_damage"] == ({"e": 12} if correct else {})
     assert schedule.enemy_mp["e"] == 7
     assert reply["damage"] == 0
     assert reply["state"].save.battleActionDetails.trigger == "HPが少ない"
@@ -125,9 +126,10 @@ def test_enemy_haste_reports_actor_and_actual_outcome(correct, reduced):
     marker.enemyAction.name = "加速"
     context.enemies[0].name = "ゴブリン"
     body, results = answer(state, correct=correct)
-    reply = resolve_scheduled(state, body, results, context)
+    reply = resolve_scheduled(state, body, results, context, roll_player=lambda *_: 12)
     save = reply["state"].save
     expected = "軽減" if correct and reduced else "不発" if correct else "発動"
+    expected = f"{expected}・反撃 · ゴブリンに12ダメージ" if correct else expected
     assert save.battleFeedback == f"ゴブリンの加速 · {expected}"
     assert save.quizFeedback == ("正解" if correct else "不正解")
     assert save.battle.schedule.enemy_mp["e"] == 7

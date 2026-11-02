@@ -20,7 +20,7 @@ from .effect_chance import effect_activates
 from .effects import add_effect, apply_resource_effect, effect_active, effect_unexpired
 from .gambit_access import rule_available
 from .inventory import consume_use
-from .skill_outcomes import answer_effect, skill_effects, skill_targets
+from .skill_outcomes import answer_effect, failed_outcome, skill_effects, skill_targets
 from .trigger_stats import order_targets, resource_values, stat_matches
 
 if TYPE_CHECKING:
@@ -341,20 +341,7 @@ def apply_action(
             results=results or {},
             target_ids=action.target_ids,
         )
-    label = (
-        "発動"
-        if successful
-        else "軽減"
-        if applied
-        else (
-            "反撃"
-            if any(
-                getattr(s, "on_wrong", None) and s.on_wrong.type == "counter"
-                for s in skill_effects(skill)
-            )
-            else "不発"
-        )
-    )
+    label = "発動" if successful else failed_outcome(skill, applied=applied)
     return f"{action.name} · {label}"
 
 

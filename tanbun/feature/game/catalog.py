@@ -173,7 +173,7 @@ class AmountMode(StrEnum):
 
 
 class FizzleResult(BaseModel):
-    """誤答では効果なし。MPやアイテムの消費は取り消さない。."""
+    """誤答では効果なしと共通反撃。MPやアイテムの消費は取り消さない。."""
 
     model_config = ConfigDict(extra="forbid")
     type: Literal["fizzle"] = "fizzle"
@@ -187,7 +187,7 @@ class CounterResult(BaseModel):
 
 
 class ReducedResult(BaseModel):
-    """正答時と同じ単位で、誤答時の効果量を直接指定する。."""
+    """誤答時の効果量を直接指定する。共通反撃は別途一度だけ適用する。."""
 
     model_config = ConfigDict(extra="forbid")
     type: Literal["reduced"] = "reduced"

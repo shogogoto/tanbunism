@@ -135,7 +135,10 @@ def test_feedback_names_defeated_enemy():
     )
 
 
-@pytest.mark.parametrize("outcome", ["発動", "不発", "軽減"])
+@pytest.mark.parametrize(
+    "outcome",
+    ["発動", "不発", "軽減", "不発・反撃", "軽減・反撃"],
+)
 def test_support_feedback_keeps_one_outcome_and_other_events(outcome):
     """支援行動の結果は一度だけ表示し、破損などの付随イベントも残す."""
     state, context = encounter()

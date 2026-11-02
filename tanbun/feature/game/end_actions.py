@@ -46,6 +46,7 @@ from .inventory import (
 from .skill_outcomes import (
     answer_effect,
     attack_stat,
+    failed_outcome,
     has_counter,
     normal_attack,
     skill_effects,
@@ -474,6 +475,11 @@ def finish_action(state: GameState) -> dict[str, int]:
             else f"{action['correct']}/{total}問正解"
         )
     state.save.battleFeedback = f"{action['name']} · {'発動' if applies else '不発'}"
+    if total and not action["correct"] and has_counter(original):
+        state.save.battleFeedback = f"{action['name']} · " + failed_outcome(
+            original,
+            applied=applies,
+        )
     state.save.battleActionDetails = (
         BattleActionDetails.model_validate(action["details"])
         if action.get("details")

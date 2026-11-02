@@ -46,11 +46,23 @@ def skill_effects(skill: SkillDefinition) -> list[SkillDefinition]:
 
 
 def has_counter(skill: SkillDefinition) -> bool:
-    """反撃型の効果が一つでもあれば、一度の返り討ちを予約する."""
+    """誤答規則のある行動は、不発・軽減でも一度だけ反撃を受ける."""
     return any(
+        getattr(effect, "on_wrong", None) is not None for effect in skill_effects(skill)
+    )
+
+
+def failed_outcome(skill: SkillDefinition, *, applied: bool) -> str:
+    """不発・軽減と共通反撃を、実戦と模擬戦で同じ表示にする."""
+    label = "軽減" if applied else "不発"
+    if not has_counter(skill):
+        return label
+    if not applied and all(
         getattr(effect, "on_wrong", None) and effect.on_wrong.type == "counter"
         for effect in skill_effects(skill)
-    )
+    ):
+        return "反撃"
+    return f"{label}・反撃"
 
 
 def normal_attack(catalog: GameCatalog | None = None) -> AttackSkill:

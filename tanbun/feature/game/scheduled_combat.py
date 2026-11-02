@@ -48,6 +48,8 @@ from .skill_outcomes import (
     defense_stat,
     effect_targets,
     enemy_attack_value,
+    failed_outcome,
+    has_counter,
     normal_attack,
     skill_effects,
     skill_targets,
@@ -315,21 +317,13 @@ def action_damage(state, context, *, correct, roll_player, roll_enemy):
         if player_turn
         else enemy_action_skill(enemy, schedule, fallback, marker.enemyAction)
     )
-    outgoing, incoming, countered = {}, 0, False
+    outgoing, incoming = {}, 0
     for component in skill_effects(skill):
-        is_counter = (
-            not (correct if player_turn else not correct)
-            and getattr(component, "on_wrong", None)
-            and component.on_wrong.type == "counter"
-        )
-        if is_counter and countered:
-            continue
         dealt, received = component_damage(
             state,
             context,
             component,
             enemy,
-            fallback,
             correct=correct,
             player_turn=player_turn,
             roll_player=roll_player,
@@ -341,7 +335,23 @@ def action_damage(state, context, *, correct, roll_player, roll_enemy):
                 outgoing.get(identity, 0) + amount,
             )
         incoming += received
-        countered = countered or bool(is_counter)
+    if not (correct if player_turn else not correct) and has_counter(skill):
+        if player_turn:
+            incoming += incoming_attack(state, context, enemy, fallback, roll_enemy)
+        else:
+            counter = outgoing_attack(
+                state,
+                context,
+                fallback,
+                [target],
+                roll_player=roll_player,
+                roll_enemy=roll_enemy,
+            )
+            for identity, amount in counter.items():
+                outgoing[identity] = min(
+                    schedule.enemy_hp[identity],
+                    outgoing.get(identity, 0) + amount,
+                )
     return outgoing, incoming
 
 
@@ -350,7 +360,6 @@ def component_damage(
     context,
     skill,
     enemy,
-    fallback,
     *,
     correct,
     player_turn,
@@ -359,7 +368,6 @@ def component_damage(
 ):
     """一つの効果のダメージを計算する。消費や状態付与は呼び出し側で一度だけ行う."""
     marker = state.save.battle
-    target = marker.schedule.quiz_enemy_id
     successful = correct if player_turn else not correct
     effect = answer_effect(skill, successful)
     if effect and effect.effect == "attack":
@@ -402,23 +410,6 @@ def component_damage(
                 else 0,
             )
         )
-    if not successful and skill.on_wrong.type == "counter":
-        if player_turn:
-            return {}, incoming_attack(
-                state,
-                context,
-                enemy,
-                fallback,
-                roll_enemy,
-            )
-        return outgoing_attack(
-            state,
-            context,
-            fallback,
-            [target],
-            roll_player=roll_player,
-            roll_enemy=roll_enemy,
-        ), 0
     return {}, 0
 
 
@@ -563,6 +554,8 @@ def scheduled_feedback(
         not in {"行動終了", "撤退", action_name, "発動" if action_name else None}
     ]
     messages = ["撤退"] if body.retreat else [action_name] if action_name else []
+    if not body.retreat and action_outcome and "・反撃" in action_outcome:
+        messages.append(action_outcome)
     names = {e.id: e.name for e in context.enemies}
     messages.extend(
         f"{names.get(identity, '敵')}に{amount}ダメージ"
@@ -579,7 +572,7 @@ def scheduled_feedback(
         and not body.retreat
         and incoming <= 0
         and not any(outgoing.values())
-    ):
+    ) and action_outcome not in messages:
         messages.append(action_outcome or "効果なし")
     messages.extend(extra for extra in extras if extra and extra not in messages)
     return " · ".join(messages) or "効果なし"
@@ -617,14 +610,12 @@ def scheduled_action_outcome(marker, enemy, context, *, correct) -> str:
         else context.default_attack or normal_attack()
     )
     components = skill_effects(skill)
-    if any(
-        answer_effect(component, correct=False) is not None for component in components
-    ):
-        return "軽減"
-    return (
-        "反撃"
-        if any(component.on_wrong.type == "counter" for component in components)
-        else "不発"
+    return failed_outcome(
+        skill,
+        applied=any(
+            answer_effect(component, correct=False) is not None
+            for component in components
+        ),
     )
 
 

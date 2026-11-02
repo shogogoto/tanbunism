@@ -13,8 +13,8 @@ from .catalog import (
     parse_skill,
 )
 from .gambits import BattleAction
-from .scheduled_combat import prepare_scheduled_gambit, resolve_scheduled
-from .skill_outcomes import answer_effect, normal_attack
+from .scheduled_combat import action_damage, prepare_scheduled_gambit, resolve_scheduled
+from .skill_outcomes import answer_effect, failed_outcome, normal_attack
 from .test_scheduled_combat import answer, encounter
 
 
@@ -64,10 +64,10 @@ def test_reduced_recovery_uses_explicit_amount_and_spends_mp_once(correct, expec
         ),
     )
     body, results = answer(state, correct=correct)
-    reply = resolve_scheduled(state, body, results, context)
-    assert reply["state"].save.run.hp == 10 + expected
+    reply = resolve_scheduled(state, body, results, context, roll_enemy=lambda *_: 7)
+    assert reply["state"].save.run.hp == 10 + expected - (0 if correct else 7)
     assert reply["state"].save.run.mp == 7
-    assert reply["damage"] == 0
+    assert reply["damage"] == (0 if correct else 7)
     assert reply["outgoing_damage"] == {}
     assert state.save.run.mp == 10
 
@@ -75,9 +75,9 @@ def test_reduced_recovery_uses_explicit_amount_and_spends_mp_once(correct, expec
 @pytest.mark.parametrize(
     ("mode", "outgoing", "incoming"),
     [
-        ({"type": "fizzle"}, {}, 0),
+        ({"type": "fizzle"}, {}, 7),
         ({"type": "counter"}, {}, 7),
-        ({"type": "reduced", "amount": 3, "multiplier": 0.5}, {"e": 8, "e2": 8}, 0),
+        ({"type": "reduced", "amount": 3, "multiplier": 0.5}, {"e": 8, "e2": 8}, 7),
     ],
 )
 def test_attack_failure_modes_and_target_count(mode, outgoing, incoming):
@@ -106,6 +106,56 @@ def test_attack_failure_modes_and_target_count(mode, outgoing, incoming):
     )
     assert reply["outgoing_damage"] == outgoing
     assert reply["damage"] == incoming
+
+
+@pytest.mark.parametrize("actor", ["player", "e"])
+def test_mixed_fizzle_and_reduced_effects_counter_once_for_both_sides(actor):
+    """複数効果の一部が軽減発動しても、反撃は行動単位で一度だけ行う."""
+    state, context = encounter()
+    marker = state.save.battle
+    marker.schedule.actor_id = actor
+    marker.schedule.quiz_enemy_id = "e"
+    skill = parse_skill({
+        "id": "mixed",
+        "name": "複合魔法",
+        "effect": "attack",
+        "effects": [
+            {
+                "effect": "attack",
+                "target_count": 3,
+                "on_wrong": {"type": "reduced", "amount": 0, "multiplier": 0.5},
+            },
+            {"effect": "attack", "on_wrong": {"type": "fizzle"}},
+        ],
+    })
+    if actor == "player":
+        marker.gambitAction = BattleAction(name=skill.name, skill=skill)
+    else:
+        context.enemies[0].attack_skill = skill
+    outgoing, incoming = action_damage(
+        state,
+        context,
+        correct=actor == "e",
+        roll_player=lambda *_: 10,
+        roll_enemy=lambda *_: 8,
+    )
+    assert incoming == (8 if actor == "player" else 4)
+    assert outgoing == ({"e": 5, "e2": 5} if actor == "player" else {"e": 10})
+    assert failed_outcome(skill, applied=True) == "軽減・反撃"
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        ({"type": "counter"}, "反撃"),
+        ({"type": "fizzle"}, "不発・反撃"),
+        ({"type": "reduced", "amount": 1, "multiplier": 0.5}, "軽減・反撃"),
+    ],
+)
+def test_failure_labels_include_the_common_counter(mode, expected):
+    """効果定義の既存タイプを維持し、表示だけに共通反撃を明示する."""
+    skill = AttackSkill(id="test", name="技", on_wrong=mode)
+    assert failed_outcome(skill, applied=mode["type"] == "reduced") == expected
 
 
 @pytest.mark.parametrize(("kind", "expected"), [("physical", 15), ("special", 38)])
@@ -156,7 +206,7 @@ def test_enemy_reduced_attack_inverts_quiz_success(correct, expected):
     body, results = answer(state, correct=correct)
     reply = resolve_scheduled(state, body, results, context, roll_enemy=lambda *_: 10)
     assert reply["damage"] == expected
-    assert not reply["outgoing_damage"]
+    assert bool(reply["outgoing_damage"]) == correct
 
 
 def test_reduced_status_keeps_duration_and_binary_ailment_choice():
@@ -233,9 +283,10 @@ def test_legacy_specialty_ratio_migrates_without_overwriting_explicit_outcomes()
     assert GameCatalog.model_validate(restored).skills[0].on_wrong.type == "fizzle"
 
 
-@pytest.mark.parametrize(("actor", "expected"), [("player", False), ("e", True)])
-def test_on_hit_ailments_follow_actual_hits_not_quiz_failure(actor, expected):
-    """不発には敵の命中効果なし。敵の軽減が命中したら正答でも付与する。."""
+@pytest.mark.parametrize("actor", ["player", "e"])
+@pytest.mark.parametrize("damage", [0, 10])
+def test_on_hit_ailments_follow_actual_hits_not_quiz_failure(actor, damage):
+    """反撃でも軽減でも実際の被弾がある場合だけ命中効果を付与する。."""
     state, context = encounter()
     marker = state.save.battle
     marker.schedule.actor_id = actor
@@ -253,5 +304,11 @@ def test_on_hit_ailments_follow_actual_hits_not_quiz_failure(actor, expected):
             on_wrong={"type": "reduced", "amount": 0, "multiplier": 0.5},
         )
     body, results = answer(state, correct=actor == "e")
-    reply = resolve_scheduled(state, body, results, context, roll_enemy=lambda *_: 10)
-    assert bool(reply["state"].save.battle.effects) is expected
+    reply = resolve_scheduled(
+        state,
+        body,
+        results,
+        context,
+        roll_enemy=lambda *_: damage,
+    )
+    assert bool(reply["state"].save.battle.effects) is bool(damage)
