@@ -27,7 +27,7 @@ class BossRequest(BaseModel):
 
 
 async def start_boss(user_id: UUIDy, body: BossRequest) -> GameState:
-    """1歩消費し、固定母集団の最新5領域からボスを作る."""
+    """1歩消費し、その達成度までの累積クイズ母集団からボスを作る."""
     previous = await read_state(user_id)
     run = previous.save.run
     if (
@@ -47,7 +47,7 @@ async def start_boss(user_id: UUIDy, body: BossRequest) -> GameState:
     if not dungeon or len(dungeon.places) < body.level * 5:
         raise HTTPException(422, "このボスの達成度に到達していません。")
     pool = await get_or_prepare_region_pool(user_id, run.resourceId, body.level)
-    quiz_ids = pool["quiz_ids"][-25:]
+    quiz_ids = pool["quiz_ids"]
     if not pool["ready"] or not await _validate_quiz_ids(
         user_id,
         run.resourceId,
