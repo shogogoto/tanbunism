@@ -20,7 +20,11 @@ def enemy_battle_rules(enemy, catalog):
     skills = {s.id: s for s in catalog.skills if s.enabled}
     triggers = {t.id: t for t in catalog.triggers if t.enabled}
     result = []
-    for row in enemy.gambits:
+    group = next(
+        (group for group in catalog.gambit_sets if group.id == enemy.gambit_set_id),
+        None,
+    )
+    for row in group.rules if group else enemy.gambits:
         root = triggers.get(row.trigger_id)
         trigger = root.variant(row.trigger_variant_id) if root else None
         skill = skills.get(row.skill_id)

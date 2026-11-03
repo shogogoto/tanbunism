@@ -44,6 +44,7 @@ from tanbun.feature.game.practice import (
     prepare_practice,
     prepare_simulated_practice,
 )
+from tanbun.feature.game.rewards import GoldPreviewRequest
 from tanbun.feature.game.settings import (
     BattleSettings,
     get_battle_settings,
@@ -164,6 +165,12 @@ async def preview_skills(body: SkillFilePreview, _admin: AdminUser) -> GameCatal
         return body.merged_catalog()
     except ValueError as error:
         raise HTTPException(422, str(error)) from error
+
+
+@router.post("/game/rewards/gold-preview")
+async def preview_gold(body: GoldPreviewRequest, _admin: AdminUser) -> dict:
+    """現在の編集値で試算し、報酬設定やプレイヤー状態は変更しない."""
+    return body.preview()
 
 
 @router.put("/game/catalog")

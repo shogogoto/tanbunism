@@ -1258,6 +1258,7 @@ class EnemyDefinition(BaseModel):
     attack_skill_id: DefinitionId | None = None
     on_hit_skill_id: DefinitionId | None = None
     gambits: list["EnemyGambitRule"] = Field(default_factory=list, max_length=20)
+    gambit_set_id: DefinitionId | None = None
     weaknesses: list[DefinitionId] = Field(default_factory=list, max_length=100)
     resistances: list[DefinitionId] = Field(default_factory=list, max_length=100)
 
@@ -1528,6 +1529,14 @@ class EnemyGambitRule(BaseModel):
     enabled: bool = True
 
 
+class GambitSet(BaseModel):
+    """複数の敵が共有できる、優先順つきの行動ルール."""
+
+    id: DefinitionId
+    name: str = Field(min_length=1, max_length=80)
+    rules: list[EnemyGambitRule] = Field(default_factory=list, max_length=20)
+
+
 def default_triggers() -> list[TriggerDefinition]:
     """単独条件のみ。AND/ORの式エディタは設けない."""
     return [
@@ -1603,6 +1612,7 @@ class GameCatalog(BaseModel):
         max_length=300,
     )
     enemies: list[EnemyDefinition] = Field(default_factory=list, max_length=100)
+    gambit_sets: list[GambitSet] = Field(default_factory=list, max_length=100)
     player_skills: list[PlayerSkillUse] = Field(default_factory=list, max_length=200)
     specialty_skills: list[SpecialtySkillUse] = Field(
         default_factory=list,
@@ -1845,6 +1855,7 @@ class GameCatalog(BaseModel):
             self.enemies,
             self.triggers,
             self.elements,
+            self.gambit_sets,
         ):
             if len({d.id for d in definitions}) != len(definitions):
                 msg = "定義IDが重複しています。"
@@ -1933,8 +1944,16 @@ class GameCatalog(BaseModel):
 
     def validate_enemy_skills(self, skills: dict) -> None:
         """敵の攻撃と命中時効果の参照を種類まで検証する."""
+        set_ids = {group.id for group in self.gambit_sets}
         for enemy in self.enemies:
-            for rule in enemy.gambits:
+            if enemy.gambit_set_id and enemy.gambit_set_id not in set_ids:
+                msg = "敵のガンビットセットが見つかりません。"
+                raise ValueError(msg)
+        for rules in [
+            *(group.rules for group in self.gambit_sets),
+            *(enemy.gambits for enemy in self.enemies),
+        ]:
+            for rule in rules:
                 trigger = next(
                     (t for t in self.triggers if t.id == rule.trigger_id),
                     None,
@@ -1951,6 +1970,7 @@ class GameCatalog(BaseModel):
                 ):
                     msg = "敵のガンビットには戦闘用スキルを選んでください。"
                     raise ValueError(msg)
+        for enemy in self.enemies:
             if enemy.on_hit_skill_id and (
                 enemy.on_hit_skill_id not in skills
                 or any(
@@ -2147,6 +2167,12 @@ async def get_game_catalog() -> GameCatalog:
                 enemy["gambits"] = [
                     row
                     for row in enemy.get("gambits", [])
+                    if row.get("trigger_id") not in rejected
+                ]
+            for group in document.get("gambit_sets", []):
+                group["rules"] = [
+                    row
+                    for row in group.get("rules", [])
                     if row.get("trigger_id") not in rejected
                 ]
             document["shop"] = [

@@ -59,6 +59,30 @@ def roll_gold(
     )
 
 
+class GoldPreviewRequest(BaseModel):
+    """保存前の共通設定を使う、書き込みのないGold試算."""
+
+    settings: GoldSettings
+    power: float = Field(ge=0, le=10**9, allow_inf_nan=False)
+    achievement: int = Field(ge=0, le=100000)
+
+    def preview(self) -> dict:
+        """実際の報酬計算を共有し、バラツキの下限・中央・上限を返す."""
+        return {
+            source: {
+                key: roll_gold(
+                    self.settings,
+                    self.power,
+                    self.achievement,
+                    source,
+                    variation=variation,
+                )
+                for key, variation in (("min", -1), ("typical", 0), ("max", 1))
+            }
+            for source in ("enemy", "chest")
+        }
+
+
 class RewardEntry(BaseModel):
     """同じ段階の候補から重みで一つ選ぶ。段階はアイテム本体と独立する。."""
 
