@@ -725,7 +725,7 @@ def resolve_scheduled(
     updated.save.battleActionDetails = (
         None if body.retreat else scheduled_action_details(marker, enemy, context)
     )
-    award_kill_gold(updated, authoritative, marker.region)
+    award_kill_gold(updated, authoritative, context=context)
     if updated.save.battle:
         next_marker = updated.save.battle
         next_marker.schedule.actor_id = None

@@ -18,6 +18,7 @@ from . import boss, combat
 from .balance import Allocation, GameBalance
 from .boss import BossRequest
 from .population import replace_region_pool
+from .rewards import roll_gold
 from .skills import (
     SkillAnswer,
     SkillRequest,
@@ -144,16 +145,29 @@ async def test_specialty_spends_mp_once_and_records_one_real_answer(u: LUser):
         selected=list(session["quiz"].correct),
         enemy_hp=dict.fromkeys(state.save.battle.enemies, 1),
     )
+    context = await combat.combat_context(u.uid, session["state"])
     before = (await adb.cypher_query("MATCH (a:Answer) RETURN count(a)"))[0][0][0]
     result = await resolve_skill(u.uid, body)
     assert result["correct"]
     assert len(result["outgoing_damage"]) == 2
     assert result["state"].save.run.mp == 7
-    assert result["state"].save.economy.gold == 60
+    lower, upper = [
+        2
+        * roll_gold(
+            context.gold,
+            context.resource_power,
+            context.achievement,
+            "enemy",
+            variation=edge,
+        )
+        for edge in (-1, 1)
+    ]
+    assert lower <= result["state"].save.economy.gold <= upper
     assert (await adb.cypher_query("MATCH (a:Answer) RETURN count(a)"))[0][0][
         0
     ] == before + 1
     retry = await resolve_skill(u.uid, body)
+    assert retry["state"].save.economy.gold == result["state"].save.economy.gold
     assert retry["state"].revision == result["state"].revision
     assert (await adb.cypher_query("MATCH (a:Answer) RETURN count(a)"))[0][0][
         0

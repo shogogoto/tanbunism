@@ -22,7 +22,6 @@ from tanbun.feature.quiz.chain.usecase import expand_quiz_chain
 from .balance import Allocation, GameBalance, get_game_balance
 from .catalog import ElementDefinition, GameCatalog, StoredSkill, get_game_catalog
 from .damage import enemy_damage
-from .economy import GOLD_PER_LEVEL
 from .effect_chance import effect_activates
 from .effects import (
     add_effect,
@@ -41,6 +40,7 @@ from .inventory import (
     equipped_stats,
     wear_weapon,
 )
+from .rewards import GoldSettings, roll_gold
 from .skill_outcomes import skill_effects
 from .state import BattleMarker, GameState, StateUpdate, compare_and_save, read_state
 
@@ -104,6 +104,9 @@ class CombatContext(BaseModel):
     default_attack: StoredSkill | None = None
     enabled_elements: list[str] | None = None
     elements: list[ElementDefinition] = Field(default_factory=list)
+    gold: GoldSettings = Field(default_factory=GoldSettings)
+    resource_power: int = 0
+    achievement: int = 0
 
 
 def label_enemies(
@@ -156,6 +159,9 @@ async def combat_context(
     catalog = await get_game_catalog()
     return CombatContext(
         balance=balance,
+        gold=catalog.rewards.gold if catalog.rewards else GoldSettings(),
+        resource_power=power,
+        achievement=growth[0].level if growth else 0,
         default_attack=normal_attack(catalog),
         enabled_elements=[
             element.id for element in catalog.elements if element.enabled
@@ -578,7 +584,7 @@ async def settle_turn(user_id: UUIDy, body: TurnRequest) -> dict:
         base_stats=previous.save.allocation.stats(context.balance),
         context=context,
     )
-    award_kill_gold(updated, body, marker.region)
+    award_kill_gold(updated, body, context=context)
     receipt = {
         "id": f"{marker.id}:{marker.turn}",
         "results": results,
@@ -617,9 +623,22 @@ async def settle_turn(user_id: UUIDy, body: TurnRequest) -> dict:
     return {**receipt, "state": updated.model_dump(by_alias=True)}
 
 
-def award_kill_gold(updated: GameState, body: TurnRequest, region: int) -> None:
+def award_kill_gold(
+    updated: GameState,
+    body: TurnRequest,
+    *,
+    context: CombatContext | None = None,
+) -> None:
     """撃破が確定した実戦のターンだけにゴールドを付ける."""
-    gold = len(set(body.defeated)) * (region + 1) * GOLD_PER_LEVEL
+    gold = sum(
+        roll_gold(
+            context.gold if context else GoldSettings(),
+            context.resource_power if context else 0,
+            context.achievement if context else 0,
+            "enemy",
+        )
+        for _ in set(body.defeated)
+    )
     updated.save.economy.gold += gold
     if gold:
         updated.save.battleFeedback += f" · +{gold} G"

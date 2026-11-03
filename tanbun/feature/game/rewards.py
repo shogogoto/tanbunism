@@ -1,14 +1,62 @@
-"""宝箱と将来の敵ドロップが共有する報酬表。抽選にプレイヤー状態を渡さない。."""
+"""宝箱と敵の共通Gold、およびGoldから独立したアイテム抽選。."""
 
-from math import floor, sqrt
+from math import floor, log1p, sqrt
 from secrets import randbelow
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from .effect_chance import FULL_CHANCE
 
 RewardId = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
+
+
+class GoldSettings(BaseModel):
+    """Goldはアイテム抽選から独立した、敵と宝箱の共通計算."""
+
+    model_config = ConfigDict(extra="forbid")
+    base: int = Field(default=10, ge=0, le=100000)
+    power_coefficient: float = Field(default=2, ge=0, le=100000, allow_inf_nan=False)
+    power_formula: Literal["sqrt", "log"] = "sqrt"
+    power_reference: float = Field(default=100, ge=0.01, le=10**9, allow_inf_nan=False)
+    achievement_growth_percent: float = Field(
+        default=20,
+        ge=0,
+        le=1000,
+        allow_inf_nan=False,
+    )
+    variance_percent: float = Field(default=10, ge=0, le=50, allow_inf_nan=False)
+    enemy_multiplier: float = Field(default=1, ge=0, le=100, allow_inf_nan=False)
+    chest_multiplier: float = Field(default=5, ge=0, le=100, allow_inf_nan=False)
+
+
+def roll_gold(
+    settings: GoldSettings,
+    power: int,
+    achievement: int,
+    source: Literal["enemy", "chest"],
+    *,
+    variation: float | None = None,
+) -> int:
+    """サーバーのPower・達成度と開封/撃破ごとのバラツキを適用する."""
+    scaled = max(0, power) / settings.power_reference
+    bonus = sqrt(scaled) if settings.power_formula == "sqrt" else log1p(scaled)
+    growth = 1 + max(0, achievement - 1) * settings.achievement_growth_percent / 100
+    roll = (
+        randbelow(20001) / 10000 - 1
+        if variation is None
+        else max(-1, min(1, variation))
+    )
+    variance = 1 + roll * settings.variance_percent / 100
+    return min(
+        1000000,
+        floor(
+            (settings.base + bonus * settings.power_coefficient)
+            * growth
+            * variance
+            * getattr(settings, f"{source}_multiplier"),
+        ),
+    )
 
 
 class RewardEntry(BaseModel):
@@ -22,18 +70,27 @@ class RewardEntry(BaseModel):
 
 
 class RewardTable(BaseModel):
-    """Goldと段階別の抽選。初級・中級などの実体は管理者が選ぶ。."""
+    """段階別のアイテム抽選。Goldはここでは設定しない。."""
 
     model_config = ConfigDict(extra="forbid")
     id: RewardId
     name: str = Field(min_length=1, max_length=80)
-    base_gold: int = Field(default=30, ge=0, le=100000)
-    gold_per_power: float = Field(default=10, ge=0, le=100000, allow_inf_nan=False)
-    power_reference: float = Field(default=100, ge=1, le=10**9, allow_inf_nan=False)
     tier_interval: int = Field(default=5, ge=1, le=1000)
     draws: int = Field(default=1, ge=0, le=10)
     item_chance: int = Field(default=100, ge=0, le=100)
     entries: list[RewardEntry] = Field(default_factory=list, max_length=200)
+
+    @model_validator(mode="before")
+    @classmethod
+    def separate_old_gold(cls, values):
+        """旧保存データを読めるようにし、表単位の旧Gold設定は再出力しない."""
+        if isinstance(values, dict):
+            return {
+                key: value
+                for key, value in values.items()
+                if key not in {"base_gold", "gold_per_power", "power_reference"}
+            }
+        return values
 
     @model_validator(mode="after")
     def unique_entries(self):
@@ -49,6 +106,7 @@ class RewardSettings(BaseModel):
     """用途ごとの参照だけを分離し、表の計算は共用する。."""
 
     model_config = ConfigDict(extra="forbid")
+    gold: GoldSettings = Field(default_factory=GoldSettings)
     tables: list[RewardTable] = Field(default_factory=list, max_length=100)
     chest_table_id: RewardId | None = None
 
@@ -75,7 +133,6 @@ class RewardItem(BaseModel, frozen=True):
 class RolledReward(BaseModel):
     """抽選結果だけを保持し、所持品への反映は呼び出し側のCASで行う。."""
 
-    gold: int = Field(ge=0, le=1000000)
     items: dict[RewardId, RewardItem] = Field(default_factory=dict)
 
 
@@ -89,19 +146,11 @@ def eligible_entries(table: RewardTable, achievement: int, items: dict[str, str]
 
 def roll_reward(
     table: RewardTable,
-    power: int,
     achievement: int,
     items: dict[str, str],
 ) -> RolledReward:
-    """サーバー側の実Power・達成度で計算。抽選ごとの付与率と重みを分離する。."""
-    gold = min(
-        1000000,
-        floor(
-            table.base_gold
-            + table.gold_per_power * sqrt(max(0, power) / table.power_reference),
-        ),
-    )
-    result = RolledReward(gold=gold)
+    """サーバーの達成度から候補を選び、入手率と重みでアイテムを抽選する。."""
+    result = RolledReward()
     entries = eligible_entries(table, achievement, items)
     if not entries or not table.item_chance:
         return result

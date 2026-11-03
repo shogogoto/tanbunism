@@ -299,7 +299,7 @@ def apply_skill_result(
     )
     if updated.save.battle:
         updated.save.battle.skill = None
-    award_kill_gold(updated, request, marker.region)
+    award_kill_gold(updated, request, context=context)
     label = "正解" if correct else "未回答" if body.selected is None else "不正解"
     effect = (
         "全体攻撃 "

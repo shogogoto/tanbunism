@@ -296,6 +296,8 @@ async def prepare_simulated_practice(body: SimulatedPracticeRequest) -> Practice
     )
     context = CombatContext(
         balance=body.balance,
+        resource_power=trial.power,
+        achievement=trial.achievement,
         enemies=[
             EnemyStats(
                 id=enemy_identity("simulation", region, enemy.index - 1),
@@ -318,6 +320,8 @@ async def prepare_simulated_practice(body: SimulatedPracticeRequest) -> Practice
     )
     catalog = await get_game_catalog()
     context.enemies = style_enemies(context.enemies, catalog, preserve_stats=True)
+    if catalog.rewards:
+        context.gold = catalog.rewards.gold
     context.enabled_elements = [
         element.id for element in catalog.elements if element.enabled
     ]

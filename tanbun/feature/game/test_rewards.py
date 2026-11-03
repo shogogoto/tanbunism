@@ -7,7 +7,14 @@ from pydantic import ValidationError
 from . import rewards
 from .balance import GameBalance
 from .catalog import GameCatalog, default_catalog
-from .rewards import RewardEntry, RewardSettings, RewardTable, roll_reward
+from .rewards import (
+    GoldSettings,
+    RewardEntry,
+    RewardSettings,
+    RewardTable,
+    roll_gold,
+    roll_reward,
+)
 from .settings import BattleSettings
 from .settings_files import SettingsSnapshot, merge_settings
 
@@ -17,10 +24,45 @@ def setup():
     """Override the global destructive DB fixture for pure calculations."""
 
 
-@pytest.mark.parametrize(("power", "gold"), [(0, 30), (100, 40), (400, 50)])
+@pytest.mark.parametrize(("power", "gold"), [(0, 50), (100, 60), (400, 70)])
 def test_power_gold(power, gold):
     """Powerの平方根に応じてGoldだけを増やす."""
-    assert roll_reward(RewardTable(id="chest", name="宝箱"), power, 0, {}).gold == gold
+    assert roll_gold(GoldSettings(), power, 1, "chest", variation=0) == gold
+
+
+@pytest.mark.parametrize("power", [0, 100, 3000])
+@pytest.mark.parametrize("achievement", [0, 1, 5, 20])
+def test_chest_minimum_exceeds_enemy_maximum_with_defaults(power, achievement):
+    """標準設定では、バラツキの両端を比べても宝箱を多くする."""
+    settings = GoldSettings()
+    assert roll_gold(settings, power, achievement, "chest", variation=-1) > roll_gold(
+        settings,
+        power,
+        achievement,
+        "enemy",
+        variation=1,
+    )
+
+
+def test_common_gold_achievement_variance_formula_and_cap():
+    """成長とバラツキは同じ式、用途の倍率だけが異なる."""
+    settings = GoldSettings()
+    assert roll_gold(settings, 100, 5, "enemy", variation=0) == 21
+    assert roll_gold(settings, 100, 5, "enemy", variation=-1) == 19
+    assert roll_gold(settings, 100, 5, "enemy", variation=1) == 23
+    assert (
+        roll_gold(GoldSettings(power_formula="log"), 0, 0, "enemy", variation=0) == 10
+    )
+    assert (
+        roll_gold(
+            GoldSettings(base=100000, power_coefficient=100000),
+            10**12,
+            20,
+            "chest",
+            variation=1,
+        )
+        == 1000000
+    )
 
 
 @pytest.mark.parametrize(
@@ -36,7 +78,7 @@ def test_achievement_tier(level, item):
             RewardEntry(item_id=name, tier=tier) for tier, name in enumerate("abc", 1)
         ],
     )
-    assert list(roll_reward(table, 100, level, dict.fromkeys("abc", "装備")).items) == [
+    assert list(roll_reward(table, level, dict.fromkeys("abc", "装備")).items) == [
         item,
     ]
 
@@ -52,9 +94,9 @@ def test_fallback_never_grants_higher_tier_and_ignores_unavailable_items():
             RewardEntry(item_id="b", tier=3),
         ],
     )
-    assert list(roll_reward(table, 0, 3, {"a": "剣", "b": "杖"}).items) == ["a"]
-    assert list(roll_reward(table, 0, 6, {"a": "剣"}).items) == ["a"]
-    assert not roll_reward(table, 0, 0, {"b": "杖"}).items
+    assert list(roll_reward(table, 3, {"a": "剣", "b": "杖"}).items) == ["a"]
+    assert list(roll_reward(table, 6, {"a": "剣"}).items) == ["a"]
+    assert not roll_reward(table, 0, {"b": "杖"}).items
 
 
 def test_weight_boundaries_multiple_draws_and_names(monkeypatch):
@@ -70,14 +112,14 @@ def test_weight_boundaries_multiple_draws_and_names(monkeypatch):
     )
     draws = iter([0, 1, 4])
     monkeypatch.setattr(rewards, "randbelow", lambda _: next(draws))
-    result = roll_reward(table, 0, 0, {"a": "剣", "b": "杖"})
+    result = roll_reward(table, 0, {"a": "剣", "b": "杖"})
     assert result.items["a"].quantity == 4
     assert result.items["b"].name == "杖"
     assert result.items["b"].quantity == 1
 
 
-def test_chance_zero_partial_full_and_gold_cap(monkeypatch):
-    """付与率の境界とGold上限を適用する."""
+def test_chance_zero_partial_and_full(monkeypatch):
+    """アイテムの付与率はGold計算と独立して適用する."""
     table = RewardTable(
         id="chest",
         name="宝箱",
@@ -87,19 +129,14 @@ def test_chance_zero_partial_full_and_gold_cap(monkeypatch):
     )
     draws = iter([49, 0, 50])
     monkeypatch.setattr(rewards, "randbelow", lambda _: next(draws))
-    assert roll_reward(table, 0, 0, {"a": "剣"}).items["a"].quantity == 1
+    assert roll_reward(table, 0, {"a": "剣"}).items["a"].quantity == 1
     table.item_chance = 0
-    assert not roll_reward(table, 0, 0, {"a": "剣"}).items
-    table.gold_per_power = 100000
-    table.power_reference = 1
-    assert roll_reward(table, 10**12, 0, {}).gold == 1000000
+    assert not roll_reward(table, 0, {"a": "剣"}).items
 
 
 @pytest.mark.parametrize(
     "patch",
     [
-        {"power_reference": 0},
-        {"gold_per_power": float("nan")},
         {"tier_interval": 0},
         {"draws": 11},
         {"item_chance": 101},
@@ -109,6 +146,20 @@ def test_invalid_settings(patch):
     """計算不能な設定を保存させない."""
     with pytest.raises(ValidationError):
         RewardTable(id="chest", name="宝箱", **patch)
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"power_reference": 0},
+        {"power_coefficient": float("nan")},
+        {"variance_percent": 51},
+    ],
+)
+def test_invalid_gold_settings(patch):
+    """Goldの式が無限や負の確率にならないよう検証する."""
+    with pytest.raises(ValidationError):
+        GoldSettings(**patch)
 
 
 def test_duplicate_and_missing_references_are_rejected():
@@ -139,6 +190,7 @@ def test_unified_settings_round_trip_preserves_other_catalog_and_balance():
         battle=BattleSettings(),
     )
     definition = RewardSettings(
+        gold=GoldSettings(base=17, chest_multiplier=7),
         chest_table_id="chest",
         tables=[
             RewardTable(

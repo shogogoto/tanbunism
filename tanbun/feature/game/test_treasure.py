@@ -14,7 +14,7 @@ from . import treasure
 from .balance import GameBalance
 from .catalog import GameCatalog, default_catalog
 from .inventory import ChestReward, Economy
-from .rewards import RewardEntry, RewardSettings, RewardTable
+from .rewards import GoldSettings, RewardEntry, RewardSettings, RewardTable
 from .state import DungeonMap, GameSave, GameState, MapPlace, Run, StateUpdate
 from .treasure import ChestRequest, open_chest
 
@@ -64,7 +64,18 @@ def setup(monkeypatch):
     monkeypatch.setattr(
         treasure,
         "get_game_catalog",
-        AsyncMock(return_value=GameCatalog()),
+        AsyncMock(
+            return_value=GameCatalog(
+                rewards=RewardSettings(
+                    gold=GoldSettings(base=6, power_coefficient=0, variance_percent=0),
+                ),
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        treasure,
+        "fetch_resource_growth",
+        AsyncMock(return_value=[]),
     )
     monkeypatch.setattr(
         treasure,
@@ -95,6 +106,17 @@ async def test_open_at_zero_moves_and_revisit_without_duplicate_reward(setup):
 async def test_new_settings_apply_only_to_unopened_boxes(setup, monkeypatch):
     """全領域に設定を反映しても、開封済みの中身と取得数は変えない."""
     first = await open_chest("user", ChestRequest(revision=0, region=0))
+    monkeypatch.setattr(
+        treasure,
+        "get_game_catalog",
+        AsyncMock(
+            return_value=GameCatalog(
+                rewards=RewardSettings(
+                    gold=GoldSettings(base=14, power_coefficient=0, variance_percent=0),
+                ),
+            ),
+        ),
+    )
     monkeypatch.setattr(
         treasure,
         "get_game_balance",
@@ -158,6 +180,7 @@ async def test_configured_rewards_use_server_growth_preserve_durability_and_hist
     """達成度で中級へ進み、同じ装備の入手で耐久を回復させない."""
     catalog = default_catalog()
     catalog.rewards = RewardSettings(
+        gold=GoldSettings(variance_percent=0),
         chest_table_id="chest",
         tables=[
             RewardTable(
@@ -177,7 +200,7 @@ async def test_configured_rewards_use_server_growth_preserve_durability_and_hist
     setup.state.save.economy.remaining_uses["steel_sword"] = 7
     first = await open_chest("user", ChestRequest(revision=0, region=0))
     growth.assert_awaited_once_with("user", only_resource="book")
-    assert first.save.economy.gold == 50
+    assert first.save.economy.gold == 126
     assert first.save.economy.inventory["steel_sword"] == 3
     assert first.save.economy.remaining_uses["steel_sword"] == 7
     reward = first.save.economy.opened_chests["book"]["0"]

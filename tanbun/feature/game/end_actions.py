@@ -43,6 +43,7 @@ from .inventory import (
     equipped_stats,
     wear_weapon,
 )
+from .rewards import GoldSettings, roll_gold
 from .skill_outcomes import (
     answer_effect,
     attack_stat,
@@ -237,6 +238,15 @@ def begin_action(
         "index": 0,
         "correct": 0,
         "counter_damage": counter_damage,
+        "kill_gold": {
+            enemy_id: roll_gold(
+                context.gold if context else GoldSettings(),
+                context.resource_power if context else 0,
+                context.achievement if context else 0,
+                "enemy",
+            )
+            for enemy_id in save.battle.enemies
+        },
         "equipment_stats": equipped_stats(
             save.allocation,
             context.balance,
@@ -435,7 +445,10 @@ def apply_end_effect(state, action, skill, factor, applies):
         sync_scheduled_damage(marker, outgoing, killed)
         marker.enemies = [e for e in marker.enemies if e not in killed]
         run.kills += 0 if marker.bossLevel else len(killed)
-        state.save.economy.gold += len(killed) * (marker.region + 1) * GOLD_PER_LEVEL
+        state.save.economy.gold += sum(
+            action.get("kill_gold", {}).get(enemy_id, GOLD_PER_LEVEL)
+            for enemy_id in killed
+        )
         for identity, damage in outgoing.items():
             action["enemy_hp"][identity] = max(0, action["enemy_hp"][identity] - damage)
     elif applies and skill.effect in {

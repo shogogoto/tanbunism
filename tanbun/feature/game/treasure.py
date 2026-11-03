@@ -10,7 +10,7 @@ from tanbun.feature.gamification.resource import fetch_resource_growth
 from .balance import GameBalance, get_game_balance
 from .catalog import get_game_catalog
 from .inventory import ChestReward, Economy
-from .rewards import roll_reward
+from .rewards import GoldSettings, roll_gold, roll_reward
 from .state import (
     PLACES_PER_REGION,
     GameState,
@@ -34,6 +34,7 @@ async def chest_reward(
 ) -> ChestReward:
     """報酬表の抽選と、宝箱共通の固定アイテムをまとめる。."""
     catalog = await get_game_catalog()
+    growth = await fetch_resource_growth(user_id, only_resource=resource_id)
     table = (
         next(
             (
@@ -48,7 +49,6 @@ async def chest_reward(
     )
     rolled = None
     if table:
-        growth = await fetch_resource_growth(user_id, only_resource=resource_id)
         skills = {skill.id: skill for skill in catalog.skills}
         available = {
             item.id: item.name
@@ -57,12 +57,16 @@ async def chest_reward(
         }
         rolled = roll_reward(
             table,
-            growth[0].power if growth else 0,
             growth[0].level if growth else 0,
             available,
         )
     return ChestReward(
-        gold=rolled.gold if rolled else balance.chest_gold,
+        gold=roll_gold(
+            catalog.rewards.gold if catalog.rewards else GoldSettings(),
+            growth[0].power if growth else 0,
+            growth[0].level if growth else 0,
+            "chest",
+        ),
         healing_potion=balance.chest_healing_potions,
         step_potion=balance.chest_step_potions,
         items=rolled.items if rolled else {},
