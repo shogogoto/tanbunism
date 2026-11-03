@@ -69,7 +69,7 @@ def catalog_products(
         "ailment": "skill",
         "damage_mp": "skill",
     }
-    return [
+    products = [
         Product(
             id=i.id,
             name=i.name,
@@ -118,6 +118,13 @@ def catalog_products(
         for i in catalog.items
         if include_disabled or (i.enabled and skills[i.skill_id].enabled)
     ] + gambit_products(catalog, include_disabled=include_disabled)
+    positions = {
+        listing.product_id: index for index, listing in enumerate(catalog.shop)
+    }
+    return sorted(
+        products,
+        key=lambda product: positions.get(product.id, len(positions)),
+    )
 
 
 def gambit_products(catalog, *, include_disabled=False):

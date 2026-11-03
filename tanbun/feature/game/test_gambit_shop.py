@@ -118,6 +118,33 @@ def test_unsold_variants_require_their_own_ownership():
     assert trigger_available(catalog, economy, trigger.id, "half")
 
 
+def test_shop_order_mixes_items_and_variants_without_changing_sale_settings():
+    """保存した販売順を使い、未販売の商品は定義順で最後に並べる."""
+    catalog = default_catalog()
+    trigger = next(t for t in catalog.triggers if t.id == "hp_below")
+    trigger.variants = [TriggerVariant(id="half", name="半分", value=50)]
+    item_ids = [item.id for item in catalog.items]
+    trigger_ids = [t.id for t in catalog.triggers]
+    catalog.shop = [
+        GambitShopListing(trigger_id=trigger.id, trigger_variant_id="half", price=40),
+        ShopListing(item_id=item_ids[1], price=300, enabled=False),
+        GambitShopListing(trigger_id=trigger.id, price=75),
+        ShopListing(item_id=item_ids[0], price=100),
+    ]
+    products = catalog_products(catalog)
+    assert [p.id for p in products[:4]] == [
+        "gambit:hp_below:half",
+        item_ids[1],
+        "gambit:hp_below",
+        item_ids[0],
+    ]
+    assert [p.price for p in products[:4]] == [40, None, 75, 100]
+    assert all(p.price is None for p in products[4:])
+    assert [p.id for p in products[4:] if p.id in item_ids] == item_ids[2:]
+    assert [item.id for item in catalog.items] == item_ids
+    assert [t.id for t in catalog.triggers] == trigger_ids
+
+
 def test_unpurchased_trigger_cannot_execute_or_be_bypassed_with_inline_condition():
     """購入前は実行不可で、直接条件を送っても迂回できない。."""
     catalog = configured_catalog()

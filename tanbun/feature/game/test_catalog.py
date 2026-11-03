@@ -177,7 +177,10 @@ async def test_catalog_requires_admin_and_shares_saved_definitions(ac):
     data["skills"][0]["animation"] = "mochi_status_curse"
     data["enemies"][0]["icon"] = "crawl_dragon"
     data["skills"][0]["icon"] = "crawl_fireball"
-    data["items"][0]["icon"] = "crawl_red_potion"
+    data["items"][0]["icon"] = "crawl_plate_mail"
+    data["items"][1]["icon"] = "crawl_visored_helm"
+    data["items"][2]["icon"] = "crawl_leather_boots"
+    data["shop"].reverse()
     assert (await ac.put(path, headers=headers, json=data)).status_code == 200
     assert (await ac.get("/game/catalog", headers=headers)).json() == data
     data["items"] = []
