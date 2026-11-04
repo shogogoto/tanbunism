@@ -7,18 +7,22 @@ from collections import Counter
 from time import perf_counter
 
 from lsprotocol import types
+from pygls.exceptions import JsonRpcInvalidParams
 from pygls.lsp.server import LanguageServer
 from pygls.workspace import PositionCodec, ServerTextPosition, ServerTextRange
 
 from tanbun.feature.language_service import (
     DefinitionLocation,
     ReferenceKind,
+    RenameError,
     SourceDocument,
     complete_terms,
     find_definition,
     find_definitions,
     find_references,
     group_references,
+    prepare_rename,
+    rename_term,
 )
 from tanbun.feature.language_service.analysis import (
     DocumentAnalysis,
@@ -106,6 +110,7 @@ def create_server() -> LanguageServer:
     _register_completion(server)
     _register_definition(server)
     _register_references(server)
+    _register_rename(server)
     _register_status(server)
     return server
 
@@ -235,6 +240,67 @@ def _register_references(server: LanguageServer) -> None:
             visible=True,
         )
         return results
+
+
+def _register_rename(server: LanguageServer) -> None:
+    """prepareRenameと、変更をエディタへ返すrenameを登録する."""
+
+    @server.feature(types.TEXT_DOCUMENT_PREPARE_RENAME)
+    def prepare(
+        ls: LanguageServer,
+        params: types.PrepareRenameParams,
+    ) -> types.PrepareRenamePlaceholder | None:
+        document = ls.workspace.get_text_document(params.text_document.uri)
+        target = prepare_rename(
+            SourceDocument(document.uri, document.source),
+            document.offset_at_position(params.position),
+            local_documents(ls, current_uri=document.uri),
+        )
+        if target is None:
+            return None
+        return types.PrepareRenamePlaceholder(
+            range=_to_client_range(
+                document.source,
+                target.source_range,
+                ls.workspace.position_codec,
+            ),
+            placeholder=target.name,
+        )
+
+    @server.feature(
+        types.TEXT_DOCUMENT_RENAME,
+        types.RenameOptions(prepare_provider=True),
+    )
+    def rename(
+        ls: LanguageServer,
+        params: types.RenameParams,
+    ) -> types.WorkspaceEdit:
+        document = ls.workspace.get_text_document(params.text_document.uri)
+        current = SourceDocument(document.uri, document.source)
+        documents = local_documents(ls, current_uri=current.uri)
+        try:
+            edits = rename_term(
+                current,
+                document.offset_at_position(params.position),
+                params.new_name,
+                documents,
+            )
+        except RenameError as error:
+            raise JsonRpcInvalidParams(str(error)) from error
+        sources = {item.uri: item.text for item in (current, *documents)}
+        changes: dict[str, list[types.TextEdit]] = {}
+        for edit in edits:
+            changes.setdefault(edit.uri, []).append(
+                types.TextEdit(
+                    range=_to_client_range(
+                        sources[edit.uri],
+                        edit.source_range,
+                        ls.workspace.position_codec,
+                    ),
+                    new_text=edit.new_text,
+                ),
+            )
+        return types.WorkspaceEdit(changes=changes)
 
 
 def _to_lsp_locations(

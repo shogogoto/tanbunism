@@ -15,6 +15,7 @@ from .references import (
     find_references,
     group_references,
 )
+from .rename import RenameEdit, RenameError, RenameTarget, prepare_rename, rename_term
 from .symbols import TermSymbol, extract_term_symbols
 
 __all__ = [
@@ -25,6 +26,9 @@ __all__ = [
     "ReferenceGroup",
     "ReferenceKind",
     "ReferenceLocation",
+    "RenameEdit",
+    "RenameError",
+    "RenameTarget",
     "SourceDocument",
     "TermSymbol",
     "analyze",
@@ -35,4 +39,6 @@ __all__ = [
     "find_definitions",
     "find_references",
     "group_references",
+    "prepare_rename",
+    "rename_term",
 ]

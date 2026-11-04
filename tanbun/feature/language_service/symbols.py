@@ -24,10 +24,17 @@ class TermSymbol:
 def extract_term_symbols(text: str) -> tuple[TermSymbol, ...]:
     """文書全体のparseに失敗しても用語名とaliasを抽出する."""
     symbols: dict[str, TermSymbol] = {}
-    for line_number, raw_line in enumerate(text.splitlines()):
-        for symbol in _extract_line_symbols(raw_line, line_number):
-            symbols.setdefault(symbol.label, symbol)
+    for symbol in extract_term_occurrences(text):
+        symbols.setdefault(symbol.label, symbol)
     return tuple(sorted(symbols.values(), key=lambda symbol: symbol.label.casefold()))
+
+
+def extract_term_occurrences(text: str) -> tuple[TermSymbol, ...]:
+    """同名の再定義も省略せず、すべての宣言位置を返す."""
+    symbols = []
+    for line_number, raw_line in enumerate(text.splitlines()):
+        symbols.extend(_extract_line_symbols(raw_line, line_number))
+    return tuple(symbols)
 
 
 def _extract_line_symbols(  # noqa: PLR0914 - ranges require lexical positions

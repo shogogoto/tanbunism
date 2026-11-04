@@ -23,6 +23,8 @@ def local_documents(
     open_paths = set()
     for uri, document in server.workspace.text_documents.items():
         path = _local_path(uri)
+        if path is not None and path.suffix.lower() not in TANBUN_SUFFIXES:
+            continue
         if uri == current_uri or (path is not None and path == current_path):
             continue
         documents[uri] = SourceDocument(uri=uri, text=document.source)

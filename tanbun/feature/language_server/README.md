@@ -28,7 +28,7 @@ vim.api.nvim_create_autocmd("FileType", {
 })
 ```
 
-現時点ではdiagnostics、文書内用語のcompletion、definition、referencesを提供する。
+現時点ではdiagnostics、文書内用語のcompletion、definition、references、renameを提供する。
 `{...}`の用語埋め込みとbacktickのquotermで、用語名・同義名・aliasを補完できる。
 同じ参照上でNeovimの`gd`などを実行すると、まず同一文書、次にworkspace内の
 `.tb`/`.kn`ファイルから用語定義を探して移動できる。定義移動はNeo4jやWeb APIに
@@ -38,6 +38,15 @@ vim.api.nvim_create_autocmd("FileType", {
 通知する。定義移動でも検索件数と所要時間を通知する。
 標準LSPのreferences応答にはグループ見出しがないため、LSPでは種類順に連続して返す。
 Web APIでは種類ごとのグループ構造を返す。
+
+用語名・同義名・alias、またはその参照上で`vim.lsp.buf.rename()`を実行すると、
+workspace内の`.tb`/`.kn`にある同じ表記の定義と参照をまとめて変更できる。
+`prepareRename`で対象範囲と現在の名前を返し、`rename`で標準の`WorkspaceEdit`を返す。
+ファイルをサーバーから直接保存せず、未保存のバッファ内容を優先して編集案を作る。
+括弧・引用符・周囲の空白・平文・見出し・メタデータ・コメントは維持する。
+同義名やaliasは、選択した表記だけを変更する。同じ表記の再定義はすべて対象になる。
+複合用語に埋め込まれた用語を変更すると、派生する複合用語名への参照も追従する。
+複合用語全体の構造を書き換えるrename、未定義参照、構文を壊す名前、既存名への衝突は拒否する。
 起動時と文書のopen・save時に、解析状態、所要時間、行数、用語数、ノード数、関係数をクライアントへ通知する。
 Quick Fix、アップロードは後続機能とする。
 

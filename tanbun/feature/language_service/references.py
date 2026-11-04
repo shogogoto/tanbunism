@@ -10,7 +10,7 @@ from tanbun.feature.parsing.issue import SourceRange
 
 from .definition import DefinitionLocation, SourceDocument
 from .position import offset_to_position
-from .symbols import extract_term_symbols
+from .symbols import extract_term_occurrences
 
 _REFERENCE = re.compile(r"\{([^{}]+)\}|`([^`]+)`")
 
@@ -53,7 +53,7 @@ def find_references(
     ordered = (current, *(item for item in documents if item.uri != current.uri))
     locations = []
     for document in ordered:
-        locations.extend(_reference_locations(document, term))
+        locations.extend(reference_locations(document, term))
         if include_declaration:
             locations.extend(_definition_locations(document, term))
     return _deduplicate(locations)
@@ -94,7 +94,7 @@ def _term_at(text: str, offset: int) -> str | None:
             return match.group(group).strip()
 
     position = offset_to_position(text, offset)
-    for symbol in extract_term_symbols(text):
+    for symbol in extract_term_occurrences(text):
         source_range = symbol.source_range
         if (
             source_range.line == position.line
@@ -106,10 +106,11 @@ def _term_at(text: str, offset: int) -> str | None:
     return None
 
 
-def _reference_locations(
+def reference_locations(
     document: SourceDocument,
     term: str,
 ) -> list[ReferenceLocation]:
+    """指定した表記の埋め込み用語・引用用語の位置を返す."""
     locations = []
     for line_number, line in enumerate(document.text.splitlines()):
         for match in _REFERENCE.finditer(line):
@@ -141,6 +142,6 @@ def _definition_locations(
             source_range=symbol.source_range,
             kind=ReferenceKind.DEFINITION,
         )
-        for symbol in extract_term_symbols(document.text)
+        for symbol in extract_term_occurrences(document.text)
         if symbol.label == term
     ]
