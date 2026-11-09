@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Hashable, Iterable
-from functools import cache
 from typing import Final
 
 import networkx as nx
@@ -27,13 +26,11 @@ def exclude_heading(children: Iterable[Hashable]) -> list:
     return [c for c in children if not (isinstance(c, Token) and c.type in H_TYPES)]
 
 
-@cache
 def get_headings(g: nx.DiGraph) -> set[str]:
     """見出しセット."""
     return {str(n) for n in include_heading(g.nodes)}
 
 
-@cache
 def get_heading_path(g: nx.DiGraph, root: Hashable, n: Hashable) -> list[Hashable]:
     """直近の見出しパス."""
     paths = list(nx.all_simple_paths(g.to_undirected(), root, n))
@@ -43,4 +40,5 @@ def get_heading_path(g: nx.DiGraph, root: Hashable, n: Hashable) -> list[Hashabl
     for p in paths:
         if len(minp) > len(p):
             minp = p
-    return [e for e in minp if e in get_headings(g)]
+    headings = get_headings(g)
+    return [e for e in minp if e in headings]

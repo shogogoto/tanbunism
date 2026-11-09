@@ -9,6 +9,23 @@ from tanbun.feature.parsing.primitive.heading import get_heading_path, get_headi
 hpath = [Token(value=f"h{i}", type=f"H{i + 1}") for i in range(1, 4)]
 
 
+def test_heading_queries_observe_graph_updates() -> None:
+    """見出しの追加・接続変更と、返却集合の書き換えを混同しない."""
+    root = Token(value="root", type="H1")
+    first = Token(value="first", type="H2")
+    second = Token(value="second", type="H2")
+    g = nx.DiGraph()
+    nx.add_path(g, [root, first, "sentence"])
+    headings = get_headings(g)
+    headings.clear()
+    assert get_headings(g) == {root, first}
+    assert get_heading_path(g, root, "sentence") == [root, first]
+    nx.add_path(g, [root, second, "sentence"])
+    g.remove_edge(first, "sentence")
+    assert get_headings(g) == {root, first, second}
+    assert get_heading_path(g, root, "sentence") == [root, second]
+
+
 def test_get_headings() -> None:
     """見出し一覧."""
     root = Token(value="root", type="H1")

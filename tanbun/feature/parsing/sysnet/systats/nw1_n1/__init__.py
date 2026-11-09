@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Hashable, Iterable
-from functools import cache
 from typing import TYPE_CHECKING, Final
 
 from tanbun.feature.domain.graph import (
@@ -11,7 +10,7 @@ from tanbun.feature.domain.graph import (
     to_nodes,
     to_roots,
 )
-from tanbun.feature.domain.graph.edge_type import EdgeType, etype_subgraph
+from tanbun.feature.domain.graph.edge_type import EdgeType
 from tanbun.feature.parsing.sysnet import SysNet
 from tanbun.feature.parsing.sysnet.sysnode import KNArg, KNode
 
@@ -25,7 +24,6 @@ class ParentLookupError(Exception):
     """親テーブルを作る時に変なことが起きた."""
 
 
-@cache
 def parent_lookup(g: nx.DiGraph) -> dict:
     """親の辞書."""
     g = select_edge_attr(g, "type", EdgeType.BELOW, EdgeType.SIBLING)
@@ -35,7 +33,7 @@ def parent_lookup(g: nx.DiGraph) -> dict:
         first_sibs = EdgeType.BELOW.succ(g, p)
         for s in first_sibs:
             lookup[s] = p
-            for s_ in [e for e in to_nodes(g, s, EdgeType.SIBLING.succ) if e]:
+            for s_ in to_nodes(g, s, EdgeType.SIBLING.succ):
                 lookup[s_] = p
     return lookup
 
@@ -47,16 +45,16 @@ class NwOp:
     def get_detail(g: nx.DiGraph, n: Hashable) -> list[KNode]:
         """詳細な記述."""
         vals = []
-        sub = etype_subgraph(g, EdgeType.SIBLING, EdgeType.BELOW)
-        for below_s in EdgeType.BELOW.succ(sub, n):
-            sibs = to_nodes(sub, below_s, EdgeType.SIBLING.succ)
-            vals.extend([s for s in sibs if s])  # None排除
+        # Accessors already filter edge types; do not copy the whole graph per node.
+        for below_s in EdgeType.BELOW.succ(g, n):
+            sibs = to_nodes(g, below_s, EdgeType.SIBLING.succ)
+            vals.extend(sibs)
         return vals
 
     @staticmethod
     def get_parent_or_none(sn: SysNet, n: KNode) -> KNode | None:
         """兄弟を辿ったらBELOW.predが存在するか."""
-        lookup = parent_lookup(sn.sentence_graph)
+        lookup = sn.parents
         return lookup.get(n)
 
     @staticmethod
@@ -123,7 +121,6 @@ DEP_EDGE_TYPES: Final = [
 ]
 
 
-@cache
 def has_dependency(sn: SysNet, n: KNArg) -> bool:
     """意味的に重要なエッジを持つ."""
     in_ = sn.g.in_edges(n, data=True)

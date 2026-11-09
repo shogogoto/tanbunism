@@ -218,7 +218,7 @@ class TanbunChain(BaseModel):
             return it
 
         ns = to_nodes(self.g, uid, succ)
-        return {self.knowdes.get(s) for s in ns if s is not None}
+        return {self.knowdes.get(s) for s in ns}
 
     def relabeled(self) -> DiGraph:
         """UUIDstr node を単文に置き換えたgraphを返す."""

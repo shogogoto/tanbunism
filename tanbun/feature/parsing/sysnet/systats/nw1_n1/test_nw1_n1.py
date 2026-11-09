@@ -1,13 +1,51 @@
 """netwok1 node1 getter."""
 
+import gc
+import weakref
+
+import networkx as nx
 from pytest_unordered import unordered
 
+from tanbun.feature.domain.graph.edge_type import EdgeType
 from tanbun.feature.parsing.sysnet.systats.nw1_n1 import (
     NwOp,
     has_dependency,
+    parent_lookup,
 )
 from tanbun.feature.parsing.sysnet.systats.nw1_n1.ctxdetail import to_nw1n1fn
-from tanbun.feature.parsing.tree2net import parse2net
+from tanbun.feature.parsing.tree2net import parse2net, parse2net_uncached
+
+
+def test_parent_lookup_observes_graph_mutations_and_is_not_shared() -> None:
+    """可変グラフの親取得で古い結果や呼び出し側の変更を再利用しない."""
+    g = nx.DiGraph()
+    EdgeType.BELOW.add_edge(g, "p", "a")
+    lookup = parent_lookup(g)
+    assert lookup == {"a": "p"}
+    lookup["a"] = "local"
+    EdgeType.SIBLING.add_edge(g, "a", "b")
+    assert parent_lookup(g) == {"a": "p", "b": "p"}
+
+
+def test_parents_are_reused_only_within_the_parsed_snapshot() -> None:
+    """ノードごとの親取得で再計算せず、別リソースへは持ち越さない."""
+    first = parse2net_uncached("# title\n  parent\n    a\n    b\n")
+    second = parse2net_uncached("# other\n  another\n    a\n")
+    assert first.parents is first.parents
+    assert NwOp.get_parent_or_none(first, "b") == "parent"
+    assert NwOp.get_parent_or_none(second, "a") == "another"
+    assert first.parents is not second.parents
+
+
+def test_parsed_snapshot_is_not_retained_by_parent_and_dependency_helpers() -> None:
+    """親テーブルの再利用が解析結果をプロセス全体へ保持しない."""
+    snapshot = parse2net_uncached("# title\n  parent\n    a\n")
+    reference = weakref.ref(snapshot.g)
+    assert NwOp.get_parent_or_none(snapshot, "a") == "parent"
+    assert not has_dependency(snapshot, "a")
+    del snapshot
+    gc.collect()
+    assert reference() is None
 
 
 def test_get_detail_parent() -> None:

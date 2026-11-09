@@ -1,14 +1,30 @@
 """test."""
 
+import gc
+import weakref
+
 from pytest_unordered import unordered
 
-from tanbun.feature.parsing.tree2net import parse2net
+from tanbun.feature.parsing.tree2net import parse2net, parse2net_uncached
 
 from .domain import (
     get_axiom,
     get_isolation,
     get_unrefered,
 )
+
+
+def test_stats_queries_return_fresh_results_without_retaining_the_snapshot() -> None:
+    """呼び出し側の変更を次回へ持ち越さず、一時的な解析結果を解放できる."""
+    snapshot = parse2net_uncached("# title\n  alone\n")
+    reference = weakref.ref(snapshot.g)
+    for query in (get_isolation, get_axiom, get_unrefered):
+        expected = query(snapshot)
+        query(snapshot).append("local-only")
+        assert query(snapshot) == expected
+    del snapshot
+    gc.collect()
+    assert reference() is None
 
 
 def test_get_isolation() -> None:

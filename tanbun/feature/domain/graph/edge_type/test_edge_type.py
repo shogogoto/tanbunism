@@ -3,7 +3,21 @@
 import networkx as nx
 from pytest_unordered import unordered
 
-from tanbun.feature.domain.graph.edge_type import EdgeType
+from tanbun.feature.domain.graph.edge_type import EdgeType, etype_subgraph
+
+
+def test_subgraphs_observe_new_and_removed_nodes() -> None:
+    """同じグラフの構造変更を型別サブグラフでも反映する."""
+    g = nx.MultiDiGraph()
+    EdgeType.BELOW.add_edge(g, "a", "b")
+    assert set(EdgeType.BELOW.subgraph(g)) == {"a", "b"}
+    assert set(etype_subgraph(g, EdgeType.BELOW)) == {"a", "b"}
+    EdgeType.BELOW.add_edge(g, "b", "c")
+    assert set(EdgeType.BELOW.subgraph(g)) == {"a", "b", "c"}
+    assert set(etype_subgraph(g, EdgeType.BELOW)) == {"a", "b", "c"}
+    g.remove_node("a")
+    assert set(EdgeType.BELOW.subgraph(g)) == {"b", "c"}
+    assert set(etype_subgraph(g, EdgeType.BELOW)) == {"b", "c"}
 
 
 def test_subgraph() -> None:

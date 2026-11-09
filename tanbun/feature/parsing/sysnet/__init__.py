@@ -79,6 +79,13 @@ class SysNet(BaseModel, frozen=True):
         )
 
     @cached_property
+    def parents(self) -> dict[Hashable, Hashable]:
+        """不変の解析スナップショット内だけで親テーブルを再利用する."""
+        from .systats.nw1_n1 import parent_lookup  # noqa: PLC0415
+
+        return parent_lookup(self.sentence_graph)
+
+    @cached_property
     def _templates(self) -> Templates:
         """テンプレートの集まり."""
         return Templates().add(*to_template(self.g.nodes))

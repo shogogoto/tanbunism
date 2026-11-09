@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Hashable
-from functools import cache
 from pprint import pp
 from typing import TYPE_CHECKING, Any
 
 import networkx as nx
+
+from .errors import GraphCycleError
 
 if TYPE_CHECKING:
     from .edge_type import EdgeType
@@ -22,34 +23,54 @@ def nxprint(g: nx.DiGraph, detail: bool = False) -> None:  # noqa: FBT001 FBT002
         pp(nx.to_dict_of_dicts(g))
 
 
-@cache
 def to_nested(g: nx.DiGraph, start: Hashable, f: Accessor) -> dict:
-    """有向グラフから入れ子の辞書を作成."""
+    """到達可能なDAGを入れ子にする。合流する枝は残し、循環は拒否する.
 
-    def _f(n: Hashable) -> dict:
-        nlist = list(f(g, n))
-        if not nlist:
-            return {}
-        return {anode: _f(anode) for anode in nlist}
+    start自身はキーに含めない。入力グラフ・返却辞書はキャッシュしない。
+    """
+    result = {}
+    active = {start}
+    stack = [(start, result, iter(f(g, start)))]
+    while stack:
+        node, children, neighbors = stack[-1]
+        try:
+            child = next(neighbors)
+        except StopIteration:
+            active.remove(node)
+            stack.pop()
+            continue
+        if child in active:
+            msg = f"Cannot convert a cyclic graph to a nested mapping: {child!r}"
+            raise GraphCycleError(msg)
+        nested = {}
+        children[child] = nested
+        active.add(child)
+        stack.append((child, nested, iter(f(g, child))))
+    return result
 
-    return _f(start)
 
-
-@cache
 def to_nodes(g: nx.DiGraph, start: Hashable, f: Accessor) -> list[Hashable]:
-    """有向グラフを辿ってノードを取得."""
-    s = []
+    """startを含む到達点を深さ優先の初出順で一度ずつ取得する.
 
-    def _f(n: Hashable) -> None:
-        nlist = list(f(g, n))
-        s.append(n)
-        s.extend([_f(anode) for anode in nlist])
+    循環・深い階層でも終了し、再帰呼び出しの戻り値を混入させない。
+    """
+    nodes = [start]
+    visited = {start}
+    stack = [iter(f(g, start))]
+    while stack:
+        try:
+            node = next(stack[-1])
+        except StopIteration:
+            stack.pop()
+            continue
+        if node in visited:
+            continue
+        visited.add(node)
+        nodes.append(node)
+        stack.append(iter(f(g, node)))
+    return nodes
 
-    _f(start)
-    return s
 
-
-@cache
 def select_edge_attr(g: nx.DiGraph, name: str, *values: Any) -> nx.DiGraph:
     """ある属性のエッジのみを抽出する関数を返す."""
     sub = g.__class__()
@@ -72,14 +93,12 @@ def _to_paths(g: nx.DiGraph, pairs: Edges) -> list[list[Hashable]]:
     return paths
 
 
-@cache
 def to_leaves(g: nx.DiGraph, *ts: Any) -> list[Hashable]:
     """最先端を取得."""
     sub = select_edge_attr(g, "type", *ts)
     return [n for n in sub.nodes if sub.out_degree(n) == 0 and sub.in_degree(n) != 0]
 
 
-@cache
 def to_roots(g: nx.DiGraph, *ts: Any) -> list[Hashable]:
     """根を取得."""
     sub = select_edge_attr(g, "type", *ts)

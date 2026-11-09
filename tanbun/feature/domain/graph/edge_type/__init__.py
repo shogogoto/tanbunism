@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Hashable
 from enum import Enum, StrEnum, auto
-from functools import cache, cached_property, reduce
+from functools import cached_property, reduce
 from typing import TYPE_CHECKING
 
 import networkx as nx
@@ -142,14 +142,12 @@ class EdgeType(StrEnum):
         return ets, is_forward
 
 
-@cache
 def etype_subgraph(g: nx.DiGraph, *ts: EdgeType) -> nx.DiGraph:
-    """キャッシュありサブグラフ."""
+    """指定関係のサブグラフを合成する。変更可能な入力を保持しない."""
     gs = [t.subgraph(g) for t in ts]
     return reduce(nx.compose, gs)
 
 
-@cache
 def _etype_subgraph(g: nx.DiGraph, t: EdgeType) -> nx.DiGraph:
     nodes = set()
     for u, v, data in g.edges(data=True):

@@ -20,6 +20,9 @@ tanbunismは「知識を単文と関係に分解して管理する」ための�
 Python 3.12–3.14（CIで各バージョンを検証）
 
 ローカル開発とスタンドアロン版のビルドは引き続き3.13を使用します。
+
+共通グラフ処理の走査・循環・キャッシュの契約は[グラフ処理ガイド](docs/graph-helpers.md)を参照。
+
 ## How to use
 ### Installation
     pip install tanbunism

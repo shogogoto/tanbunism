@@ -2,7 +2,7 @@
 
 import operator
 from collections.abc import Hashable
-from functools import cache, reduce
+from functools import reduce
 from typing import Self
 
 import networkx as nx
@@ -184,7 +184,6 @@ class ResourceStats(
     """知識の量を示す指標 for API."""
 
 
-@cache
 def get_isolation(sn: SysNet) -> list[Hashable]:
     """孤立したノード.
 
@@ -211,7 +210,6 @@ def get_isolation(sn: SysNet) -> list[Hashable]:
     return list(sub.nodes)
 
 
-@cache
 def get_axiom(sn: SysNet) -> list[Hashable]:
     """TOの出発点となるDef or sentence."""
     sub = nx.subgraph_view(
@@ -221,7 +219,6 @@ def get_axiom(sn: SysNet) -> list[Hashable]:
     return list(sub.nodes)
 
 
-@cache
 def get_unrefered(sn: SysNet) -> list[KNArg]:
     """RESOLVEDの出発点.
 
