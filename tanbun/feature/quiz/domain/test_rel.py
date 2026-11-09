@@ -11,6 +11,14 @@ def test_quiz_rel_edge_types():
     assert EdgeType.BY not in QUIZ_REL_EDGE_TYPES
 
 
+def test_relation_mappings_are_not_shared_mutable_state():
+    """呼び出し元が辞書を変更しても次の関係変換へ混ざらない."""
+    QuizRel.forwards().clear()
+    QuizRel.backwards().clear()
+    assert QuizRel.of([EdgeType.TO], is_forward=True) == [QuizRel.CONCLUSION]
+    assert QuizRel.of([EdgeType.TO], is_forward=False) == [QuizRel.PREMISE]
+
+
 def test_referred_label():
     """被参照関係は冗長な「用語」を付けずに表示する."""
     assert QuizRel.REFERRED == "被参照"

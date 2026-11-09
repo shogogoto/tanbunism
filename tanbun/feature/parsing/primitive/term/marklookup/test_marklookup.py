@@ -11,6 +11,27 @@ from tanbun.feature.parsing.primitive.term.marklookup import (
 )
 
 
+def test_lookup_updates_do_not_pollute_later_resources() -> None:
+    """参照解決で拡張した辞書を次の解析へ持ち越さない."""
+    base = Term.create("CacheBase")
+    referenced = Term.create("Derived{CacheBase}")
+    resolved = to_lookup(frozenset({base, referenced}))
+    assert resolved["DerivedCacheBase"] == referenced
+    assert get_lookup(frozenset({base})) == {"CacheBase": base}
+    resolved["local-only"] = base
+    assert "local-only" not in to_lookup(frozenset({base, referenced}))
+    with pytest.raises(MarkUncontainedError):
+        to_lookup(frozenset({base, Term.create("Missing{DerivedCacheBase}")}))
+
+
+def test_lookup_returns_an_independent_dictionary() -> None:
+    """呼び出し元の辞書変更を他の解析へ持ち越さない."""
+    term = Term.create("Independent")
+    terms = frozenset({term})
+    get_lookup(terms).clear()
+    assert get_lookup(terms) == {"Independent": term}
+
+
 def test_lookup_refactored() -> None:
     """参照なし用語を取得2."""
     mt = MergedTerms()

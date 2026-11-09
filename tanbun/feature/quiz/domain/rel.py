@@ -2,7 +2,6 @@
 
 from collections.abc import Sequence
 from enum import StrEnum
-from functools import cache
 from itertools import islice
 from typing import Any, Final, Self
 
@@ -56,7 +55,6 @@ class QuizRel(StrEnum):
         }[self]
 
     @classmethod
-    @cache
     def forwards(cls) -> dict:
         """正順辞書."""
         return {
@@ -69,7 +67,6 @@ class QuizRel(StrEnum):
         }
 
     @classmethod
-    @cache
     def backwards(cls) -> dict:
         """正順辞書."""
         return {

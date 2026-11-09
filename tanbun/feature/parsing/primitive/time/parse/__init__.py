@@ -1,6 +1,6 @@
 """時系列."""
 
-from functools import cache
+from functools import lru_cache
 
 from edtf import EDTFObject, parse_edtf
 from japanera import EraDate
@@ -52,7 +52,7 @@ def jp2edtf(string: str) -> str:
             raise ValueError(string)
 
 
-@cache
+@lru_cache(maxsize=256)
 def str2edtf(string: str) -> str:
     """文字列をEDTF(Extended DateTime Format)に変換.
 

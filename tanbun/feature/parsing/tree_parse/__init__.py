@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Hashable
-from functools import cache
+from functools import lru_cache
 from pathlib import Path
 from textwrap import dedent
 from typing import TYPE_CHECKING, override
@@ -52,9 +52,12 @@ class SampleIndenter(Indenter):
         return 4
 
 
-@cache
+PARSER_CACHE_MAX_ENTRIES = 16
+
+
+@lru_cache(maxsize=PARSER_CACHE_MAX_ENTRIES)
 def create_parser(transformer: TransformerChain | Transformer | None = None) -> Lark:
-    """パーサ."""
+    """直近の構文解析器だけを再利用し、変換器を無制限に保持しない."""
     return Lark(
         (Path(__file__).parent / "input.lark").read_text(),
         parser="lalr",

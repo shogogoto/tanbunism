@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Set as AbstractSet
-from functools import cache
 
 from tanbun.feature.parsing.primitive.term import Term
 from tanbun.feature.parsing.primitive.term.const import (
@@ -31,9 +30,8 @@ def get_refer_terms(
 type Lookup = dict[str, Term]  # mark Term辞書
 
 
-@cache
 def get_lookup(terms: frozenset[Term]) -> Lookup:
-    """{name|alias: Term}の辞書を作成."""
+    """呼び出しごとに独立した{name|alias: Term}の辞書を作成."""
     d = {}
     for t in terms:
         for n in t.names:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from functools import cache
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -52,6 +52,9 @@ if TYPE_CHECKING:
 
     from tanbun.feature.parsing.tree2net.directed_edge import DirectedEdgeCollection
 
+PARSE_CACHE_MAX_ENTRIES = 8
+PARSE_CACHE_MAX_CHARS = 64 * 1024
+
 
 def parse2net_uncached(
     txt: str,
@@ -71,10 +74,17 @@ def parse2net_uncached(
     return SysNet(root=restored_root, g=nx.freeze(restored_graph))
 
 
-@cache
 def parse2net(txt: str, do_print: bool = False) -> SysNet:  # noqa: FBT001 FBT002
-    """テキストをsysnetへ変換する(キャッシュ付き)."""
-    return parse2net_uncached(txt, do_print)
+    """小さな入力だけ有限に再利用し、利用側には独立した解析結果を返す."""
+    if do_print or len(txt) > PARSE_CACHE_MAX_CHARS:
+        return parse2net_uncached(txt, do_print)
+    return _cached_parse2net(txt).model_copy(deep=True)
+
+
+@lru_cache(maxsize=PARSE_CACHE_MAX_ENTRIES)
+def _cached_parse2net(txt: str) -> SysNet:
+    """共有スナップショットは非公開とし、呼び出し側の変更を隔離する."""
+    return parse2net_uncached(txt)
 
 
 def _build_graph(tree: Tree, col: DirectedEdgeCollection) -> nx.MultiDiGraph:

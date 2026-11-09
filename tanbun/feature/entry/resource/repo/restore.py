@@ -1,6 +1,5 @@
 """db から sysnetを復元."""
 
-from functools import cache
 from math import isinf
 from uuid import UUID
 
@@ -26,9 +25,8 @@ from tanbun.feature.parsing.sysnet.sysnode import (
 from tanbun.feature.repo.cypher import q_call_term_names
 
 
-@cache
 def to_tanbun(n: neo4j.graph.Node) -> KNode:  # noqa: PLR0911
-    """neo4jから変換."""
+    """今回取得したNeo4jの値を変換する。DBオブジェクトは保持しない."""
     lb_name = next(iter(n.labels))
     val = n.get("val")
     match lb_name:

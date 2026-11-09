@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from functools import cache, cached_property
+from functools import cached_property, lru_cache
 
 from pydantic import BaseModel
 from regex import regex
@@ -119,7 +119,7 @@ class Marker(BaseModel, frozen=True):
         return p.split(txt)
 
 
-@cache
+@lru_cache(maxsize=32)
 def split_pattern(m_open: str, m_close: str, delimiter: str) -> re.Pattern:
     """囲われた部分を無視するデリミタ."""
     o = m_open
