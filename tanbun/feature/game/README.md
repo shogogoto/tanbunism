@@ -62,6 +62,25 @@ for it to be offered as a new destination.
 
 ## Skill compositions
 
+### Definition boundaries
+
+`catalog_identifiers.py` owns shared definition IDs and icon IDs.
+`skill_definitions.py` owns skill/effect models, answer-result policies and
+restoration of flattened skill snapshots. It does not load the catalog or DB.
+`skill_templates.py` builds on those models to resolve template inheritance,
+variant sets and skill references, without catalog storage or cross-catalog
+validation. Combat effect helpers import the skill definitions directly.
+
+`catalog.py` remains the aggregate: items/enemies/triggers, cross-reference
+validation, initial catalog and persistence. It re-exports the extracted public
+definitions so existing callers keep the same class objects and import paths.
+New single-skill logic should use the defining module, rather than depending on
+the aggregate. JSON fields, defaults and OpenAPI component names are unchanged.
+
+`test_catalog_boundaries.py` checks standalone imports in a fresh interpreter,
+public re-exports and storage round trips. Existing skill/template/variant tests
+continue to cover validation and resolution behavior.
+
 Skills own their name, MP cost, animation/SE and enabled state. Ordered
 `template_ids` reference one or more shared effect templates. Templates define
 targets, effect amounts, answer behavior and status duration/stacking, not MP or

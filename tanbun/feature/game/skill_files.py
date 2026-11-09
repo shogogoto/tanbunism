@@ -7,9 +7,13 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .catalog import (
     ElementDefinition,
     GameCatalog,
+)
+from .skill_definitions import (
     SkillDefinition,
-    SkillTemplate,
     migrate_skill,
+)
+from .skill_templates import (
+    SkillTemplate,
     resolve_skill_templates,
 )
 from .template_variant_sets import VariantSet

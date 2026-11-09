@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
-from .catalog import SkillDefinition, StoredSkill
+from .skill_definitions import SkillDefinition, StoredSkill
 
 MAX_BATTLE_EFFECTS = 200
 

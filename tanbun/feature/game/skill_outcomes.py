@@ -1,14 +1,19 @@
 """クイズ一問に対する効果。利用経路・画面表示から独立した共通規則。."""
 
-from hashlib import blake2b
+from __future__ import annotations
 
-from .catalog import (
+from hashlib import blake2b
+from typing import TYPE_CHECKING
+
+from .skill_definitions import (
     AttackSkill,
-    GameCatalog,
     SkillDefinition,
     default_normal_attack,
     parse_skill,
 )
+
+if TYPE_CHECKING:
+    from .catalog import GameCatalog
 
 
 def skill_effects(skill: SkillDefinition) -> list[SkillDefinition]:
