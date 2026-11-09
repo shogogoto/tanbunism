@@ -174,7 +174,6 @@ def derive_enemies(
             selected_index = selected.get(item["id"])
             hp, attack = balance.enemy_stats(
                 power,
-                relation_count,
                 region,
                 variation_key=item["id"],
             )
@@ -233,7 +232,7 @@ def derive_boss(
     ]
     if not indexes:
         return None
-    hp, attack = balance.enemy_stats(power, 0, level - 1, variation_key=identity)
+    hp, attack = balance.enemy_stats(power, level - 1, variation_key=identity)
     extra = balance.enemy_extra_stats(power, level - 1, identity)
     return EnemyStats(
         id=identity,

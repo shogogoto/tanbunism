@@ -88,7 +88,7 @@ def test_custom_elements_roundtrip_and_composite_skill_identity():
         catalog=catalog,
         document={
             "format": "tanbunism.skills",
-            "version": 5,
+            "version": 6,
             "elements": [{"id": "metal", "name": "金属", "color": "#889999"}],
             "skills": [
                 {

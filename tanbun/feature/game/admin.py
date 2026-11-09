@@ -207,7 +207,6 @@ def simulate_enemy_balance(
     for index, quiz_indexes in enumerate(quiz_groups):
         hp, attack = request.balance.enemy_stats(
             request.power,
-            request.average_relations,
             request.achievement - 1,
             variation_key=enemy_identity("simulation", request.achievement - 1, index),
         )

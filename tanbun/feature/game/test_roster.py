@@ -2,8 +2,10 @@
 # ruff: noqa: PLR2004
 
 from random import Random
+from uuid import uuid4
 
 from .balance import GameBalance
+from .enemy_stats import derive_enemies
 from .roster import assign_enemy_quizzes
 
 
@@ -34,11 +36,14 @@ def test_both_encounter_bounds_scale_and_allow_duplicates():
 
 
 def test_relation_count_no_longer_changes_enemy_stats():
-    """Old saved relation coefficients are ignored during live calculations."""
-    balance = GameBalance(relation_hp=100, relation_attack=100)
-    assert balance.enemy_stats(100, 0, 2, "enemy") == balance.enemy_stats(
-        100,
-        1000,
-        2,
-        "enemy",
-    )
+    """関係数は出題元の情報として保持し、Power由来の能力値へ二重加算しない."""
+    quiz_id = uuid4().hex
+    content = {
+        "quizzes": [{"quiz_id": quiz_id}],
+        "regionEnemies": {"2": [{"id": "enemy", "name": "敵", "quizIndex": 0}]},
+    }
+    balance = GameBalance()
+    low = derive_enemies(content, {quiz_id: 0}, 100, balance)[0]
+    high = derive_enemies(content, {quiz_id: 1000}, 100, balance)[0]
+    assert (low.hp, low.attack) == (high.hp, high.attack)
+    assert (low.relations, high.relations) == (0, 1000)

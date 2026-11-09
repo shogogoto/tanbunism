@@ -63,7 +63,7 @@ def test_references_round_trip_without_copying_effect_values_or_mp_to_templates(
     assert GameCatalog.model_validate(stored) == catalog
     exported = SkillFile.model_validate({
         "format": "tanbunism.skills",
-        "version": 5,
+        "version": 6,
         "skills": stored["skills"],
         "skill_templates": stored["skill_templates"],
     })

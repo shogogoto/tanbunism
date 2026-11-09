@@ -108,14 +108,14 @@ def test_malformed_template_documents_are_validation_errors(patch):
         GameCatalog.model_validate(configured_catalog().stored_document() | patch)
 
 
-def test_v4_file_carries_templates_and_updates_existing_consumers():
+def test_current_file_carries_templates_and_updates_existing_consumers():
     """共通設定を含むJSONを、参照を保って未保存カタログへ統合する."""
     catalog = configured_catalog()
     document = catalog.stored_document()
     document["skill_templates"][0]["multiplier"] = 5
     file = SkillFile.model_validate({
         "format": "tanbunism.skills",
-        "version": 4,
+        "version": 6,
         "skills": document["skills"],
         "skill_templates": document["skill_templates"],
     })

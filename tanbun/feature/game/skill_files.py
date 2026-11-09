@@ -10,7 +10,6 @@ from .catalog import (
 )
 from .skill_definitions import (
     SkillDefinition,
-    migrate_skill,
 )
 from .skill_templates import (
     SkillTemplate,
@@ -27,7 +26,7 @@ class SkillFile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     format: Literal["tanbunism.skills"]
-    version: Literal[1, 2, 3, 4, 5, 6]
+    version: Literal[6]
     skills: list[SkillDefinition] = Field(max_length=200)
     skill_templates: list[SkillTemplate] = Field(default_factory=list, max_length=200)
     elements: list[ElementDefinition] = Field(default_factory=list, max_length=100)
@@ -37,24 +36,8 @@ class SkillFile(BaseModel):
     @classmethod
     def apply_templates(cls, value):
         """交換ファイル内の共通設定で参照を解決する."""
-        if isinstance(value, dict) and value.get("version") in {
-            4,
-            5,
-            TEMPLATE_FILE_VERSION,
-        }:
+        if isinstance(value, dict) and value.get("version") == TEMPLATE_FILE_VERSION:
             return resolve_skill_templates({"skill_templates": [], **value})
-        return value
-
-    @model_validator(mode="before")
-    @classmethod
-    def migrate_v1(cls, value):
-        """初版の全項目入りファイルだけ、種類に無関係な旧項目を除去する."""
-        if (
-            isinstance(value, dict)
-            and value.get("version") == 1
-            and isinstance(value.get("skills"), list)
-        ):
-            return {**value, "skills": [migrate_skill(s) for s in value["skills"]]}
         return value
 
     @model_validator(mode="after")

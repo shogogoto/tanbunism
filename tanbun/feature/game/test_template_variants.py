@@ -74,7 +74,7 @@ def test_nested_variants_keep_each_override_and_combined_names_across_json():
     ) == (5, 0.8)
     file = SkillFile.model_validate({
         "format": "tanbunism.skills",
-        "version": 5,
+        "version": 6,
         **stored_without_catalog(stored),
     })
     merged = SkillFilePreview(catalog=catalog, document=file).merged_catalog()
@@ -104,7 +104,7 @@ def test_storage_and_skill_file_preserve_only_variant_differences():
     assert GameCatalog.model_validate(stored) == catalog
     file = SkillFile.model_validate({
         "format": "tanbunism.skills",
-        "version": 5,
+        "version": 6,
         **stored_without_catalog(stored),
     })
     merged = SkillFilePreview(catalog=catalog, document=file).merged_catalog()
@@ -133,7 +133,7 @@ def test_single_axis_metadata_survives_storage_and_skill_file_without_runtime_le
     assert "variant_label" not in effect
     file = SkillFile.model_validate({
         "format": "tanbunism.skills",
-        "version": 5,
+        "version": 6,
         **stored_without_catalog(stored),
     })
     assert file.skill_templates[1].variant_label == "範囲"

@@ -107,7 +107,7 @@ def test_enemy_simulation_uses_production_roster_and_stat_calculations() -> None
     assert result.pool_quiz_count == 15
     assert [enemy.quiz_count for enemy in result.enemies] == [3, 3, 3]
     assert [(enemy.hp, enemy.attack) for enemy in result.enemies] == [
-        balance.enemy_stats(100, 3, 2, variation_key=f"simulation:2:enemy:{index}")
+        balance.enemy_stats(100, 2, variation_key=f"simulation:2:enemy:{index}")
         for index in range(3)
     ]
     assert len({(enemy.hp, enemy.attack) for enemy in result.enemies}) > 1
@@ -143,7 +143,7 @@ def test_region_growth_is_shared_by_rebuild_and_simulation() -> None:
     assert [len(enemy["quizIndexes"]) for enemy in enemies] == [
         enemy.quiz_count for enemy in result.enemies
     ]
-    assert [balance.enemy_stats(100, 3, 2, enemy["id"]) for enemy in enemies] == [
+    assert [balance.enemy_stats(100, 2, enemy["id"]) for enemy in enemies] == [
         (enemy.hp, enemy.attack) for enemy in result.enemies
     ]
     assert (result.min_encounter_enemies, result.max_encounter_enemies) == (2, 3)
@@ -220,15 +220,14 @@ async def test_region_hydration_restores_only_the_authorized_fixed_population(
 def test_variance_is_stable_and_zero_restores_unvaried_stats() -> None:
     """同じIDは再計算で揺れず、0%では全て同じ基礎値になる."""
     balance = GameBalance(enemy_variance_percent=50)
-    pairs = [balance.enemy_stats(100, 3, 0, f"enemy:{index}") for index in range(20)]
+    pairs = [balance.enemy_stats(100, 0, f"enemy:{index}") for index in range(20)]
     assert pairs == [
-        balance.enemy_stats(100, 3, 0, f"enemy:{index}") for index in range(20)
+        balance.enemy_stats(100, 0, f"enemy:{index}") for index in range(20)
     ]
     assert len(set(pairs)) > 1
     uniform = GameBalance(enemy_variance_percent=0)
     assert (
-        len({uniform.enemy_stats(100, 3, 0, f"enemy:{index}") for index in range(20)})
-        == 1
+        len({uniform.enemy_stats(100, 0, f"enemy:{index}") for index in range(20)}) == 1
     )
 
 

@@ -134,9 +134,11 @@ One quiz resolves all components with the same correctness; MP or an item use is
 consumed once. Counter effects retaliate at most once. Current combat resolves
 attack, recovery and status components for either actor; specialty/end actions
 use the same component expansion. Status stacks are keyed by template identity.
-Stored catalogs and version-5 skill files retain references rather than copied
-effect values. Versions 1–4, singular template references and in-progress flattened
-skill snapshots remain readable. Equipment and movement recovery remain
+Stored catalogs and current version-6 skill files retain references rather than
+copied effect values. Exchange-file versions 1–5 are rejected; re-export saved
+definitions from the current admin instead. Stored catalogs, singular template
+references and in-progress flattened skill snapshots keep their existing read
+path until persisted usage is checked. Equipment and movement recovery remain
 standalone effects; multi-effect items are battle-only.
 
 Effect-template variants reference one independent `base_template_id`. Only

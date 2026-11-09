@@ -126,8 +126,8 @@ def test_invalid_files_fail_before_changing_any_setting(changes):
     assert current.document() == before
 
 
-def test_old_skill_files_use_the_same_preview_without_replacing_consumers():
-    """以前の書き出しファイルも共通の取り込み口で利用できる."""
+def test_current_skill_files_use_the_same_preview_without_replacing_consumers():
+    """現行スキル交換ファイルも共通の取り込み口で利用できる."""
     current = snapshot()
     skill = current.catalog.skills[0].model_dump() | {"name": "変更後"}
     result = merge_settings(
@@ -136,6 +136,23 @@ def test_old_skill_files_use_the_same_preview_without_replacing_consumers():
     )
     assert result.catalog.skills[0].name == "変更後"
     assert result.catalog.items == current.catalog.items
+
+
+@pytest.mark.parametrize("version", range(1, 6))
+def test_unified_import_rejects_retired_skill_files_without_changing_settings(version):
+    """統合入出力を経由しても旧交換JSONを受理せず、設定はそのままにする."""
+    current = snapshot()
+    before = current.document()
+    with pytest.raises(ValueError, match="version"):
+        merge_settings(
+            current,
+            {
+                "format": "tanbunism.skills",
+                "version": version,
+                "skills": [],
+            },
+        )
+    assert current.document() == before
 
 
 @mark_async_test()

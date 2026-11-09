@@ -1,5 +1,5 @@
 """端末間で共有する試作版の冒険スナップショット."""
-# Frontend snapshot field names are intentionally retained for legacy migration.
+# Snapshot field names follow the current frontend's wire contract.
 # ruff: noqa: N815
 
 import json
@@ -89,7 +89,7 @@ class SpecialtySkill(BaseModel):
 
 
 class BattleMarker(BaseModel):
-    """旧一括戦闘と、敵HP・行動順も保存するCTB戦闘の互換マーカー."""
+    """遭遇ごとのクイズ割当・スキル・敵HP・行動順を保存するマーカー."""
 
     id: str
     turn: int = Field(default=0, ge=0)
@@ -250,7 +250,7 @@ async def read_state(user_id: UUIDy) -> GameState:
 
 
 def restore_state(raw: str | None, balance: GameBalance) -> GameState:
-    """能力値は保存値を無視して復元。旧snapshotも同じ式で読み出す."""
+    """能力値は保存値を採用せず、現行バランス・装備・状態補正から復元する."""
     payload = json.loads(raw) if raw else {}
     save = payload.get("save", {})
     if "gambits" in save:
@@ -324,7 +324,7 @@ async def recover_state(user_id: UUIDy) -> GameState:
 
 
 def known_dungeons(save: GameSave) -> list[str]:
-    """旧保存の攻略済み・攻略中も補完する。存在しない過去の履歴は作らない."""
+    """訪問・攻略・マップ・中断中の記録から既知のダンジョンを重複なく求める."""
     return list(
         dict.fromkeys([
             *save.visitedDungeons,
@@ -424,7 +424,7 @@ async def write_state(user_id: UUIDy, update: StateUpdate) -> GameState:
 
 
 async def refresh_dungeon_unlocks(user_id: UUIDy, state: GameState) -> GameState:
-    """旧データの達成度にも開放を適用し、CASで端末間の重複を防ぐ."""
+    """現在の達成度で開放条件を再評価し、CASで端末間の重複を防ぐ."""
     updated = state.model_copy(deep=True)
     if not await discover_dungeons(user_id, updated.save):
         return state
@@ -451,7 +451,7 @@ def validate_snapshot_battle(previous: GameState, update: StateUpdate) -> None:
 
 
 def merge_exploration(previous: GameSave, updated: GameSave) -> None:
-    """旧クライアントによる未対応フィールドの消失を防ぐ."""
+    """今回送信していないダンジョンの探索状況を保持し、保存先と容量を検証する."""
     updated.maps = {**previous.maps, **updated.maps}
     updated.dungeons = {**previous.dungeons, **updated.dungeons}
     if updated.run:

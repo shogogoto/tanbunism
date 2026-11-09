@@ -35,7 +35,7 @@ def test_region_growth_multiplies_power_adjusted_stats(
         region_attack_growth_percent=10,
     )
     scale = log1p(100) if formula == "log" else 1
-    assert balance.enemy_stats(100, 0, region) == (
+    assert balance.enemy_stats(100, region) == (
         ceil((20 + scale) * (1 + region * 0.2)),
         ceil((12 + scale * 0.5) * (1 + region * 0.1)),
     )
@@ -49,9 +49,8 @@ def test_zero_growth_ignores_legacy_additive_settings() -> None:
         region_hp_growth_percent=0,
         region_attack_growth_percent=0,
     )
-    assert balance.enemy_stats(100, 0, 0, "enemy") == balance.enemy_stats(
+    assert balance.enemy_stats(100, 0, "enemy") == balance.enemy_stats(
         100,
-        0,
         4,
         "enemy",
     )
@@ -99,9 +98,9 @@ def test_speed_defaults_and_bounds():
 def test_sqrt_default_distinguishes_reading_resource_power(power, hp):
     """100〜3000のPowerでHPに分かる程度の差を出す."""
     balance = GameBalance(enemy_variance_percent=0)
-    assert balance.enemy_stats(power, 0, 0)[0] == hp
+    assert balance.enemy_stats(power, 0)[0] == hp
     normalized = balance.model_copy(update={"power_reference": 100, "power_hp": 10})
-    assert normalized.enemy_stats(power, 0, 0)[0] == hp
+    assert normalized.enemy_stats(power, 0)[0] == hp
 
 
 @pytest.mark.parametrize("formula", ["log", "sqrt"])
@@ -123,7 +122,7 @@ def test_old_settings_receive_growth_defaults_without_reinterpreting_values() ->
     balance = GameBalance.model_validate({"region_hp": 5, "region_attack": 2})
     assert balance.region_hp_growth_percent == 20
     assert balance.region_attack_growth_percent == 20
-    assert balance.enemy_stats(0, 0, 4) == (36, 22)
+    assert balance.enemy_stats(0, 4) == (36, 22)
 
 
 def test_legacy_time_allocation_is_ignored_and_cannot_extend_quiz_time() -> None:

@@ -223,7 +223,6 @@ class GameBalance(BaseModel, frozen=True):
     def enemy_stats(
         self,
         power: int,
-        relations: int,  # noqa: ARG002 - compatibility with existing callers
         region: int,
         variation_key: str = "",
     ) -> tuple[int, int]:

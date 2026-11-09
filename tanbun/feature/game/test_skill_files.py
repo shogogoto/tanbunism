@@ -1,4 +1,4 @@
-"""スキル交換ファイルの互換性・参照整合性・非保存プレビュー."""
+"""現行スキル交換ファイルの参照整合性・非保存プレビュー."""
 # ruff: noqa: PLR2004
 
 import json
@@ -16,7 +16,18 @@ from .skill_files import SkillFile, SkillFilePreview
 
 def document(skills):
     """バージョン付きの交換形式."""
-    return {"format": "tanbunism.skills", "version": 1, "skills": skills}
+    return {"format": "tanbunism.skills", "version": 6, "skills": skills}
+
+
+@pytest.mark.parametrize("version", range(1, 6))
+def test_retired_exchange_versions_are_rejected(version):
+    """昔の交換JSONは現行データと誤認せず、再エクスポートを必要とする."""
+    with pytest.raises(ValidationError) as error:
+        SkillFile.model_validate({
+            **document([{"id": "spell", "name": "魔法", "effect": "attack"}]),
+            "version": version,
+        })
+    assert any(issue["loc"] == ("version",) for issue in error.value.errors())
 
 
 @pytest.mark.parametrize(
@@ -55,10 +66,10 @@ def test_new_spell_materials_survive_catalog_and_skill_file(animation):
 
 
 def test_sound_roundtrip_defaults_and_unknown_preset_validation():
-    """旧定義は自動SE、指定した音はJSONにも残り、不明な音は拒否する."""
+    """省略した音は自動SE、指定した音はJSONにも残り、不明な音は拒否する."""
     definition = {"id": "fire", "name": "炎", "effect": "attack"}
-    legacy = SkillFile.model_validate(document([definition]))
-    assert legacy.skills[0].sound == "auto"
+    default = SkillFile.model_validate(document([definition]))
+    assert default.skills[0].sound == "auto"
     selected = SkillFile.model_validate(document([{**definition, "sound": "fire"}]))
     assert json.loads(selected.model_dump_json())["skills"][0]["sound"] == "fire"
     with pytest.raises(ValidationError):
@@ -69,7 +80,7 @@ def test_sound_roundtrip_defaults_and_unknown_preset_validation():
 def test_all_sound_materials_can_be_saved_and_exported(sound):
     """演出パネルで選べる音声素材を、カタログと交換JSONで保持できる."""
     definition = {"id": "effect", "name": "演出", "effect": "attack", "sound": sound}
-    file = SkillFile.model_validate({**document([definition]), "version": 2})
+    file = SkillFile.model_validate(document([definition]))
     exported = json.loads(file.model_dump_json())
     assert exported["skills"][0]["sound"] == sound.value
     assert SkillFile.model_validate(exported).skills[0].sound == sound
@@ -111,11 +122,11 @@ def test_all_sound_materials_can_be_saved_and_exported(sound):
         ("equip_attack", set()),
     ],
 )
-def test_v2_serializes_only_fields_belonging_to_its_effect(effect, specific):
+def test_current_file_serializes_only_fields_belonging_to_its_effect(effect, specific):
     """攻撃に毒、回復に攻撃倍率など、無関係な項目は定義にも出力にもない."""
     file = SkillFile.model_validate({
         **document([{"id": "example", "name": "例", "effect": effect}]),
-        "version": 2,
+        "version": 6,
     })
     base = {
         "id",
@@ -153,29 +164,28 @@ def test_v2_serializes_only_fields_belonging_to_its_effect(effect, specific):
         ("recover_moves", {"amount_mode": "percent"}),
     ],
 )
-def test_v2_rejects_keys_from_other_effects(effect, foreign):
+def test_current_file_rejects_keys_from_other_effects(effect, foreign):
     """新形式では不要なキーを黙って消さず、入力間違いとして知らせる."""
     with pytest.raises(ValidationError, match="Extra inputs"):
         SkillFile.model_validate({
             **document([{"id": "example", "name": "例", "effect": effect, **foreign}]),
-            "version": 2,
+            "version": 6,
         })
 
 
-def test_v1_catalog_and_in_progress_actions_migrate_flat_fields():
-    """旧ファイル・保存済み定義・進行中の戦闘を同じ効果のまま復元する."""
+def test_persisted_catalog_and_pending_actions_keep_their_read_path():
+    """交換JSONの旧版を廃止しても、既存の保存や進行中の戦闘は壊さない."""
     legacy = default_catalog().skills[0].model_dump(mode="json") | {
         "stat": "attack",
         "duration_turns": 3,
         "stack_limit": 1,
         "ailment": "poison",
     }
-    imported = SkillFile.model_validate(document([legacy])).skills[0]
     old = default_catalog().model_dump(mode="json")
     old["skills"][0] = legacy
     restored = GameCatalog.model_validate(old)
     action = BattleAction.model_validate({"name": "攻撃", "skill": legacy})
-    for skill in (imported, restored.skills[0], action.skill):
+    for skill in (restored.skills[0], action.skill):
         assert skill.multiplier == pytest.approx(1.5)
         assert (
             not {"stat", "duration_turns", "stack_limit", "ailment"}
@@ -305,5 +315,14 @@ async def test_preview_requires_admin_and_does_not_save(ac):
     assert response.status_code == 200
     assert response.json()["skills"][0]["amount"] == 7
     assert (await ac.get("/admin/game/catalog", headers=headers)).json() == catalog
+    payload["document"]["version"] = 5
+    retired = await ac.post(path, json=payload, headers=headers)
+    assert retired.status_code == 422
+    assert any(
+        issue["loc"] == ["body", "document", "version"]
+        for issue in retired.json()["detail"]
+    )
+    assert (await ac.get("/admin/game/catalog", headers=headers)).json() == catalog
+    payload["document"]["version"] = 6
     payload["document"]["skills"][0]["effect"] = "invalid"
     assert (await ac.post(path, json=payload, headers=headers)).status_code == 422
