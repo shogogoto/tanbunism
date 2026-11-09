@@ -53,7 +53,7 @@ async def test_catalog_read_discards_unsupported_triggers_not_unrelated_definiti
     monkeypatch,
 ):
     """旧トリガーとその敵ルールだけを除外し、スキルや敵そのものを失わない。."""
-    from . import catalog as module  # noqa: PLC0415
+    from . import catalog_repo as module  # noqa: PLC0415
 
     raw = default_catalog().stored_document()
     raw["triggers"].append({"id": "old", "name": "旧条件", "condition": "buff_absent"})

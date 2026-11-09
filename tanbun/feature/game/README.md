@@ -71,15 +71,27 @@ restoration of flattened skill snapshots. It does not load the catalog or DB.
 variant sets and skill references, without catalog storage or cross-catalog
 validation. Combat effect helpers import the skill definitions directly.
 
-`catalog.py` remains the aggregate: items/enemies/triggers, cross-reference
-validation, initial catalog and persistence. It re-exports the extracted public
-definitions so existing callers keep the same class objects and import paths.
-New single-skill logic should use the defining module, rather than depending on
-the aggregate. JSON fields, defaults and OpenAPI component names are unchanged.
+`gambit_definitions.py` owns trigger conditions, trigger variants, ordered enemy
+rules, shared gambit sets and the canonical trigger-unlock ID. It depends on the
+pure variant helpers, not the catalog or DB. State restoration and ownership
+checks import these definitions directly.
+
+`catalog.py` remains the aggregate: items/enemies, cross-reference validation and
+the initial catalog. It re-exports extracted public definitions so existing
+callers keep the same class objects and import paths. Model validation, JSON
+serialization and defaults do not import the database or its migration code.
+`catalog_repo.py` owns DB reads/writes, migration orchestration, filtering retired
+triggers from saved references and restoring the default normal attack. Existing
+catalog read/write functions delegate lazily to this repository; API and unified
+settings I/O use it directly. Single-definition logic should use the defining
+module rather than the aggregate. JSON fields, defaults and OpenAPI component
+names are unchanged.
 
 `test_catalog_boundaries.py` checks standalone imports in a fresh interpreter,
 public re-exports and storage round trips. Existing skill/template/variant tests
-continue to cover validation and resolution behavior.
+continue to cover validation and resolution behavior. `test_catalog_repo.py`
+checks load/save behavior, migration order, retired references and compact
+storage; existing boss migration tests retain database-level rollback coverage.
 
 Skills own their name, MP cost, animation/SE and enabled state. Ordered
 `template_ids` reference one or more shared effect templates. Templates define

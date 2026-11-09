@@ -16,7 +16,8 @@ from tanbun.feature.user.router_util import ActiveUser
 from .access import AdventureAccess, consume_adventure_access, get_adventure_access
 from .balance import Allocation, GameBalance, get_game_balance
 from .boss import BossRequest, start_boss
-from .catalog import GameCatalog, get_game_catalog
+from .catalog import GameCatalog
+from .catalog_repo import get_game_catalog
 from .combat import (
     CombatContext,
     EncounterRequest,

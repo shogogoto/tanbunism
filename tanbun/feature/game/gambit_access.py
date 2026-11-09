@@ -1,6 +1,6 @@
 """プレイヤーは入手済みの条件だけを使う。敵の利用権限とは独立する。."""
 
-from .catalog import trigger_unlock_id
+from .gambit_definitions import trigger_unlock_id
 
 
 def trigger_available(catalog, economy, trigger_id, variant_id=None) -> bool:

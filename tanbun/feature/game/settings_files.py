@@ -11,7 +11,8 @@ from pydantic import BaseModel, ConfigDict, model_validator
 from tanbun.config.transactions import atomic
 
 from .balance import GameBalance, get_game_balance, update_game_balance
-from .catalog import GameCatalog, get_game_catalog, update_game_catalog
+from .catalog import GameCatalog
+from .catalog_repo import get_game_catalog, update_game_catalog
 from .settings import BattleSettings, get_battle_settings, update_battle_settings
 from .skill_files import SkillFile, SkillFilePreview
 

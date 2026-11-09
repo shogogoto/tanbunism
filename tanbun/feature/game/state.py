@@ -17,7 +17,6 @@ from .access import SLOT_SECONDS, get_adventure_access
 from .action_details import BattleActionDetails
 from .action_queue import ActionSchedule
 from .balance import Allocation, GameBalance, get_game_balance
-from .catalog import supported_trigger
 from .effects import (
     BattleEffect,
     bubble_factor,
@@ -26,6 +25,7 @@ from .effects import (
     sync_enemy_resources,
     sync_speed_effects,
 )
+from .gambit_definitions import supported_trigger
 from .gambits import BattleAction, GambitRule
 from .inventory import Economy, equipped_stats
 from .settings import get_battle_settings
