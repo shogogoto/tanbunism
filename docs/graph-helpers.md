@@ -34,3 +34,24 @@
 `domain/graph/test_nxutil.py`と`edge_type/test_edge_type.py`で、順序・循環・合流・
 深い階層・構造変更・返却値の独立性・不要になった入力グラフの解放を検証する。
 `parsing/sysnet/systats/nw1_n1/test_nw1_n1.py`で親・詳細取得との連携も確認する。
+
+## APIのシリアライズ
+
+`NXGraph`はPython内ではNetworkXグラフ、出力時は`node_link_data(..., edges="edges")`の
+辞書になる。`PlainSerializer.return_type`には実際の返却値である`TypedDict`を指定する。
+辞書を返しながら`BaseModel`を返却型に指定してはいけない。
+
+- 出力のトップレベルは`directed`・`multigraph`・`graph`・`nodes`・`edges`。
+- 点の識別子や辺の端点は文字列に限定しない。JSON化はPydanticの通常の変換に従う。
+- 辺の`key`は複数辺の場合にだけ存在し、整数に限定しない。未指定の値を`null`で追加しない。
+- 点・辺の追加属性も従来どおり出力する。OpenAPIでも追加属性を許すことを明記する。
+- ノードと辺の`SerializeAsAny`は、属性を落とさないための限定的な指定。
+  認証モデルや一般のAPIレスポンスへ一律に適用するものではない。
+
+[Pydantic 2.11のカスタムserializer仕様](https://github.com/pydantic/pydantic/blob/v2.11.0/docs/concepts/serialization.md#custom-serializers)
+を参照し、実行環境の2.11.7でも追加属性が保持されることをテストする。
+入力側の既存の辞書受け入れは変更せず、公開する出力schemaを実際のJSON形式に合わせる。
+
+`domain/graph/test_schema.py`でPython・JSON・FastAPI経由の出力とOpenAPIの一致を確認する。
+`parsing/test_serialization.py`で、実際の解析結果の属性が保持されることも検証する。
+シリアライズ警告は`pytest.ini`でエラーとして扱い、警告の抑制で問題を隠さない。

@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from tanbun.api import root_router
 from tanbun.config import LocalConfig
+from tanbun.config.env import TIMEOUT
 from tanbun.feature.entry.cli.proc import (
     _fingerprint,
     _history_key,
@@ -34,7 +35,13 @@ def test_sync_cmd(mock_load, tmp_path: Path):
     (tmp_path / "test_dir" / "test_file.kn").write_text("""
         # title1
     """)
-    sync_proc("**/*.kn", get_client=client.get, post_client=client.post)
+
+    def post_client(url: str, **kwargs) -> httpx.Response:
+        # In-process TestClient has no network deadline; real HTTP still gets one.
+        assert kwargs.pop("timeout") == TIMEOUT * 3
+        return client.post(url, **kwargs)
+
+    sync_proc("**/*.kn", get_client=client.get, post_client=post_client)
 
     h = auth_header()
     res = client.get("/namespace", headers=h)
