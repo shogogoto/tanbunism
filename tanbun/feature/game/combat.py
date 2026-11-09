@@ -2,14 +2,12 @@
 
 import json
 from collections.abc import Callable
-from math import ceil
 from secrets import choice, randbelow
 from time import time
 from uuid import uuid4
 
 from fastapi import HTTPException
 from neomodel import adb
-from pydantic import BaseModel, Field
 
 from tanbun.config.transactions import atomic
 from tanbun.feature.domain.types import UUIDy, to_uuid
@@ -20,112 +18,63 @@ from tanbun.feature.quiz.answering.repo import create_answer_in_transaction
 from tanbun.feature.quiz.chain.usecase import expand_quiz_chain
 
 from .balance import Allocation, GameBalance, get_game_balance
-from .catalog import ElementDefinition, GameCatalog, StoredSkill, get_game_catalog
+from .catalog import get_game_catalog
+from .combat_models import CombatContext, EncounterRequest, EnemyStats, TurnRequest
+from .combat_resolution import (
+    ENEMIES_TO_CLEAR,
+    MOVES_PER_EVENT,
+    apply_combat_stats,
+    apply_on_hit_effects,
+    apply_turn_result,
+    award_kill_gold,
+    record_boss_victory,
+    status_feedback,
+    wear_defensive_equipment,
+)
 from .damage import enemy_damage
-from .effect_chance import effect_activates
 from .effects import (
-    add_effect,
-    apply_player_periodic,
     curse_damage,
-    effect_amount,
     modified_stat,
     poison_damage,
     sync_bubble,
 )
-from .enemy_gambits import EnemyBattleRule, enemy_battle_rules
-from .gambits import apply_action, prepare_action
+from .enemy_stats import derive_boss, derive_enemies, label_enemies, style_enemies
+from .gambits import prepare_action
 from .inventory import (
-    apply_equipment_stats,
-    equipment_wears_on_damage,
     equipped_stats,
-    wear_weapon,
 )
-from .rewards import GoldSettings, roll_gold
-from .skill_outcomes import skill_effects
+from .rewards import GoldSettings
 from .state import BattleMarker, GameState, StateUpdate, compare_and_save, read_state
 
-MOVES_PER_EVENT = 5
-ENEMIES_TO_CLEAR = 3
-
-
-class EncounterRequest(BaseModel):
-    """移動の保存後に遭遇を確定する。checkpointは実際のマップ上に限る."""
-
-    revision: int = Field(ge=0)
-    region: int = Field(ge=0, le=10000)
-    checkpoint: str = Field(default="@entrance", max_length=64)
-    discovered_place: str | None = Field(default=None, max_length=64)
-    scheduled: bool = False
-
-
-class TurnRequest(BaseModel):
-    """敵HPは送信も保存もしない。撃破判定はブラウザのゲーム状態."""
-
-    battle_id: str = Field(max_length=64)
-    turn: int = Field(ge=0)
-    answers: dict[str, list[str]] = Field(default_factory=dict, max_length=20)
-    defeated: list[str] = Field(default_factory=list, max_length=20)
-    retreat: bool = False
-
-
-class EnemyStats(BaseModel):
-    """固定IDと固定クイズから、その時点の能力を導出する."""
-
-    id: str
-    name: str
-    base_name: str | None = None
-    quizIndex: int  # noqa: N815
-    quizIndexes: list[int] = Field(default_factory=list)  # noqa: N815
-    hp: int
-    attack: int
-    mp: int = Field(default=0, ge=0, le=100000)
-    defense: int = Field(default=0, ge=0, le=100000)
-    special_attack: int | None = Field(default=None, ge=0, le=100000)
-    special_defense: int = Field(default=0, ge=0, le=100000)
-    unmodified_attack: int | None = None
-    speed: int = Field(default=10, ge=1, le=100000)
-    relations: int
-    region: int
-    icon: str | None = None
-    animation: str = "none"
-    sound: str = "auto"
-    on_hit_skill: StoredSkill | None = None
-    attack_skill: StoredSkill | None = None
-    gambits: list[EnemyBattleRule] = Field(default_factory=list, max_length=20)
-    weaknesses: list[str] = Field(default_factory=list)
-    resistances: list[str] = Field(default_factory=list)
-
-
-class CombatContext(BaseModel):
-    """敵の能力は保存した値ではなく最新のPowerと関係数を使う."""
-
-    balance: GameBalance
-    enemies: list[EnemyStats]
-    default_attack: StoredSkill | None = None
-    enabled_elements: list[str] | None = None
-    elements: list[ElementDefinition] = Field(default_factory=list)
-    gold: GoldSettings = Field(default_factory=GoldSettings)
-    resource_power: int = 0
-    achievement: int = 0
-
-
-def label_enemies(
-    enemies: list[EnemyStats],
-    marker: BattleMarker | None,
-) -> list[EnemyStats]:
-    """遭遇時に付けた固定記号を、表示名とメッセージで共有する."""
-    labels = marker.enemyLabels if marker else {}
-    return [
-        enemy.model_copy(
-            update={
-                "name": f"{enemy.base_name or enemy.name}{labels[enemy.id]}",
-                "base_name": enemy.base_name or enemy.name,
-            },
-        )
-        if enemy.id in labels
-        else enemy
-        for enemy in enemies
-    ]
+__all__ = [
+    "ENEMIES_TO_CLEAR",
+    "MOVES_PER_EVENT",
+    "CombatContext",
+    "EncounterRequest",
+    "EnemyStats",
+    "TurnRequest",
+    "abandon_combat",
+    "apply_combat_stats",
+    "apply_on_hit_effects",
+    "apply_turn_result",
+    "award_kill_gold",
+    "combat_context",
+    "derive_boss",
+    "derive_enemies",
+    "evaluate_answers",
+    "label_enemies",
+    "next_turn",
+    "persist",
+    "read_receipt",
+    "record_boss_victory",
+    "select_encounter",
+    "set_allocation",
+    "settle_turn",
+    "start_combat",
+    "status_feedback",
+    "style_enemies",
+    "wear_defensive_equipment",
+]
 
 
 async def combat_context(
@@ -179,217 +128,6 @@ async def combat_context(
             ),
             state.save.battle,
         ),
-    )
-
-
-def style_enemies(
-    enemies: list[EnemyStats],
-    catalog: GameCatalog,
-    *,
-    preserve_stats: bool = False,
-) -> list[EnemyStats]:
-    """クイズの固定セットを変えず、同じ種類には同じ素材を割り当てる。."""
-    from .skill_outcomes import normal_attack  # noqa: PLC0415
-
-    skills = {s.id: s for s in catalog.skills if s.enabled}
-    result = []
-    for source_enemy in enemies:
-        enemy = source_enemy
-        boss = enemy.id.startswith("boss:")
-        templates = [e for e in catalog.enemies if e.enabled and e.boss == boss]
-        if not templates:
-            fallback = normal_attack(catalog)
-            result.append(
-                enemy.model_copy(
-                    update={
-                        "attack_skill": fallback,
-                        "animation": fallback.animation,
-                        "sound": fallback.sound,
-                    },
-                ),
-            )
-            continue
-        identity = enemy.id.split("#", 1)[0]
-        seed = sum((i + 1) * ord(c) for i, c in enumerate(identity))
-        template = templates[seed % len(templates)]
-        if not preserve_stats:
-            values = {
-                key: getattr(enemy, key)
-                for key in type(template.multipliers).model_fields
-            }
-            values["special_attack"] = (
-                enemy.special_attack
-                if enemy.special_attack is not None
-                else enemy.attack
-            )
-            values["speed"] = (
-                template.speed if template.speed is not None else enemy.speed
-            )
-            enemy = enemy.model_copy(
-                update={
-                    key: min(
-                        100000,
-                        max(
-                            1 if key in {"hp", "speed"} else 0,
-                            ceil(value * getattr(template.multipliers, key)),
-                        ),
-                    )
-                    for key, value in values.items()
-                },
-            )
-        skill = skills.get(template.attack_skill_id) or normal_attack(catalog)
-        attack_effect = next(
-            (effect for effect in skill_effects(skill) if effect.effect == "attack"),
-            None,
-        )
-        attack = (
-            min(
-                100000,
-                int(enemy.attack * attack_effect.multiplier)
-                + effect_amount(attack_effect, enemy.attack),
-            )
-            if attack_effect and not preserve_stats
-            else enemy.attack
-        )
-        result.append(
-            enemy.model_copy(
-                update={
-                    "on_hit_skill": skills.get(template.on_hit_skill_id),
-                    "resistances": [
-                        key
-                        for key in template.resistances
-                        if any(e.id == key and e.enabled for e in catalog.elements)
-                    ],
-                    "weaknesses": [
-                        key
-                        for key in template.weaknesses
-                        if any(e.id == key and e.enabled for e in catalog.elements)
-                    ],
-                    "attack_skill": skill,
-                    "gambits": enemy_battle_rules(template, catalog),
-                    "icon": template.icon,
-                    "name": f"達成度 {enemy.region + 1}の{template.name}"
-                    if boss
-                    else template.name,
-                    "attack": attack,
-                    "unmodified_attack": enemy.attack,
-                    "speed": enemy.speed,
-                    "animation": skill.animation if skill else "none",
-                    "sound": skill.sound if skill else "auto",
-                },
-            ),
-        )
-    return result
-
-
-def derive_enemies(
-    content: dict,
-    relations: dict,
-    power: int,
-    balance: GameBalance,
-) -> list[EnemyStats]:
-    """旧snapshotのHP/攻は無視し、同じIDの能力をその都度導出する."""
-    quizzes = content.get("quizzes", [])
-    selected = (content.get("battle") or {}).get("quizIndices", {})
-    enemies = []
-    for key, pool in content.get("regionEnemies", {}).items():
-        region = int(key)
-        for item in pool:
-            indices = item.get("quizIndexes") or [item.get("quizIndex", -1)]
-            indices = [
-                index
-                for index in indices
-                if isinstance(index, int) and 0 <= index < len(quizzes)
-            ]
-            if not indices:
-                continue
-            valid = [
-                index
-                for index in indices
-                if to_uuid(quizzes[index]["quiz_id"]).hex in relations
-            ]
-            if not valid:
-                continue
-            relation_count = round(
-                sum(
-                    relations[to_uuid(quizzes[index]["quiz_id"]).hex] for index in valid
-                )
-                / len(valid),
-            )
-            selected_index = selected.get(item["id"])
-            hp, attack = balance.enemy_stats(
-                power,
-                relation_count,
-                region,
-                variation_key=item["id"],
-            )
-            enemies.append(
-                EnemyStats(
-                    id=item["id"],
-                    name=item["name"],
-                    quizIndex=(selected_index if selected_index in valid else valid[0]),
-                    quizIndexes=valid,
-                    hp=hp,
-                    attack=attack,
-                    speed=balance.enemy_speed_stat(power, region, item["id"]),
-                    **balance.enemy_extra_stats(power, region, item["id"]),
-                    relations=relation_count,
-                    region=region,
-                ),
-            )
-    boss_enemy = derive_boss(content, relations, power, balance)
-    if boss_enemy:
-        enemies.append(boss_enemy)
-    by_id = {enemy.id: enemy for enemy in enemies}
-    for instance in (content.get("battle") or {}).get("enemies", []):
-        if instance in by_id:
-            continue
-        base = by_id.get(instance.split("#", 1)[0])
-        if base:
-            enemies.append(
-                base.model_copy(
-                    update={
-                        "id": instance,
-                        "quizIndex": selected.get(instance, base.quizIndex),
-                    },
-                ),
-            )
-    return enemies
-
-
-def derive_boss(
-    content: dict,
-    relations: dict,
-    power: int,
-    balance: GameBalance,
-) -> EnemyStats | None:
-    """通常の敵と同じ基礎能力を作り、個性の倍率は敵定義側だけで適用する。."""
-    marker = content.get("battle") or {}
-    level = marker.get("bossLevel")
-    if not level:
-        return None
-    identity = marker["enemies"][0]
-    pool = set(marker.get("bossQuizIds", []))
-    indexes = [
-        i
-        for i, q in enumerate(content.get("quizzes", []))
-        if to_uuid(q["quiz_id"]).hex in pool and to_uuid(q["quiz_id"]).hex in relations
-    ]
-    if not indexes:
-        return None
-    hp, attack = balance.enemy_stats(power, 0, level - 1, variation_key=identity)
-    extra = balance.enemy_extra_stats(power, level - 1, identity)
-    return EnemyStats(
-        id=identity,
-        name=f"達成度 {level}のボス",
-        quizIndexes=indexes,
-        quizIndex=marker.get("quizIndices", {}).get(identity, indexes[0]),
-        hp=hp,
-        attack=attack,
-        speed=balance.enemy_speed_stat(power, level - 1, identity),
-        **extra,
-        relations=0,
-        region=level - 1,
     )
 
 
@@ -623,27 +361,6 @@ async def settle_turn(user_id: UUIDy, body: TurnRequest) -> dict:
     return {**receipt, "state": updated.model_dump(by_alias=True)}
 
 
-def award_kill_gold(
-    updated: GameState,
-    body: TurnRequest,
-    *,
-    context: CombatContext | None = None,
-) -> None:
-    """撃破が確定した実戦のターンだけにゴールドを付ける."""
-    gold = sum(
-        roll_gold(
-            context.gold if context else GoldSettings(),
-            context.resource_power if context else 0,
-            context.achievement if context else 0,
-            "enemy",
-        )
-        for _ in set(body.defeated)
-    )
-    updated.save.economy.gold += gold
-    if gold:
-        updated.save.battleFeedback += f" · +{gold} G"
-
-
 async def evaluate_answers(
     user_id: UUIDy,
     previous: GameState,
@@ -669,245 +386,6 @@ async def evaluate_answers(
         results[enemy_id] = readable.is_correct(selected)
         selected_quizzes[enemy_id] = uid
     return results, selected_quizzes
-
-
-def apply_turn_result(
-    previous: GameState,
-    body: TurnRequest,
-    results: dict[str, bool],
-    damage: int,
-    stats: dict,
-    *,
-    on_hit_skills: dict | None = None,
-    base_stats: dict | None = None,
-    context=None,
-    equipment_hits: int | None = None,
-) -> GameState:
-    """相打ちの敗北優先・撤退先・歩数維持を一箇所で扱う."""
-    marker, run = previous.save.battle, previous.save.run
-    if not marker or not run:
-        msg = "Missing battle"
-        raise ValueError(msg)
-    updated = previous.model_copy(deep=True)
-    next_run = updated.save.run
-    apply_on_hit_effects(updated.save.battle, on_hit_skills or {}, results)
-    defensive = equipment_wears_on_damage(updated.save.economy)
-    broken = (
-        not defensive or updated.save.economy.equipment is not None
-    ) and wear_weapon(
-        updated.save.economy,
-        sum(bool(results.get(e)) for e in marker.enemies)
-        if equipment_hits is None
-        else equipment_hits,
-    )
-    apply_combat_stats(
-        next_run,
-        updated.save.battle,
-        stats,
-        previous.save.economy,
-        broken=broken,
-        base_stats=apply_equipment_stats(base_stats, updated.save.economy)
-        if base_stats is not None and updated.save.economy.equipment is not None
-        else base_stats,
-    )
-    first_only = (
-        marker.gambitAction
-        and marker.gambitAction.skill.effect in {"attack", "debuff", "ailment"}
-        and marker.gambitAction.skill.target == "enemy"
-    )
-    action_feedback = apply_action(
-        updated.save,
-        successful=results.get(marker.enemies[0], False)
-        if first_only
-        else any(results.values()),
-        retreat=body.retreat,
-        results=results,
-        context=context,
-    )
-    periodic_hp, periodic_mp = apply_player_periodic(next_run, marker, damage)
-    if defensive:
-        broken = (
-            wear_defensive_equipment(
-                updated.save,
-                damage + periodic_hp,
-                stats,
-                base_stats,
-            )
-            or broken
-        )
-    next_run.kills += 0 if marker.bossLevel else len(set(body.defeated))
-    next_run.quizCursor += len(body.answers)
-    survivors = [e for e in marker.enemies if e not in body.defeated]
-    next_run.phase = (
-        "defeated"
-        if not next_run.hp
-        else "rest"
-        if body.retreat and next_run.moves >= MOVES_PER_EVENT
-        else "path"
-        if body.retreat
-        else "battle"
-        if survivors
-        else "cleared"
-        if next_run.kills >= ENEMIES_TO_CLEAR and not marker.bossLevel
-        else "rest"
-        if next_run.moves >= MOVES_PER_EVENT
-        else "path"
-    )
-    if body.retreat or not next_run.hp:
-        dungeon = updated.save.maps.get(run.resourceId)
-        if dungeon:
-            dungeon.current = marker.checkpoint if next_run.hp else "@entrance"
-            if not next_run.hp and marker.discoveredPlace and not marker.bossLevel:
-                failed = marker.discoveredPlace
-                dungeon.places = [p for p in dungeon.places if p.id != failed]
-                dungeon.edges = [
-                    e for e in dungeon.edges if failed not in {e.from_, e.to}
-                ]
-                next_run.readIds = [p for p in next_run.readIds if p != failed]
-    if next_run.phase == "cleared":
-        updated.save.clears[run.resourceId] = (
-            updated.save.clears.get(run.resourceId, 0) + 1
-        )
-    if next_run.phase == "battle":
-        updated.save.battle.enemies = survivors
-        updated.save.battle.effects = [
-            e
-            for e in updated.save.battle.effects
-            if e.target_id == "player" or e.target_id in survivors
-        ]
-        updated.save.battle.turn += 1
-        updated.save.battle.endActionDone = False
-        # Starts only on explicit next-turn acknowledgement, not while reading results.
-        next_run.answerDeadline = None
-    else:
-        updated.save.battle = None
-        next_run.answerDeadline = None
-    sync_bubble(
-        next_run,
-        updated.save.battle,
-        (base_stats if broken and base_stats is not None else stats)["maxHp"],
-        (base_stats if broken and base_stats is not None else stats)["maxMp"],
-    )
-    summary = "撤退" if body.retreat else "行動終了"
-    updated.save.battleActionDetails = None
-    updated.save.quizFeedback = (
-        None
-        if body.retreat
-        else "時間切れ"
-        if not body.answers
-        else ("正解" if all(results.values()) else "不正解")
-        if len(marker.enemies) == 1
-        else f"{sum(results.values())}/{len(marker.enemies)}問正解"
-    )
-    updated.save.battleFeedback = summary
-    updated.save.battleFeedback += status_feedback(
-        broken=broken,
-        hp=periodic_hp,
-        mp=periodic_mp,
-        defensive=defensive,
-        slotted=updated.save.economy.equipment is not None,
-    )
-    if action_feedback:
-        updated.save.battleFeedback += f" · {action_feedback}"
-    record_boss_victory(updated, marker, body, survivors)
-    return updated
-
-
-def apply_combat_stats(run, marker, stats, economy, *, broken, base_stats=None) -> None:
-    """装備破損時は全補正を外し、最大HPと残HPも同じ割合で戻す."""
-    stats = stats.copy()
-    if broken and base_stats is not None:
-        old_base_hp = max(1, round(run.maxHp / run.hpScale))
-        run.hp = max(1 if run.hp else 0, run.hp * base_stats["maxHp"] // old_base_hp)
-        old_base_mp = round(run.maxMp / run.mpScale)
-        run.mp = run.mp * base_stats["maxMp"] // old_base_mp if old_base_mp else 0
-        stats = base_stats
-    elif broken:
-        stats |= {"attack": max(0, stats["attack"] - economy.weapon_attack)}
-    for key, value in stats.items():
-        if key not in {"maxHp", "maxMp"}:
-            setattr(run, key, value)
-    if marker and marker.schedule:
-        marker.schedule.base_speeds["player"] = run.speed
-    sync_bubble(run, marker, stats["maxHp"], stats["maxMp"])
-
-
-def apply_on_hit_effects(marker: BattleMarker, skills: dict, results: dict) -> None:
-    """誤答・未回答で敵の攻撃が命中したときだけ付与する."""
-    for enemy, skill in skills.items():
-        if enemy in marker.enemies and not results.get(enemy):
-            for effect in skill_effects(skill):
-                if effect.effect in {"debuff", "ailment"} and effect_activates(
-                    effect,
-                    marker,
-                    "player",
-                    enemy,
-                ):
-                    add_effect(marker, effect, "player")
-
-
-def wear_defensive_equipment(save, damage, stats, base_stats=None) -> bool:
-    """最後の一回も防御・HP補正を適用してから、装備の使用回数を減らす."""
-    if damage <= 0 or not equipment_wears_on_damage(save.economy):
-        return False
-    snapshot = save.economy.model_copy(deep=True)
-    broken = wear_weapon(save.economy, 1, defensive=True)
-    if broken:
-        apply_combat_stats(
-            save.run,
-            save.battle,
-            stats,
-            snapshot,
-            broken=True,
-            base_stats=apply_equipment_stats(base_stats, save.economy)
-            if base_stats is not None and save.economy.equipment is not None
-            else base_stats,
-        )
-    return broken
-
-
-def status_feedback(
-    *,
-    broken: bool,
-    hp: int,
-    mp: int,
-    defensive: bool = False,
-    slotted: bool = False,
-) -> str:
-    """通常攻防以外の変化をまとめる."""
-    return "".join(
-        text
-        for enabled, text in [
-            (
-                broken,
-                " · 装備が壊れた"
-                if slotted
-                else " · 防具が壊れた"
-                if defensive
-                else " · 武器が壊れた",
-            ),
-            (hp, f" · 毒 HP -{hp}"),
-            (mp, f" · 呪い MP -{mp}"),
-        ]
-        if enabled
-    )
-
-
-def record_boss_victory(
-    updated: GameState,
-    marker: BattleMarker,
-    body: TurnRequest,
-    survivors: list[str],
-) -> None:
-    """相打ちと撤退には開放を付けず、初回の節目だけを保存する."""
-    if not marker.bossLevel or survivors or not updated.save.run.hp or body.retreat:
-        return
-    resource = to_uuid(updated.save.run.resourceId).hex
-    levels = updated.save.bossClears.setdefault(resource, [])
-    if marker.bossLevel not in levels:
-        levels.append(marker.bossLevel)
-        levels.sort()
-    updated.save.battleFeedback += " · ボス撃破・専門分野開放"
 
 
 async def abandon_combat(user_id: UUIDy) -> GameState:

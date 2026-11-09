@@ -3,7 +3,7 @@
 from math import floor
 from secrets import randbelow
 
-from .balance import GameBalance
+from .balance_models import GameBalance
 
 
 def damage_range(

@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, computed_field, model_validator
 
-from .balance import Allocation, GameBalance
+from .balance_models import Allocation, GameBalance
 from .equipment_slots import EquipmentPart, EquipmentSlot
 from .item_categories import ItemCategory
 from .rewards import RewardId, RewardItem

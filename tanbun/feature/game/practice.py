@@ -16,15 +16,15 @@ from .admin import EnemyBalanceSimulationResult, _dungeon_content, _legacy_pool_
 from .balance import Allocation, GameBalance
 from .catalog import GameCatalog, StoredSkill, default_catalog, get_game_catalog
 from .combat import (
+    combat_context,
+    select_encounter,
+)
+from .combat_models import (
     CombatContext,
     EnemyStats,
     TurnRequest,
-    apply_turn_result,
-    combat_context,
-    label_enemies,
-    select_encounter,
-    style_enemies,
 )
+from .combat_resolution import apply_turn_result
 from .damage import damage_range
 from .effects import curse_damage, effect_unexpired, modified_stat, poison_damage
 from .end_actions import (
@@ -33,6 +33,10 @@ from .end_actions import (
     begin_action,
     finish_action,
     prepare_counter_damage,
+)
+from .enemy_stats import (
+    label_enemies,
+    style_enemies,
 )
 from .gambit_slots import gambit_capacity
 from .gambits import choose_action, retarget_skill
@@ -493,7 +497,7 @@ def practice_turn(body: PracticeTurn) -> dict:
 
 def scheduled_practice_turn(session, turn, results):
     """Use deterministic damage but the same scheduler and resolver as live."""
-    from .scheduled_combat import resolve_scheduled  # noqa: PLC0415
+    from .scheduled_resolution import resolve_scheduled  # noqa: PLC0415
 
     state = session.state
     rng = _random(session.seed, state.save.battle.turn)

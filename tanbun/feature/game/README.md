@@ -1,5 +1,35 @@
 # Game systems
 
+## Battle calculation boundaries
+
+`balance_models.py` owns the balance/allocation models and stat formulas;
+`balance.py` only reads/writes settings and orchestrates their legacy migration.
+`combat_models.py` owns encounter/turn requests, enemy stats and calculation
+context. These models keep their existing JSON and OpenAPI contracts.
+
+`enemy_stats.py` derives, styles and labels enemies from supplied quiz IDs,
+relation counts, Power and catalog definitions. UUID conversion uses the standard
+library rather than pulling in database-property types.
+`combat_resolution.py` applies shared turn outcomes, equipment wear, periodic
+effects and boss-clear state. `scheduled_resolution.py` calculates CTB attacks,
+counterattacks and feedback using the same outcome logic. Neither calculation
+module imports database access, answer history, notifications or wall clocks.
+They work on supplied snapshots; the top-level outcome functions return a copied
+state without modifying the supplied state, request or context. Damage rolls can
+still be supplied by callers; existing reward randomness is unchanged.
+
+`combat.py` and `scheduled_combat.py` retain live orchestration: state/context
+loading, question selection and deadlines, revision/receipt checks, atomic
+persistence of state and answer history, and post-commit notification dispatch.
+Administrative practice calls the same calculation engine with seeded damage;
+its deadline check remains outside the engine. Existing combat imports re-export
+the extracted class/function objects to keep callers compatible.
+
+`test_combat_boundaries.py` checks cold imports without database/orchestration
+modules, shared import identities, no-I/O resolution, unchanged input snapshots,
+practice delegation and UUID handling. Existing combat, practice, durability,
+status, boss and receipt tests retain their behavioral coverage.
+
 ## Battle presentation
 
 Each encounter assigns immutable `enemyLabels` (A–T); removing an enemy does not
