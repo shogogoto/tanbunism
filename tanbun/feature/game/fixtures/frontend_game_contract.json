@@ -1,0 +1,1383 @@
+{
+  "catalog": {
+    "skills": [
+      {
+        "id": "fire",
+        "name": "ファイア",
+        "icon": "flame",
+        "enabled": true,
+        "target": "enemy",
+        "amount": 0,
+        "mp_cost": 3,
+        "animation": "fire",
+        "sound": "auto",
+        "effect": "attack",
+        "target_count": 1,
+        "damage_type": "physical",
+        "template_ids": [
+          "effect_fire"
+        ],
+        "effects": [
+          {
+            "amount": 0,
+            "effect": "attack",
+            "target_count": 1,
+            "damage_type": "physical",
+            "amount_mode": "fixed",
+            "multiplier": 1.5,
+            "on_wrong": {
+              "type": "fizzle"
+            }
+          }
+        ],
+        "element": "fire",
+        "amount_mode": "fixed",
+        "multiplier": 1.5,
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "fire_all",
+        "name": "全体ファイア",
+        "icon": "flame",
+        "enabled": true,
+        "target": "enemy",
+        "amount": 0,
+        "mp_cost": 5,
+        "animation": "fire",
+        "sound": "auto",
+        "effect": "attack",
+        "target_count": 1,
+        "damage_type": "physical",
+        "template_ids": [
+          "effect_fire_all"
+        ],
+        "effects": [
+          {
+            "amount": 0,
+            "effect": "attack",
+            "target_count": 1,
+            "damage_type": "physical",
+            "amount_mode": "fixed",
+            "multiplier": 1.3,
+            "on_wrong": {
+              "type": "fizzle"
+            }
+          }
+        ],
+        "element": "fire",
+        "amount_mode": "fixed",
+        "multiplier": 1.3,
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "heal",
+        "name": "ケアル",
+        "icon": "heart",
+        "enabled": true,
+        "target": "self",
+        "amount": 20,
+        "mp_cost": 3,
+        "animation": "heal",
+        "sound": "auto",
+        "effect": "heal_hp",
+        "target_count": 1,
+        "damage_type": "physical",
+        "template_ids": [
+          "effect_heal"
+        ],
+        "effects": [
+          {
+            "amount": 20,
+            "effect": "heal_hp",
+            "target_count": 1,
+            "damage_type": "physical",
+            "amount_mode": "fixed",
+            "on_wrong": {
+              "type": "fizzle"
+            }
+          }
+        ],
+        "element": "none",
+        "amount_mode": "fixed",
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "potion_heal",
+        "name": "HP回復",
+        "icon": "flask",
+        "enabled": true,
+        "target": "self",
+        "amount": 20,
+        "mp_cost": 0,
+        "animation": "heal",
+        "sound": "auto",
+        "effect": "heal_hp",
+        "target_count": 1,
+        "damage_type": "physical",
+        "template_ids": [
+          "effect_potion_heal"
+        ],
+        "effects": [
+          {
+            "amount": 20,
+            "effect": "heal_hp",
+            "target_count": 1,
+            "damage_type": "physical",
+            "amount_mode": "fixed",
+            "on_wrong": {
+              "type": "fizzle"
+            }
+          }
+        ],
+        "element": "none",
+        "amount_mode": "fixed",
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "ether_heal",
+        "name": "MP回復",
+        "icon": "droplet",
+        "enabled": true,
+        "target": "self",
+        "amount": 5,
+        "mp_cost": 0,
+        "animation": "ripple",
+        "sound": "auto",
+        "effect": "heal_mp",
+        "target_count": 1,
+        "damage_type": "physical",
+        "template_ids": [
+          "effect_ether_heal"
+        ],
+        "effects": [
+          {
+            "amount": 5,
+            "effect": "heal_mp",
+            "target_count": 1,
+            "damage_type": "physical",
+            "amount_mode": "fixed",
+            "on_wrong": {
+              "type": "fizzle"
+            }
+          }
+        ],
+        "element": "none",
+        "amount_mode": "fixed",
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "recover_steps",
+        "name": "歩数回復",
+        "icon": "footprints",
+        "enabled": true,
+        "target": "self",
+        "amount": 3,
+        "mp_cost": 0,
+        "animation": "none",
+        "sound": "auto",
+        "effect": "recover_moves",
+        "target_count": 1,
+        "damage_type": "physical",
+        "template_ids": [
+          "effect_recover_steps"
+        ],
+        "effects": [
+          {
+            "amount": 3,
+            "effect": "recover_moves",
+            "target_count": 1,
+            "damage_type": "physical"
+          }
+        ],
+        "element": "none"
+      },
+      {
+        "id": "bronze_power",
+        "name": "銅の剣の装備効果",
+        "icon": "sword",
+        "enabled": true,
+        "target": "self",
+        "amount": 3,
+        "mp_cost": 0,
+        "animation": "none",
+        "sound": "auto",
+        "effect": "buff",
+        "target_count": 1,
+        "damage_type": "physical",
+        "template_ids": [
+          "effect_bronze_power"
+        ],
+        "effects": [
+          {
+            "amount": 3,
+            "effect": "buff",
+            "target_count": 1,
+            "damage_type": "physical",
+            "amount_mode": "fixed",
+            "duration_turns": 3,
+            "stack_limit": 1,
+            "stat": "attack",
+            "on_wrong": {
+              "type": "fizzle"
+            }
+          }
+        ],
+        "element": "none",
+        "amount_mode": "fixed",
+        "duration_turns": 3,
+        "stack_limit": 1,
+        "stat": "attack",
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "steel_power",
+        "name": "鋼の剣の装備効果",
+        "icon": "sword",
+        "enabled": true,
+        "target": "self",
+        "amount": 8,
+        "mp_cost": 0,
+        "animation": "none",
+        "sound": "auto",
+        "effect": "buff",
+        "target_count": 1,
+        "damage_type": "physical",
+        "template_ids": [
+          "effect_steel_power"
+        ],
+        "effects": [
+          {
+            "amount": 8,
+            "effect": "buff",
+            "target_count": 1,
+            "damage_type": "physical",
+            "amount_mode": "fixed",
+            "duration_turns": 3,
+            "stack_limit": 1,
+            "stat": "attack",
+            "on_wrong": {
+              "type": "fizzle"
+            }
+          }
+        ],
+        "element": "none",
+        "amount_mode": "fixed",
+        "duration_turns": 3,
+        "stack_limit": 1,
+        "stat": "attack",
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "specialty_burst",
+        "name": "専門分野",
+        "icon": "book",
+        "enabled": true,
+        "target": "enemy",
+        "amount": 0,
+        "mp_cost": 3,
+        "animation": "lightning",
+        "sound": "auto",
+        "effect": "attack",
+        "target_count": 1,
+        "damage_type": "physical",
+        "template_ids": [
+          "effect_specialty_burst"
+        ],
+        "effects": [
+          {
+            "amount": 0,
+            "effect": "attack",
+            "target_count": 1,
+            "damage_type": "physical",
+            "amount_mode": "fixed",
+            "multiplier": 2,
+            "on_wrong": {
+              "type": "fizzle"
+            }
+          }
+        ],
+        "element": "none",
+        "amount_mode": "fixed",
+        "multiplier": 2,
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "normal_attack",
+        "name": "戦う",
+        "icon": "sparkles",
+        "enabled": true,
+        "target": "enemy",
+        "amount": 0,
+        "mp_cost": 0,
+        "animation": "impact",
+        "sound": "auto",
+        "effect": "attack",
+        "target_count": 1,
+        "damage_type": "physical",
+        "template_ids": [
+          "effect_normal_attack"
+        ],
+        "effects": [
+          {
+            "amount": 0,
+            "effect": "attack",
+            "target_count": 1,
+            "damage_type": "physical",
+            "amount_mode": "fixed",
+            "multiplier": 1,
+            "on_wrong": {
+              "type": "counter"
+            }
+          }
+        ],
+        "element": "none",
+        "amount_mode": "fixed",
+        "multiplier": 1,
+        "on_wrong": {
+          "type": "counter"
+        }
+      },
+      {
+        "id": "slow",
+        "name": "減速",
+        "icon": "sparkles",
+        "enabled": true,
+        "target": "enemy",
+        "amount": 20,
+        "mp_cost": 0,
+        "animation": "none",
+        "sound": "auto",
+        "effect": "debuff",
+        "target_count": 1,
+        "damage_type": "physical",
+        "template_ids": [
+          "effect_slow"
+        ],
+        "effects": [
+          {
+            "amount": 20,
+            "effect": "debuff",
+            "target_count": 1,
+            "damage_type": "physical",
+            "amount_mode": "percent",
+            "duration_turns": 3,
+            "stack_limit": 1,
+            "stat": "speed",
+            "on_wrong": {
+              "type": "fizzle"
+            }
+          }
+        ],
+        "element": "none",
+        "amount_mode": "percent",
+        "duration_turns": 3,
+        "stack_limit": 1,
+        "stat": "speed",
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "poison",
+        "name": "毒",
+        "icon": "sparkles",
+        "enabled": true,
+        "target": "enemy",
+        "amount": 5,
+        "mp_cost": 0,
+        "animation": "none",
+        "sound": "auto",
+        "effect": "ailment",
+        "target_count": 1,
+        "damage_type": "physical",
+        "template_ids": [
+          "effect_poison"
+        ],
+        "effects": [
+          {
+            "amount": 5,
+            "effect": "ailment",
+            "target_count": 1,
+            "damage_type": "physical",
+            "amount_mode": "percent",
+            "duration_turns": 3,
+            "stack_limit": 1,
+            "ailment": "poison",
+            "on_wrong": {
+              "type": "fizzle"
+            }
+          }
+        ],
+        "element": "none",
+        "amount_mode": "percent",
+        "duration_turns": 3,
+        "stack_limit": 1,
+        "ailment": "poison",
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      }
+    ],
+    "rewards": null,
+    "boss_multipliers_version": 1,
+    "variant_sets": [],
+    "trigger_variant_sets": [],
+    "elements": [
+      {
+        "id": "fire",
+        "name": "炎",
+        "icon": "flame",
+        "color": "#ef4444",
+        "enabled": true
+      },
+      {
+        "id": "ice",
+        "name": "氷",
+        "icon": "snowflake",
+        "color": "#38bdf8",
+        "enabled": true
+      },
+      {
+        "id": "lightning",
+        "name": "雷",
+        "icon": "zap",
+        "color": "#facc15",
+        "enabled": true
+      },
+      {
+        "id": "water",
+        "name": "水",
+        "icon": "droplet",
+        "color": "#3b82f6",
+        "enabled": true
+      },
+      {
+        "id": "wind",
+        "name": "風",
+        "icon": "leaf",
+        "color": "#22c55e",
+        "enabled": true
+      },
+      {
+        "id": "earth",
+        "name": "土",
+        "icon": "mountain",
+        "color": "#a16207",
+        "enabled": true
+      },
+      {
+        "id": "light",
+        "name": "光",
+        "icon": "sun",
+        "color": "#fde68a",
+        "enabled": true
+      },
+      {
+        "id": "dark",
+        "name": "闇",
+        "icon": "moon",
+        "color": "#a78bfa",
+        "enabled": true
+      }
+    ],
+    "skill_templates": [
+      {
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount": 0,
+        "amount_mode": "fixed",
+        "effect": "attack",
+        "multiplier": 1,
+        "on_wrong": {
+          "type": "counter"
+        },
+        "id": "basic_physical",
+        "name": "基本の物理攻撃"
+      },
+      {
+        "target_count": 1,
+        "damage_type": "special",
+        "amount": 0,
+        "amount_mode": "fixed",
+        "effect": "attack",
+        "multiplier": 1.5,
+        "on_wrong": {
+          "type": "fizzle"
+        },
+        "id": "basic_spell",
+        "name": "初級単体魔法"
+      },
+      {
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount": 20,
+        "amount_mode": "percent",
+        "effect": "heal_hp",
+        "on_wrong": {
+          "type": "reduced",
+          "amount": 10
+        },
+        "id": "basic_heal",
+        "name": "初級HP割合回復"
+      },
+      {
+        "id": "effect_fire",
+        "name": "ファイアの効果",
+        "amount": 0,
+        "effect": "attack",
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount_mode": "fixed",
+        "multiplier": 1.5,
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "effect_fire_all",
+        "name": "全体ファイアの効果",
+        "amount": 0,
+        "effect": "attack",
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount_mode": "fixed",
+        "multiplier": 1.3,
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "effect_heal",
+        "name": "ケアルの効果",
+        "amount": 20,
+        "effect": "heal_hp",
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount_mode": "fixed",
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "effect_potion_heal",
+        "name": "HP回復の効果",
+        "amount": 20,
+        "effect": "heal_hp",
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount_mode": "fixed",
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "effect_ether_heal",
+        "name": "MP回復の効果",
+        "amount": 5,
+        "effect": "heal_mp",
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount_mode": "fixed",
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "effect_recover_steps",
+        "name": "歩数回復の効果",
+        "amount": 3,
+        "effect": "recover_moves",
+        "target_count": 1,
+        "damage_type": "physical"
+      },
+      {
+        "id": "effect_bronze_power",
+        "name": "銅の剣の装備効果の効果",
+        "amount": 3,
+        "effect": "buff",
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount_mode": "fixed",
+        "duration_turns": 3,
+        "stack_limit": 1,
+        "stat": "attack",
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "effect_steel_power",
+        "name": "鋼の剣の装備効果の効果",
+        "amount": 8,
+        "effect": "buff",
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount_mode": "fixed",
+        "duration_turns": 3,
+        "stack_limit": 1,
+        "stat": "attack",
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "effect_specialty_burst",
+        "name": "専門分野の効果",
+        "amount": 0,
+        "effect": "attack",
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount_mode": "fixed",
+        "multiplier": 2,
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "effect_normal_attack",
+        "name": "戦うの効果",
+        "amount": 0,
+        "effect": "attack",
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount_mode": "fixed",
+        "multiplier": 1,
+        "on_wrong": {
+          "type": "counter"
+        }
+      },
+      {
+        "id": "effect_slow",
+        "name": "減速の効果",
+        "amount": 20,
+        "effect": "debuff",
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount_mode": "percent",
+        "duration_turns": 3,
+        "stack_limit": 1,
+        "stat": "speed",
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "effect_poison",
+        "name": "毒の効果",
+        "amount": 5,
+        "effect": "ailment",
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount_mode": "percent",
+        "duration_turns": 3,
+        "stack_limit": 1,
+        "ailment": "poison",
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      }
+    ],
+    "items": [
+      {
+        "id": "bronze_sword",
+        "name": "銅の剣",
+        "icon": "sword",
+        "enabled": true,
+        "skill_id": "bronze_power",
+        "kind": "weapon",
+        "category": "weapon",
+        "max_uses": 30,
+        "equipment_part": null
+      },
+      {
+        "id": "steel_sword",
+        "name": "鋼の剣",
+        "icon": "sword",
+        "enabled": true,
+        "skill_id": "steel_power",
+        "kind": "weapon",
+        "category": "weapon",
+        "max_uses": 30,
+        "equipment_part": null
+      },
+      {
+        "id": "healing_potion",
+        "name": "回復薬",
+        "icon": "flask",
+        "enabled": true,
+        "skill_id": "potion_heal",
+        "kind": "consumable",
+        "category": "recovery",
+        "max_uses": 1,
+        "equipment_part": null
+      },
+      {
+        "id": "step_potion",
+        "name": "歩数回復薬",
+        "icon": "footprints",
+        "enabled": true,
+        "skill_id": "recover_steps",
+        "kind": "consumable",
+        "category": "recovery",
+        "max_uses": 1,
+        "equipment_part": null
+      },
+      {
+        "id": "ether",
+        "name": "MP回復薬",
+        "icon": "droplet",
+        "enabled": true,
+        "skill_id": "ether_heal",
+        "kind": "consumable",
+        "category": "recovery",
+        "max_uses": 1,
+        "equipment_part": null
+      }
+    ],
+    "shop": [
+      {
+        "item_id": "bronze_sword",
+        "price": 100,
+        "enabled": true
+      },
+      {
+        "item_id": "steel_sword",
+        "price": 300,
+        "enabled": true
+      },
+      {
+        "item_id": "healing_potion",
+        "price": 30,
+        "enabled": true
+      },
+      {
+        "item_id": "ether",
+        "price": 50,
+        "enabled": true
+      }
+    ],
+    "enemies": [
+      {
+        "id": "ghost",
+        "name": "ゴースト",
+        "icon": "ghost",
+        "enabled": true,
+        "boss": false,
+        "speed": null,
+        "multipliers": {
+          "hp": 1,
+          "mp": 1,
+          "attack": 1,
+          "defense": 1,
+          "special_attack": 1,
+          "special_defense": 1,
+          "speed": 1
+        },
+        "attack_skill_id": null,
+        "on_hit_skill_id": null,
+        "gambits": [],
+        "gambit_set_id": null,
+        "weaknesses": [],
+        "resistances": []
+      },
+      {
+        "id": "bug",
+        "name": "バグ",
+        "icon": "bug",
+        "enabled": true,
+        "boss": false,
+        "speed": null,
+        "multipliers": {
+          "hp": 1,
+          "mp": 1,
+          "attack": 1,
+          "defense": 1,
+          "special_attack": 1,
+          "special_defense": 1,
+          "speed": 1
+        },
+        "attack_skill_id": null,
+        "on_hit_skill_id": null,
+        "gambits": [],
+        "gambit_set_id": null,
+        "weaknesses": [],
+        "resistances": []
+      },
+      {
+        "id": "skull",
+        "name": "スケルトン",
+        "icon": "skull",
+        "enabled": true,
+        "boss": false,
+        "speed": null,
+        "multipliers": {
+          "hp": 1,
+          "mp": 1,
+          "attack": 1,
+          "defense": 1,
+          "special_attack": 1,
+          "special_defense": 1,
+          "speed": 1
+        },
+        "attack_skill_id": null,
+        "on_hit_skill_id": null,
+        "gambits": [],
+        "gambit_set_id": null,
+        "weaknesses": [],
+        "resistances": []
+      },
+      {
+        "id": "boss",
+        "name": "ボス",
+        "icon": "crown",
+        "enabled": true,
+        "boss": true,
+        "speed": null,
+        "multipliers": {
+          "hp": 3,
+          "mp": 1,
+          "attack": 1.25,
+          "defense": 1,
+          "special_attack": 1.25,
+          "special_defense": 1,
+          "speed": 1
+        },
+        "attack_skill_id": null,
+        "on_hit_skill_id": null,
+        "gambits": [],
+        "gambit_set_id": null,
+        "weaknesses": [],
+        "resistances": []
+      }
+    ],
+    "gambit_sets": [],
+    "player_skills": [
+      {
+        "skill_id": "fire",
+        "enabled": true
+      },
+      {
+        "skill_id": "fire_all",
+        "enabled": true
+      },
+      {
+        "skill_id": "heal",
+        "enabled": true
+      }
+    ],
+    "specialty_skills": [
+      {
+        "skill_id": "specialty_burst",
+        "enabled": true,
+        "quiz_required": true,
+        "quiz_seconds": 30,
+        "wrong_multiplier": 0,
+        "power_coefficient": 1
+      }
+    ],
+    "triggers": [
+      {
+        "condition": "always",
+        "threshold": 30,
+        "stat": "hp",
+        "stat_basis": "current",
+        "comparison": "below",
+        "state_present": true,
+        "state_skill_id": null,
+        "id": "always",
+        "name": "いつでも",
+        "enabled": true,
+        "target": null,
+        "variant_field": "threshold",
+        "variants": [],
+        "variant_set_id": null,
+        "variant_set_ids": []
+      },
+      {
+        "condition": "hp_below",
+        "threshold": 30,
+        "stat": "hp",
+        "stat_basis": "current",
+        "comparison": "below",
+        "state_present": true,
+        "state_skill_id": null,
+        "id": "hp_below",
+        "name": "HPがn%未満",
+        "enabled": true,
+        "target": null,
+        "variant_field": "threshold",
+        "variants": [],
+        "variant_set_id": null,
+        "variant_set_ids": []
+      },
+      {
+        "condition": "mp_below",
+        "threshold": 30,
+        "stat": "hp",
+        "stat_basis": "current",
+        "comparison": "below",
+        "state_present": true,
+        "state_skill_id": null,
+        "id": "mp_below",
+        "name": "MPがn%未満",
+        "enabled": true,
+        "target": null,
+        "variant_field": "threshold",
+        "variants": [],
+        "variant_set_id": null,
+        "variant_set_ids": []
+      },
+      {
+        "condition": "enemy_count",
+        "threshold": 30,
+        "stat": "hp",
+        "stat_basis": "current",
+        "comparison": "below",
+        "state_present": true,
+        "state_skill_id": null,
+        "id": "enemy_count",
+        "name": "敵がn体以上",
+        "enabled": true,
+        "target": null,
+        "variant_field": "threshold",
+        "variants": [],
+        "variant_set_id": null,
+        "variant_set_ids": []
+      }
+    ]
+  },
+  "skill_file": {
+    "format": "tanbunism.skills",
+    "version": 6,
+    "skill_templates": [
+      {
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount": 0,
+        "amount_mode": "fixed",
+        "effect": "attack",
+        "multiplier": 1,
+        "on_wrong": {
+          "type": "counter"
+        },
+        "id": "basic_physical",
+        "name": "基本の物理攻撃"
+      },
+      {
+        "target_count": 1,
+        "damage_type": "special",
+        "amount": 0,
+        "amount_mode": "fixed",
+        "effect": "attack",
+        "multiplier": 1.5,
+        "on_wrong": {
+          "type": "fizzle"
+        },
+        "id": "basic_spell",
+        "name": "初級単体魔法"
+      },
+      {
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount": 20,
+        "amount_mode": "percent",
+        "effect": "heal_hp",
+        "on_wrong": {
+          "type": "reduced",
+          "amount": 10
+        },
+        "id": "basic_heal",
+        "name": "初級HP割合回復"
+      },
+      {
+        "id": "effect_fire",
+        "name": "ファイアの効果",
+        "amount": 0,
+        "effect": "attack",
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount_mode": "fixed",
+        "multiplier": 1.5,
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "effect_fire_all",
+        "name": "全体ファイアの効果",
+        "amount": 0,
+        "effect": "attack",
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount_mode": "fixed",
+        "multiplier": 1.3,
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "effect_heal",
+        "name": "ケアルの効果",
+        "amount": 20,
+        "effect": "heal_hp",
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount_mode": "fixed",
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "effect_potion_heal",
+        "name": "HP回復の効果",
+        "amount": 20,
+        "effect": "heal_hp",
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount_mode": "fixed",
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "effect_ether_heal",
+        "name": "MP回復の効果",
+        "amount": 5,
+        "effect": "heal_mp",
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount_mode": "fixed",
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "effect_recover_steps",
+        "name": "歩数回復の効果",
+        "amount": 3,
+        "effect": "recover_moves",
+        "target_count": 1,
+        "damage_type": "physical"
+      },
+      {
+        "id": "effect_bronze_power",
+        "name": "銅の剣の装備効果の効果",
+        "amount": 3,
+        "effect": "buff",
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount_mode": "fixed",
+        "duration_turns": 3,
+        "stack_limit": 1,
+        "stat": "attack",
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "effect_steel_power",
+        "name": "鋼の剣の装備効果の効果",
+        "amount": 8,
+        "effect": "buff",
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount_mode": "fixed",
+        "duration_turns": 3,
+        "stack_limit": 1,
+        "stat": "attack",
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "effect_specialty_burst",
+        "name": "専門分野の効果",
+        "amount": 0,
+        "effect": "attack",
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount_mode": "fixed",
+        "multiplier": 2,
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "effect_normal_attack",
+        "name": "戦うの効果",
+        "amount": 0,
+        "effect": "attack",
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount_mode": "fixed",
+        "multiplier": 1,
+        "on_wrong": {
+          "type": "counter"
+        }
+      },
+      {
+        "id": "effect_slow",
+        "name": "減速の効果",
+        "amount": 20,
+        "effect": "debuff",
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount_mode": "percent",
+        "duration_turns": 3,
+        "stack_limit": 1,
+        "stat": "speed",
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      },
+      {
+        "id": "effect_poison",
+        "name": "毒の効果",
+        "amount": 5,
+        "effect": "ailment",
+        "target_count": 1,
+        "damage_type": "physical",
+        "amount_mode": "percent",
+        "duration_turns": 3,
+        "stack_limit": 1,
+        "ailment": "poison",
+        "on_wrong": {
+          "type": "fizzle"
+        }
+      }
+    ],
+    "skills": [
+      {
+        "id": "fire",
+        "name": "ファイア",
+        "icon": "flame",
+        "enabled": true,
+        "element": "fire",
+        "animation": "fire",
+        "sound": "auto",
+        "template_ids": [
+          "effect_fire"
+        ],
+        "mp_cost": 3
+      },
+      {
+        "id": "fire_all",
+        "name": "全体ファイア",
+        "icon": "flame",
+        "enabled": true,
+        "element": "fire",
+        "animation": "fire",
+        "sound": "auto",
+        "template_ids": [
+          "effect_fire_all"
+        ],
+        "mp_cost": 5
+      },
+      {
+        "id": "heal",
+        "name": "ケアル",
+        "icon": "heart",
+        "enabled": true,
+        "element": "none",
+        "animation": "heal",
+        "sound": "auto",
+        "template_ids": [
+          "effect_heal"
+        ],
+        "mp_cost": 3
+      },
+      {
+        "id": "potion_heal",
+        "name": "HP回復",
+        "icon": "flask",
+        "enabled": true,
+        "element": "none",
+        "animation": "heal",
+        "sound": "auto",
+        "template_ids": [
+          "effect_potion_heal"
+        ],
+        "mp_cost": 0
+      },
+      {
+        "id": "ether_heal",
+        "name": "MP回復",
+        "icon": "droplet",
+        "enabled": true,
+        "element": "none",
+        "animation": "ripple",
+        "sound": "auto",
+        "template_ids": [
+          "effect_ether_heal"
+        ],
+        "mp_cost": 0
+      },
+      {
+        "id": "recover_steps",
+        "name": "歩数回復",
+        "icon": "footprints",
+        "enabled": true,
+        "element": "none",
+        "animation": "none",
+        "sound": "auto",
+        "template_ids": [
+          "effect_recover_steps"
+        ],
+        "mp_cost": 0
+      },
+      {
+        "id": "bronze_power",
+        "name": "銅の剣の装備効果",
+        "icon": "sword",
+        "enabled": true,
+        "element": "none",
+        "animation": "none",
+        "sound": "auto",
+        "template_ids": [
+          "effect_bronze_power"
+        ],
+        "mp_cost": 0
+      },
+      {
+        "id": "steel_power",
+        "name": "鋼の剣の装備効果",
+        "icon": "sword",
+        "enabled": true,
+        "element": "none",
+        "animation": "none",
+        "sound": "auto",
+        "template_ids": [
+          "effect_steel_power"
+        ],
+        "mp_cost": 0
+      },
+      {
+        "id": "specialty_burst",
+        "name": "専門分野",
+        "icon": "book",
+        "enabled": true,
+        "element": "none",
+        "animation": "lightning",
+        "sound": "auto",
+        "template_ids": [
+          "effect_specialty_burst"
+        ],
+        "mp_cost": 3
+      },
+      {
+        "id": "normal_attack",
+        "name": "戦う",
+        "icon": "sparkles",
+        "enabled": true,
+        "element": "none",
+        "animation": "impact",
+        "sound": "auto",
+        "template_ids": [
+          "effect_normal_attack"
+        ],
+        "mp_cost": 0
+      },
+      {
+        "id": "slow",
+        "name": "減速",
+        "icon": "sparkles",
+        "enabled": true,
+        "element": "none",
+        "animation": "none",
+        "sound": "auto",
+        "template_ids": [
+          "effect_slow"
+        ],
+        "mp_cost": 0
+      },
+      {
+        "id": "poison",
+        "name": "毒",
+        "icon": "sparkles",
+        "enabled": true,
+        "element": "none",
+        "animation": "none",
+        "sound": "auto",
+        "template_ids": [
+          "effect_poison"
+        ],
+        "mp_cost": 0
+      }
+    ],
+    "elements": [
+      {
+        "id": "fire",
+        "name": "炎",
+        "icon": "flame",
+        "color": "#ef4444",
+        "enabled": true
+      },
+      {
+        "id": "ice",
+        "name": "氷",
+        "icon": "snowflake",
+        "color": "#38bdf8",
+        "enabled": true
+      },
+      {
+        "id": "lightning",
+        "name": "雷",
+        "icon": "zap",
+        "color": "#facc15",
+        "enabled": true
+      },
+      {
+        "id": "water",
+        "name": "水",
+        "icon": "droplet",
+        "color": "#3b82f6",
+        "enabled": true
+      },
+      {
+        "id": "wind",
+        "name": "風",
+        "icon": "leaf",
+        "color": "#22c55e",
+        "enabled": true
+      },
+      {
+        "id": "earth",
+        "name": "土",
+        "icon": "mountain",
+        "color": "#a16207",
+        "enabled": true
+      },
+      {
+        "id": "light",
+        "name": "光",
+        "icon": "sun",
+        "color": "#fde68a",
+        "enabled": true
+      },
+      {
+        "id": "dark",
+        "name": "闇",
+        "icon": "moon",
+        "color": "#a78bfa",
+        "enabled": true
+      }
+    ],
+    "variant_sets": []
+  }
+}

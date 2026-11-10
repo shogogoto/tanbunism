@@ -1,5 +1,19 @@
 # Game systems
 
+## End-to-end API and consumer contracts
+
+`test_game_journey.py` exercises real HTTP handlers and Neo4j persistence from
+entry through scheduled combat, answer replay, rewards, buying/equipping and
+snapshot reload. Only background quiz preparation is disabled; quiz generation,
+answer validation, reward calculation and revision checks use production code.
+This is an API integration test, not a browser UI test.
+
+`test_frontend_contract.py` replays actual frontend catalog/export payloads
+through the admin APIs. See `fixtures/README.md` for provenance, recapture and
+the optional `TANBUNISM_WEB_ROOT` check against a current frontend checkout.
+Normal CI validates the fixed consumer fixture without requiring Node.js or a
+second repository; only the live-checkout comparison is optional.
+
 ## Battle calculation boundaries
 
 `balance_models.py` owns the balance/allocation models and stat formulas;
