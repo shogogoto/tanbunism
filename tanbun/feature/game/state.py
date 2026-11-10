@@ -25,7 +25,6 @@ from .effects import (
     sync_enemy_resources,
     sync_speed_effects,
 )
-from .gambit_definitions import supported_trigger
 from .gambits import BattleAction, GambitRule
 from .inventory import Economy, equipped_stats
 from .settings import get_battle_settings
@@ -253,8 +252,6 @@ def restore_state(raw: str | None, balance: GameBalance) -> GameState:
     """能力値は保存値を採用せず、現行バランス・装備・状態補正から復元する."""
     payload = json.loads(raw) if raw else {}
     save = payload.get("save", {})
-    if "gambits" in save:
-        save["gambits"] = [row for row in save["gambits"] if supported_trigger(row)]
     stats = equipped_stats(
         Allocation.model_validate(save.get("allocation", {})),
         balance,

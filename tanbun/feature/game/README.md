@@ -3,7 +3,7 @@
 ## Battle calculation boundaries
 
 `balance_models.py` owns the balance/allocation models and stat formulas;
-`balance.py` only reads/writes settings and orchestrates their legacy migration.
+`balance.py` only reads/writes settings; reads never migrate or rewrite them.
 `combat_models.py` owns encounter/turn requests, enemy stats and calculation
 context. These models keep their existing JSON and OpenAPI contracts.
 
@@ -103,15 +103,16 @@ validation. Combat effect helpers import the skill definitions directly.
 
 `gambit_definitions.py` owns trigger conditions, trigger variants, ordered enemy
 rules, shared gambit sets and the canonical trigger-unlock ID. It depends on the
-pure variant helpers, not the catalog or DB. State restoration and ownership
-checks import these definitions directly.
+pure variant helpers, not the catalog or DB. Ownership checks import these
+definitions directly; snapshots validate their conditions without discarding
+unknown rules.
 
 `catalog.py` remains the aggregate: items/enemies, cross-reference validation and
 the initial catalog. It re-exports extracted public definitions so existing
 callers keep the same class objects and import paths. Model validation, JSON
 serialization and defaults do not import the database or its migration code.
-`catalog_repo.py` owns DB reads/writes, migration orchestration, filtering retired
-triggers from saved references and restoring the default normal attack. Existing
+`catalog_repo.py` owns DB reads/writes and restoring the default normal attack.
+Reads never migrate settings or silently remove invalid references. Existing
 catalog read/write functions delegate lazily to this repository; API and unified
 settings I/O use it directly. Single-definition logic should use the defining
 module rather than the aggregate. JSON fields, defaults and OpenAPI component
@@ -120,8 +121,9 @@ names are unchanged.
 `test_catalog_boundaries.py` checks standalone imports in a fresh interpreter,
 public re-exports and storage round trips. Existing skill/template/variant tests
 continue to cover validation and resolution behavior. `test_catalog_repo.py`
-checks load/save behavior, migration order, retired references and compact
-storage; existing boss migration tests retain database-level rollback coverage.
+checks load/save behavior, retired-reference rejection and compact storage.
+`test_settings_storage.py` verifies that reads do not write and saving one setting
+does not implicitly modify another.
 
 Skills own their name, MP cost, animation/SE and enabled state. Ordered
 `template_ids` reference one or more shared effect templates. Templates define
@@ -136,9 +138,11 @@ attack, recovery and status components for either actor; specialty/end actions
 use the same component expansion. Status stacks are keyed by template identity.
 Stored catalogs and current version-6 skill files retain references rather than
 copied effect values. Exchange-file versions 1–5 are rejected; re-export saved
-definitions from the current admin instead. Stored catalogs, singular template
-references and in-progress flattened skill snapshots keep their existing read
-path until persisted usage is checked. Equipment and movement recovery remain
+definitions from the current admin instead. Effect-specific skill types validate
+stored catalogs and action snapshots without stripping obsolete fields. Usage
+lists and shop listings are explicit; omitted usage lists do not grant skills.
+Singular template references remain part of the current exchange contract.
+Equipment and movement recovery remain
 standalone effects; multi-effect items are battle-only.
 
 Effect-template variants reference one independent `base_template_id`. Only

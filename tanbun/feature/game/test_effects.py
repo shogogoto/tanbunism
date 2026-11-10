@@ -9,6 +9,7 @@ from .combat import TurnRequest, apply_turn_result
 from .effects import add_effect, modified_stat, poison_damage
 from .gambit_slots import capacity_at_level
 from .gambits import BattleAction
+from .skill_definitions import RecoverySkill
 from .test_gambits import battle_state
 
 
@@ -164,7 +165,14 @@ def test_poison_is_applied_only_to_correct_targets_and_disappears_on_retreat():
 def test_percentage_recovery_uses_maximum_hp_not_current_hp():
     """HP回復の割合は最大HPを基準とし、端数は切り捨てる."""
     state = battle_state()
-    skill = buff(effect="heal_hp", amount=50, mp_cost=1)
+    skill = RecoverySkill(
+        id="heal",
+        name="回復",
+        effect="heal_hp",
+        amount=50,
+        amount_mode="percent",
+        mp_cost=1,
+    )
     state.save.battle.gambitAction = BattleAction(skill=skill, name="回復")
     result = apply_turn_result(
         state,

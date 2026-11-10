@@ -24,9 +24,7 @@ from .gambit_definitions import (
 from .item_categories import ItemCategory
 from .rewards import RewardSettings
 from .skill_definitions import (
-    LEGACY_SKILL_FIELDS,
     SKILL_IDENTITY_FIELDS,
-    SKILL_MODELS,
     AilmentEffect,
     AilmentSkill,
     AmountMode,
@@ -61,8 +59,6 @@ from .skill_definitions import (
     UtilitySkill,
     VariableAmountEffect,
     default_normal_attack,
-    migrate_skill,
-    migrate_wrong_effects,
     parse_skill,
     skill_adapter,
     validate_effect_combinations,
@@ -94,12 +90,10 @@ from .trigger_variants import resolve_trigger_variants
 
 # 既存の利用側はこの窓口を維持し、単体ロジックは専用モジュールを直接参照する。
 __all__ = [
-    "LEGACY_SKILL_FIELDS",
     "MAX_TEMPLATE_ROOT_NAME",
     "MAX_TRIGGER_PERCENT",
     "MAX_VARIANT_DEPTH",
     "SKILL_IDENTITY_FIELDS",
-    "SKILL_MODELS",
     "TEMPLATE_MODELS",
     "VARIANT_CLOSE",
     "VARIANT_OPEN",
@@ -171,8 +165,6 @@ __all__ = [
     "default_skill_templates",
     "default_triggers",
     "get_game_catalog",
-    "migrate_skill",
-    "migrate_wrong_effects",
     "parse_skill",
     "read_effect_templates",
     "resolve_skill_templates",
@@ -386,98 +378,8 @@ class GameCatalog(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def migrate_shop(cls, value):
-        """旧アイテム価格を移行する。明示的な空のショップは維持する."""
-        if not isinstance(value, dict) or "shop" in value:
-            return value
-        return {
-            **value,
-            "shop": [
-                {"item_id": item["id"], "price": item["price"]}
-                for item in value.get("items", [])
-                if isinstance(item, dict) and item.get("price") is not None
-            ],
-        }
-
-    @model_validator(mode="before")
-    @classmethod
-    def migrate_usage(cls, value):
-        """旧フラグを利用定義へ一度だけ移す。明示された空配列は維持する."""
-        if not isinstance(value, dict):
-            return value
-        value = dict(value)
-        skills = [
-            s.model_dump() if isinstance(s, SkillBase) else s
-            for s in value.get("skills", [])
-        ]
-        items = [
-            i.model_dump() if isinstance(i, ItemDefinition) else i
-            for i in value.get("items", [])
-        ]
-        equipment_only = {
-            i.get("skill_id")
-            for i in items
-            if isinstance(i, dict) and i.get("kind") == "weapon"
-        }
-        if "player_skills" not in value:
-            value["player_skills"] = [
-                {"skill_id": s["id"]}
-                for s in skills
-                if s.get("castable", True)
-                and s.get("id") != "normal_attack"
-                and s.get("id") not in equipment_only
-                and not s.get("requires_specialty")
-                and not s.get("quiz_required")
-                and s.get("effect")
-                in {
-                    "attack",
-                    "heal_hp",
-                    "heal_mp",
-                    "damage_mp",
-                    "buff",
-                    "debuff",
-                    "ailment",
-                }
-            ]
-        if "specialty_skills" not in value:
-            value["specialty_skills"] = [
-                {
-                    "skill_id": s["id"],
-                    "quiz_required": s.get("quiz_required")
-                    if s.get("quiz_required") is not None
-                    else True,
-                    **{
-                        key: s[key]
-                        for key in (
-                            "quiz_seconds",
-                            "wrong_multiplier",
-                            "power_coefficient",
-                        )
-                        if key in s
-                    },
-                }
-                for s in skills
-                if s.get("requires_specialty")
-            ]
-        usage_fields = {
-            "castable",
-            "requires_specialty",
-            "quiz_required",
-            "quiz_seconds",
-            "wrong_multiplier",
-            "power_coefficient",
-        }
-        value["skills"] = [
-            {key: item for key, item in skill.items() if key not in usage_fields}
-            for skill in skills
-        ]
-        migrate_wrong_effects(value["skills"], value["specialty_skills"])
-        return value
-
-    @model_validator(mode="before")
-    @classmethod
     def apply_templates(cls, value):
-        """利用設定の旧形式移行より先にテンプレート参照を解決する."""
+        """共通の効果テンプレート参照を解決する."""
         return resolve_skill_templates(value)
 
     def stored_document(self) -> dict:

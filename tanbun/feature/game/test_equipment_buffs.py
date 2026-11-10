@@ -15,6 +15,15 @@ from .test_economy import seed_user
 from .test_gambits import battle_state
 
 
+def test_weapon_attack_uses_the_saved_bonus_not_a_hardcoded_catalog():
+    """過去の固定商品表から補正を捏造せず、装着時に固定した値だけを返す."""
+    economy = Economy(weapon="bronze_sword", inventory={"bronze_sword": 1})
+    assert economy.weapon_attack == 0
+    economy.equipment_attack = 17
+    assert economy.weapon_attack == 17
+    assert Economy.model_validate_json(economy.model_dump_json()).weapon_attack == 17
+
+
 def buff_catalog():
     """防御・特攻・最大HPのバフを、一つの装備用スキルで共有する."""
     data = default_catalog().model_dump()

@@ -173,24 +173,17 @@ def test_current_file_rejects_keys_from_other_effects(effect, foreign):
         })
 
 
-def test_persisted_catalog_and_pending_actions_keep_their_read_path():
-    """交換JSONの旧版を廃止しても、既存の保存や進行中の戦闘は壊さない."""
-    legacy = default_catalog().skills[0].model_dump(mode="json") | {
-        "stat": "attack",
-        "duration_turns": 3,
-        "stack_limit": 1,
+def test_obsolete_skill_fields_are_not_silently_removed_from_saved_models():
+    """現行型は無関係な項目を補正せず、保存と行動の双方で不正として知らせる."""
+    invalid = default_catalog().skills[0].model_dump(mode="json") | {
         "ailment": "poison",
     }
-    old = default_catalog().model_dump(mode="json")
-    old["skills"][0] = legacy
-    restored = GameCatalog.model_validate(old)
-    action = BattleAction.model_validate({"name": "攻撃", "skill": legacy})
-    for skill in (restored.skills[0], action.skill):
-        assert skill.multiplier == pytest.approx(1.5)
-        assert (
-            not {"stat", "duration_turns", "stack_limit", "ailment"}
-            & skill.model_dump().keys()
-        )
+    document = default_catalog().model_dump(mode="json")
+    document["skills"][0] = invalid
+    with pytest.raises(ValidationError, match="Extra inputs"):
+        GameCatalog.model_validate(document)
+    with pytest.raises(ValidationError, match="Extra inputs"):
+        BattleAction.model_validate({"name": "攻撃", "skill": invalid})
 
 
 def test_str_enums_preserve_existing_json_values_and_round_trip():

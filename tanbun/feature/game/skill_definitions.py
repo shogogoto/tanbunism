@@ -5,7 +5,6 @@ from typing import Annotated, Literal
 
 from pydantic import (
     BaseModel,
-    BeforeValidator,
     ConfigDict,
     Field,
     PrivateAttr,
@@ -519,78 +518,13 @@ SkillDefinition = Annotated[
     AttackSkill | RecoverySkill | BuffSkill | DebuffSkill | AilmentSkill | UtilitySkill,
     Field(discriminator="effect"),
 ]
-SKILL_MODELS = {
-    effect: model
-    for model, effects in (
-        (AttackSkill, (SkillEffect.ATTACK,)),
-        (
-            RecoverySkill,
-            (SkillEffect.HEAL_HP, SkillEffect.HEAL_MP, SkillEffect.DAMAGE_MP),
-        ),
-        (BuffSkill, (SkillEffect.BUFF,)),
-        (DebuffSkill, (SkillEffect.DEBUFF,)),
-        (AilmentSkill, (SkillEffect.AILMENT,)),
-        (UtilitySkill, (SkillEffect.RECOVER_MOVES, SkillEffect.EQUIP_ATTACK)),
-    )
-    for effect in effects
-}
-LEGACY_SKILL_FIELDS = {
-    "multiplier",
-    "amount_mode",
-    "stat",
-    "duration_turns",
-    "stack_limit",
-    "ailment",
-    "affected_element",
-}
-
-
-def migrate_skill(value):
-    """旧保存・戦闘スナップショットの無関係な既知項目だけを取り除く."""
-    if isinstance(value, SkillBase):
-        value = value.model_dump()
-    if not isinstance(value, dict):
-        return value
-    effect = value.get("effect")
-    if not isinstance(effect, str) or not (model := SKILL_MODELS.get(effect)):
-        return value
-    obsolete = LEGACY_SKILL_FIELDS - model.model_fields.keys()
-    return {key: item for key, item in value.items() if key not in obsolete}
-
-
-StoredSkill = Annotated[SkillDefinition, BeforeValidator(migrate_skill)]
+StoredSkill = SkillDefinition
 skill_adapter = TypeAdapter(StoredSkill)
 
 
 def parse_skill(value) -> SkillDefinition:
-    """保存済みの形式も受け付け、種類別の定義として復元する."""
+    """現行の種類別スキル定義として検証する."""
     return skill_adapter.validate_python(value)
-
-
-def migrate_wrong_effects(skills, policies) -> None:
-    """旧専門分野の誤答倍率を、明示的な設定がないスキルへ一度だけ移す。."""
-    normalized = [p.model_dump() if isinstance(p, BaseModel) else p for p in policies]
-    uses = {
-        p["skill_id"]: p for p in normalized if isinstance(p, dict) and "skill_id" in p
-    }
-    for skill in skills:
-        factor = uses.get(skill.get("id"), {}).get("wrong_multiplier", 0)
-        if (
-            "on_wrong" not in skill
-            and skill.get("effect")
-            in {"attack", "heal_hp", "heal_mp", "buff", "debuff"}
-            and isinstance(factor, (int, float))
-            and 0 < factor <= 1
-        ):
-            skill["on_wrong"] = {
-                "type": "reduced",
-                "amount": int(skill.get("amount", 0) * factor),
-                **(
-                    {"multiplier": skill.get("multiplier", 1) * factor}
-                    if skill["effect"] == "attack"
-                    else {}
-                ),
-            }
 
 
 def validate_effect_combinations(skills) -> None:

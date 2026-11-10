@@ -268,8 +268,8 @@ def test_specialty_counter_failure_applies_once_and_preserves_moves_on_defeat():
     assert state.save.endActionReceipt["damage"] == 100
 
 
-def test_legacy_specialty_ratio_migrates_without_overwriting_explicit_outcomes():
-    """旧利用設定の誤答倍率を一度だけ量へ移し、以後はスキルを正とする。."""
+def test_specialty_ratio_does_not_rewrite_the_skill_wrong_outcome():
+    """専門分野の誤答倍率を、スキル自体の明示した規則に混ぜない."""
     from .catalog import GameCatalog  # noqa: PLC0415
 
     source = {
@@ -277,10 +277,10 @@ def test_legacy_specialty_ratio_migrates_without_overwriting_explicit_outcomes()
         "specialty_skills": [{"skill_id": "heal", "wrong_multiplier": 0.5}],
     }
     catalog = GameCatalog.model_validate(source)
-    assert catalog.skills[0].on_wrong.model_dump() == {"type": "reduced", "amount": 10}
-    restored = catalog.model_dump()
-    restored["skills"][0]["on_wrong"] = {"type": "fizzle"}
-    assert GameCatalog.model_validate(restored).skills[0].on_wrong.type == "fizzle"
+    assert catalog.skills[0].on_wrong.type == "fizzle"
+    assert catalog.specialty_skills[0].wrong_multiplier == pytest.approx(0.5)
+    source["skills"][0]["on_wrong"] = {"type": "reduced", "amount": 3}
+    assert GameCatalog.model_validate(source).skills[0].on_wrong.amount == 3
 
 
 @pytest.mark.parametrize("actor", ["player", "e"])

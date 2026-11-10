@@ -82,12 +82,9 @@ class Economy(BaseModel):
     @computed_field
     @property
     def weapon_attack(self) -> int:
-        """カタログの装備効果をクライアントにも返す."""
+        """装着時に固定した攻撃補正をクライアントにも返す."""
         if self.weapon and self.inventory.get(self.weapon, 0) > 0:
-            if self.equipment_attack is not None:
-                return self.equipment_attack
-            legacy = CATALOG.get(self.weapon)
-            return legacy.amount if legacy else 0
+            return self.equipment_attack or 0
         return 0
 
 
@@ -120,37 +117,6 @@ class Product(BaseModel, frozen=True):
             msg = "ガンビット商品にはトリガーを指定してください。"
             raise ValueError(msg)
         return self
-
-
-CATALOG = {
-    p.id: p
-    for p in [
-        Product(
-            id="bronze_sword",
-            name="銅の剣",
-            price=100,
-            kind="weapon",
-            amount=3,
-            max_uses=30,
-        ),
-        Product(
-            id="steel_sword",
-            name="鋼の剣",
-            price=300,
-            kind="weapon",
-            amount=8,
-            max_uses=30,
-        ),
-        Product(id="healing_potion", name="回復薬", price=30, kind="hp", amount=20),
-        Product(
-            id="step_potion",
-            name="歩数回復薬",
-            price=None,
-            kind="moves",
-            amount=3,
-        ),
-    ]
-}
 
 
 def consume_use(economy: Economy, item_id: str, max_uses: int) -> bool:

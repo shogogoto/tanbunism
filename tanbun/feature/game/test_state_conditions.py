@@ -35,24 +35,23 @@ def test_state_requires_a_skill_and_missing_skill_never_matches_absence():
     assert choose_action(state.save, default_catalog()) is None
 
 
-def test_unsupported_saved_rules_do_not_prevent_other_progress_from_loading():
-    """未対応の条件だけを除外し、所持品や現行ルールは維持する。."""
+def test_unsupported_saved_rules_are_rejected_without_silent_repair():
+    """不正な保存条件を黙って削除せず、型の検証エラーとして扱う."""
     document = battle_state().model_dump()
     document["save"]["gambits"] = [
         {"condition": "poisoned", "definition_id": "fire"},
         {"condition": "state", "definition_id": "fire", "state_present": False},
         {"condition": "always", "definition_id": "fire"},
     ]
-    restored = restore_state(json.dumps(document), GameBalance())
-    assert [r.condition for r in restored.save.gambits] == ["always"]
-    assert restored.save.run.resourceId == document["save"]["run"]["resourceId"]
+    with pytest.raises(ValidationError):
+        restore_state(json.dumps(document), GameBalance())
 
 
 @mark_async_test()
-async def test_catalog_read_discards_unsupported_triggers_not_unrelated_definitions(
+async def test_catalog_read_rejects_unsupported_triggers_without_writing(
     monkeypatch,
 ):
-    """旧トリガーとその敵ルールだけを除外し、スキルや敵そのものを失わない。."""
+    """廃止した条件を黙って削除せず、保存済みの不正な定義として知らせる."""
     from . import catalog_repo as module  # noqa: PLC0415
 
     raw = default_catalog().stored_document()
@@ -67,8 +66,6 @@ async def test_catalog_read_discards_unsupported_triggers_not_unrelated_definiti
         "cypher_query",
         AsyncMock(return_value=([[json.dumps(raw)]], [])),
     )
-    catalog = await get_game_catalog()
-    assert "old" not in {t.id for t in catalog.triggers}
-    assert [r.trigger_id for r in catalog.enemies[0].gambits] == ["always"]
-    assert [s.id for s in catalog.skills] == [s["id"] for s in raw["skills"]]
-    assert [e.id for e in catalog.enemies] == [e["id"] for e in raw["enemies"]]
+    with pytest.raises(ValidationError):
+        await get_game_catalog()
+    module.adb.cypher_query.assert_awaited_once()

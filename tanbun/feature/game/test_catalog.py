@@ -14,44 +14,33 @@ from .economy import EconomyAction, catalog_products, change_economy
 from .test_economy import seed_user
 
 
-def test_legacy_skill_flags_migrate_to_consumers_without_remaining_on_skills():
-    """旧カタログを読み直すと、利用制限・出題設定は独立した参照へ移る."""
-    old = default_catalog().model_dump()
-    old.pop("player_skills")
-    old.pop("specialty_skills")
-    for skill in old["skills"]:
-        if skill["id"] in {"potion_heal", "ether_heal"}:
-            skill["castable"] = False
-        if skill["id"] == "specialty_burst":
-            skill.update(
-                requires_specialty=True,
-                quiz_required=True,
-                quiz_seconds=42,
-                wrong_multiplier=0.5,
-                power_coefficient=2,
-            )
-    migrated = GameCatalog.model_validate(old)
-    assert {u.skill_id for u in migrated.player_skills} == {"fire", "fire_all", "heal"}
-    use = migrated.specialty_skills[0]
-    assert (
-        use.skill_id,
-        use.quiz_seconds,
-        use.wrong_multiplier,
-        use.power_coefficient,
-    ) == ("specialty_burst", 42, 0.5, 2)
-    for skill in migrated.model_dump()["skills"]:
-        assert (
-            not {
-                "castable",
-                "requires_specialty",
-                "quiz_required",
-                "quiz_seconds",
-                "wrong_multiplier",
-                "power_coefficient",
-            }
-            & skill.keys()
-        )
-    assert GameCatalog.model_validate_json(migrated.model_dump_json()) == migrated
+@pytest.mark.parametrize(
+    "field",
+    [
+        "castable",
+        "requires_specialty",
+        "quiz_required",
+        "quiz_seconds",
+        "wrong_multiplier",
+        "power_coefficient",
+    ],
+)
+def test_retired_usage_flags_on_skills_are_rejected(field):
+    """スキルに混在した旧利用フラグを、暗黙に移植せず拒否する."""
+    data = default_catalog().model_dump()
+    data["skills"][0][field] = True
+    with pytest.raises(ValidationError, match="Extra inputs"):
+        GameCatalog.model_validate(data)
+
+
+def test_missing_usage_lists_do_not_implicitly_grant_skills():
+    """利用設定を省略してもスキルの習得権限を自動発行しない."""
+    data = default_catalog().model_dump()
+    data.pop("player_skills")
+    data.pop("specialty_skills")
+    catalog = GameCatalog.model_validate(data)
+    assert catalog.player_skills == []
+    assert catalog.specialty_skills == []
 
 
 def test_explicit_empty_usage_does_not_grant_direct_access():
@@ -66,19 +55,17 @@ def test_explicit_empty_usage_does_not_grant_direct_access():
         GameCatalog.model_validate(data)
 
 
-def test_legacy_prices_migrate_to_shop_and_explicit_empty_shop_stays_empty():
-    """非売品を販売に変えず、価格0も含めて旧カタログを移行する."""
+def test_missing_shop_does_not_create_listings_from_item_prices():
+    """価格の旧保存から商品を自動発行せず、明示した販売設定だけを使う."""
     data = default_catalog().model_dump()
     data.pop("shop")
-    for index, item in enumerate(data["items"]):
-        item["price"] = index * 10 if index < 2 else None
-    migrated = GameCatalog.model_validate(data)
-    assert [p.price for p in migrated.shop] == [0, 10]
-    assert all("price" not in item for item in migrated.model_dump()["items"])
-    assert GameCatalog.model_validate_json(migrated.model_dump_json()) == migrated
+    for item in data["items"]:
+        item["price"] = 10
+    assert GameCatalog.model_validate(data).shop == []
     data["shop"] = []
     assert all(
-        p.price is None for p in catalog_products(GameCatalog.model_validate(data))
+        product.price is None
+        for product in catalog_products(GameCatalog.model_validate(data))
     )
 
 

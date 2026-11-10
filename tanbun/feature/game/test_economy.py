@@ -183,7 +183,11 @@ async def test_review_completion_awards_once_per_day_even_concurrently():
 
 def test_equipment_bonus_is_derived_from_owned_weapon():
     """装備IDだけでは攻撃力を付けない。加算はallocationと独立."""
-    economy = Economy(inventory={"steel_sword": 1}, weapon="steel_sword")
+    economy = Economy(
+        inventory={"steel_sword": 1},
+        weapon="steel_sword",
+        equipment_attack=8,
+    )
     assert equipped_stats(Allocation(attack=2), GameBalance(), economy)["attack"] == 22
     economy.inventory.clear()
     assert equipped_stats(Allocation(attack=2), GameBalance(), economy)["attack"] == 14
