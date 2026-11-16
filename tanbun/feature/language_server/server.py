@@ -16,6 +16,7 @@ from tanbun.feature.language_service import (
     ReferenceKind,
     RenameError,
     SourceDocument,
+    complete_metadata,
     complete_terms,
     find_definition,
     find_definitions,
@@ -28,6 +29,7 @@ from tanbun.feature.language_service.analysis import (
     DocumentAnalysis,
     analyze,
 )
+from tanbun.feature.language_service.position import offset_to_position
 from tanbun.feature.parsing.issue import ParseIssue, ParseIssueSeverity, SourceRange
 
 from .workspace import local_documents
@@ -116,11 +118,11 @@ def create_server() -> LanguageServer:
 
 
 def _register_completion(server: LanguageServer) -> None:
-    """文書内用語のcompletion handlerを登録する."""
+    """用語とメタデータのcompletion handlerを登録する."""
 
     @server.feature(
         types.TEXT_DOCUMENT_COMPLETION,
-        types.CompletionOptions(trigger_characters=["{", "`"]),
+        types.CompletionOptions(trigger_characters=["{", "`", "@"]),
     )
     def completion(
         ls: LanguageServer,
@@ -128,20 +130,31 @@ def _register_completion(server: LanguageServer) -> None:
     ) -> types.CompletionList | None:
         document = ls.workspace.get_text_document(params.text_document.uri)
         offset = document.offset_at_position(params.position)
-        result = complete_terms(document.source, offset)
+        result = complete_metadata(document.source, offset)
+        kind = types.CompletionItemKind.Property
+        if result is None:
+            result = complete_terms(document.source, offset)
+            kind = types.CompletionItemKind.Reference
         if result is None:
             return None
 
-        edit_range = types.Range(
-            start=document.client_position_at_offset(result.start_offset),
-            end=document.client_position_at_offset(result.end_offset),
+        start = offset_to_position(document.source, result.start_offset)
+        end = offset_to_position(document.source, result.end_offset)
+        edit_range = _to_client_range(
+            document.source,
+            SourceRange(
+                line=start.line,
+                start_character=start.character,
+                end_character=end.character,
+            ),
+            document.position_codec,
         )
         return types.CompletionList(
             is_incomplete=False,
             items=[
                 types.CompletionItem(
                     label=symbol.label,
-                    kind=types.CompletionItemKind.Reference,
+                    kind=kind,
                     detail=symbol.detail,
                     filter_text=symbol.label,
                     text_edit=types.TextEdit(

@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from tanbun.feature.parsing.issue import ParseIssue, SourceRange
 
 from .analysis import ParseStatistics, analyze
-from .completion import CompletionResult, complete_terms
+from .completion import CompletionResult, complete_metadata, complete_terms
 from .definition import SourceDocument, find_definition
 from .position import DocumentPosition, offset_to_position, position_to_offset
 from .references import find_references, group_references
@@ -113,8 +113,9 @@ def analyze_document(body: DocumentBody) -> AnalysisResult:
 
 @router.post("/completion")
 def complete_document(body: PositionedDocumentBody) -> CompletionResultBody | None:
-    """カーソル位置で利用できる用語補完を返す."""
-    result = complete_terms(body.text, _request_offset(body))
+    """カーソル位置で利用できる用語・メタデータ補完を返す."""
+    offset = _request_offset(body)
+    result = complete_metadata(body.text, offset) or complete_terms(body.text, offset)
     return None if result is None else _completion_result(body.text, result)
 
 

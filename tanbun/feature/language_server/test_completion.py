@@ -1,9 +1,13 @@
 """用語補完のテスト."""
 
+from lsprotocol import types
+
 from tanbun.feature.language_service import (
     complete_terms,
     extract_term_symbols,
 )
+
+from .server import create_server
 
 DOCUMENT = """# title
     A |alpha, alpha alt: description
@@ -76,3 +80,71 @@ def test_does_not_complete_backtick_in_regular_sentence() -> None:
     text = DOCUMENT + "    regular sentence `bet"
 
     assert complete_terms(text, len(text)) is None
+
+
+def test_lsp_metadata_trigger_and_completion_edit(tmp_path) -> None:
+    """@をトリガーとして公開し、実際のLSP応答でキーを補完する."""
+    server = create_server()
+    list(
+        server.protocol.lsp_initialize(
+            types.InitializeParams(
+                capabilities=types.ClientCapabilities(),
+                root_uri=tmp_path.as_uri(),
+            ),
+        ),
+    )
+    uri = (tmp_path / "source.tb").as_uri()
+    server.workspace.put_text_document(
+        types.TextDocumentItem(
+            uri=uri,
+            language_id="tanbun",
+            version=1,
+            text="# title\n  @au",
+        ),
+    )
+
+    assert (
+        "@"
+        in server.protocol.server_capabilities.completion_provider.trigger_characters
+    )
+    response = server.protocol.fm.features[types.TEXT_DOCUMENT_COMPLETION](
+        types.CompletionParams(
+            text_document=types.TextDocumentIdentifier(uri=uri),
+            position=types.Position(line=1, character=len("  @au")),
+        ),
+    )
+
+    assert [item.label for item in response.items] == ["author", "published", "url"]
+    author = response.items[0]
+    assert author.kind == types.CompletionItemKind.Property
+    assert author.text_edit == types.TextEdit(
+        range=types.Range(
+            start=types.Position(line=1, character=len("  @")),
+            end=types.Position(line=1, character=len("  @au")),
+        ),
+        new_text="author ",
+    )
+
+    # 既存の用語補完も、改行なしの最終行とUTF-16文字位置を保つ。
+    server.workspace.put_text_document(
+        types.TextDocumentItem(
+            uri=uri,
+            language_id="tanbun",
+            version=2,
+            text="# title\n  alpha: description\n  😀{al",
+        ),
+    )
+    terms = server.protocol.fm.features[types.TEXT_DOCUMENT_COMPLETION](
+        types.CompletionParams(
+            text_document=types.TextDocumentIdentifier(uri=uri),
+            position=types.Position(line=2, character=len("  😀{al") + 1),
+        ),
+    )
+    assert terms.items[0].kind == types.CompletionItemKind.Reference
+    assert terms.items[0].text_edit == types.TextEdit(
+        range=types.Range(
+            start=types.Position(line=2, character=len("  😀{") + 1),
+            end=types.Position(line=2, character=len("  😀{al") + 1),
+        ),
+        new_text="alpha}",
+    )

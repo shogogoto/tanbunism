@@ -1,7 +1,7 @@
 """エディタやHTTPから共有するTanbun言語機能."""
 
 from .analysis import DocumentAnalysis, ParseStatistics, analyze, diagnose
-from .completion import CompletionResult, complete_terms
+from .completion import CompletionResult, complete_metadata, complete_terms
 from .definition import (
     DefinitionLocation,
     SourceDocument,
@@ -32,6 +32,7 @@ __all__ = [
     "SourceDocument",
     "TermSymbol",
     "analyze",
+    "complete_metadata",
     "complete_terms",
     "diagnose",
     "extract_term_symbols",

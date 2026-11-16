@@ -98,3 +98,25 @@ def test_references_preserve_reference_kind(client: TestClient) -> None:
         "quoterm",
     ]
     assert [len(item["references"]) for item in groups] == [1, 1]
+
+
+def test_completion_exposes_metadata_keys(client: TestClient) -> None:
+    """共有APIでも@に続くメタデータキーを補完する."""
+    response = client.post(
+        "/language/completion",
+        json={"text": "# title\n  @", "position": {"line": 1, "character": len("  @")}},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    result = response.json()
+    assert [item["label"] for item in result["symbols"]] == [
+        "author",
+        "published",
+        "url",
+    ]
+    assert result["closing"] == " "
+    assert result["replace_range"] == {
+        "line": 1,
+        "start_character": len("  @"),
+        "end_character": len("  @"),
+    }

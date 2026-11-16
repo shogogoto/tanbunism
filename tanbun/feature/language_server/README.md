@@ -30,6 +30,8 @@ vim.api.nvim_create_autocmd("FileType", {
 
 現時点ではdiagnostics、文書内用語のcompletion、definition、references、renameを提供する。
 `{...}`の用語埋め込みとbacktickのquotermで、用語名・同義名・aliasを補完できる。
+行頭（インデント可）の`@`では、`author`（著者）、`published`（第一出版日）、
+`url`（出典URL）を補完できる。選択すると`@author `のように値の前の空白まで挿入する。
 同じ参照上でNeovimの`gd`などを実行すると、まず同一文書、次にworkspace内の
 `.tb`/`.kn`ファイルから用語定義を探して移動できる。定義移動はNeo4jやWeb APIに
 依存しない。
